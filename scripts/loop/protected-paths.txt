@@ -17,6 +17,7 @@ plugins/way-of-working/bin/blocked-state.sh
 plugins/way-of-working/bin/cursor-sync-pr.sh
 plugins/way-of-working/bin/spawn-model.sh
 plugins/way-of-working/bin/review-base-anchor.sh
+plugins/way-of-working/bin/auto-merge-arm.sh
 tests/plan-anchor.test.sh
 tests/review-sandbox.test.sh
 tests/review-step.test.sh
@@ -26,3 +27,4 @@ tests/blocked-state-block.test.sh
 tests/cursor-sync-pr.test.sh
 tests/spawn-model.test.sh
 tests/review-base-anchor.test.sh
+tests/auto-merge-arm.test.sh
