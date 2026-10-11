@@ -183,8 +183,8 @@ identities identmap -
 
 # WB-D24 (#378) dual-mode ruleset keys. `rulesets` is the new shape, a list of
 # {name, source, rule_types} entries; the old `ruleset:` map is its alias for one
-# release. NO reader understands `rulesets` yet (every skill and bin/ script reads
-# `ruleset.*`), so the legacy keys stay REQUIRED whether or not `rulesets` is present:
+# release. Only resume and pr-checks read `rulesets` so far (#384); every other skill and bin/ script reads
+# `ruleset.*`, so the legacy keys stay REQUIRED whether or not `rulesets` is present:
 # a file with only the list would read `complete` and be unusable. `rulesets` is an
 # optional extra -- silent when absent (`optnelist`), a non-empty sequence when present --
 # and the checker does not compare it with `ruleset` (like every cross-key check). When a

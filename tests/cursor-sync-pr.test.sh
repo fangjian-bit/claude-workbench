@@ -77,7 +77,7 @@ case "$args" in
       *) echo "fake gh: prefix filter missing" >&2; exit 1 ;;
     esac
     case "$args" in
-      *'[.number, .headRefName, .headRefOid, .isCrossRepository, .mergeStateStatus,'*'(.files | length),'*'"1" else "0" end),'*'(.files[0].path // "")]'*) ;;
+      *'[.number, .headRefName, .headRefOid, .isCrossRepository, .mergeStateStatus,'*'(.files | length),'*'else "0" end),'*'(.files[0].path // "")]'*) ;;
       *) echo "fake gh: projection changed -- update the parser and this stub together" >&2; exit 1 ;;
     esac
     case "$args" in *"length, (.[] | select"*) ;; *) echo "fake gh: total count missing" >&2; exit 1 ;; esac
@@ -266,6 +266,12 @@ assert_eq "CLEAN with a required check absent from the rollup is still offered (
 
 GREEN=maybe; rows 1 210 $good BLOCKED 1 .ai/next-steps.md >"$tmp/badgreen"; GREEN=1
 assert_eq "a non-0/1 green column -> unreadable" "unreadable" "$(run "$tmp/badgreen")"
+GREEN=2; rows 1 210 $good BLOCKED 1 .ai/next-steps.md >"$tmp/await"; GREEN=1
+assert_eq "BLOCKED with every check green but a review required -> awaiting-approval (#384)"   "refuse 210 awaiting-approval" "$(run "$tmp/await")"
+GREEN=2; NAMES="${us}lint${us}"; rows 1 210 $good BLOCKED 1 .ai/next-steps.md >"$tmp/awaitlacks"; unset NAMES; GREEN=1
+assert_eq "awaiting-approval still needs every required check present -> state-blocked"   "refuse 210 state-blocked" "$(run "$tmp/awaitlacks")"
+GREEN=3; rows 1 210 $good BLOCKED 1 .ai/next-steps.md >"$tmp/green3"; GREEN=1
+assert_eq "a green column of 3 -> unreadable" "unreadable" "$(run "$tmp/green3")"
 
 # --- the green predicate itself, through the script's real --jq program ------
 # jq stands in for gh's embedded gojq. Skipped loudly if jq is absent.
@@ -302,7 +308,13 @@ if command -v jq >/dev/null 2>&1; then
     "[$ok,{\"__typename\":\"StatusContext\",\"state\":\"PENDING\"}]" '""'
   jq_case "an unknown __typename" "$blocked" BLOCKED \
     "[$ok,{\"__typename\":\"Mystery\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"}]" '""'
-  jq_case "REVIEW_REQUIRED" "$blocked" BLOCKED "[$ok]" '"REVIEW_REQUIRED"'
+  awaiting=refuse\ 210\ awaiting-approval
+  jq_case "REVIEW_REQUIRED with every check green -> awaiting-approval" "$awaiting" BLOCKED "[$ok]" '"REVIEW_REQUIRED"'
+  jq_case "REVIEW_REQUIRED with a red check -> state-blocked, not awaiting-approval" "$blocked" BLOCKED \
+    "[$ok,{\"__typename\":\"CheckRun\",\"name\":\"other\",\"status\":\"COMPLETED\",\"conclusion\":\"FAILURE\"}]" '"REVIEW_REQUIRED"'
+  jq_case "REVIEW_REQUIRED with an empty rollup -> state-blocked" "$blocked" BLOCKED '[]' '"REVIEW_REQUIRED"'
+  jq_req lint,coupling "REVIEW_REQUIRED with a required check never reported -> state-blocked" "$blocked" BLOCKED "[$ok]" '"REVIEW_REQUIRED"'
+  jq_case "REVIEW_REQUIRED in a state other than BLOCKED is refused by its state" "refuse 210 state-behind" BEHIND "[$ok]" '"REVIEW_REQUIRED"'
   jq_case "CHANGES_REQUESTED" "$blocked" BLOCKED "[$ok]" '"CHANGES_REQUESTED"'
   jq_case "CLEAN needs no green evidence" "$offer" CLEAN '[]' '""'
   # Required checks (#245): every listed name must be in the rollup as a green entry.

@@ -491,25 +491,36 @@ approval ruleset, one of them possibly an organization's). Each entry is:
 - **`rule_types`** — the rule types it must carry.
 - **`required_checks`** — optional, and only for an entry whose `rule_types` include
   `required_status_checks`: every check that ruleset requires. Everything said below about
-  `required_checks` applies to it once readers use the list; today only `ruleset.required_checks` is read.
+  `required_checks` applies to it, and a reader takes the **union** of every entry's list.
 
 The checker confirms the sequence, not its elements, as it does for `gates.green`. Like the
 rest of this file, read it from the **default branch's** copy before enforcing anything from it.
 
+**Who reads the list (`#384`).** `/way-of-working:resume` reads it when it is present: its
+ruleset check verifies every declared ruleset and treats an approval ruleset (one carrying a
+`pull_request` rule) with any bypass actor as drift, and it passes the union of the
+`required_checks` to `cursor-sync-pr.sh`. `/way-of-working:pr-checks` reports that union. With no
+`rulesets` list both fall back to the single `ruleset.*` form and resume reads no bypass actors, so resume
+behaves as before on a repo that has not cut over, apart from `cursor-sync-pr.sh` naming a green PR that only lacks a review `awaiting-approval` instead of `state-blocked`. `pr-checks` does not: it no longer gives an admin-merge verdict on any repo (`#384`), so a green PR under an `update` rule reads COULD NOT TELL until the repo cuts over. The union, as `yq` prints it:
+```bash
+yq -r '((.rulesets // [{"required_checks": .ruleset.required_checks}]) | [.[].required_checks // [] | .[]]) | unique | .[]' .ai/project.yml
+```
+
 **One release of dual mode, and `ruleset` stays authoritative.** `ruleset:` (a map of the
-same `name`, `rule_types` and `required_checks`) is the pre-`WB-D24` form. **No skill or
-script reads `rulesets` yet** — every reader uses `ruleset.*` — so the checker keeps
+same `name`, `rule_types` and `required_checks`) is the pre-`WB-D24` form. **Only the two
+readers above read `rulesets` so far** — every other reader (`ship`, `handoff`,
+`architect-review`, `critic-gate`, `park-sprint`, `unpark-sprint`, the agents, among others) still uses `ruleset.*` — so the checker keeps
 `ruleset.name`, `ruleset.rule_types` and `ruleset.required_checks` **required whether or not
-`rulesets` is present**: a file with only the list would read `complete` and be unusable.
+`rulesets` is present**: a file with only the list would read `complete` and be unusable to them.
 `rulesets` is an optional extra, silent when absent and a non-empty list when present (`[]`,
 `null` and a scalar are `invalid`; the interview never asks for it, so an `invalid rulesets`
 finding is fixed by hand, or by removing the key). A repo that carries both keeps them in step
 by hand; the checker does not compare them, so a review of an `.ai/project.yml` diff reads
-`ruleset` as the one that counts. The release that teaches the readers the list is the one
-that makes the legacy keys conditional.
+`ruleset` as the one that counts for those readers. The release that teaches every reader the
+list is the one that makes the legacy keys conditional.
 
-The rest of this section describes `required_checks` as it works today, on `ruleset` (and, once
-readers use the list, on a `rulesets` entry).
+The rest of this section describes `required_checks` on `ruleset` (and, where a reader uses the list,
+on a `rulesets` entry).
 
 `name` is the branch-protection ruleset's name, `rule_types` the rule types it must carry,
 `required_checks` every check it requires. `/way-of-working:resume` verifies the live ruleset against all

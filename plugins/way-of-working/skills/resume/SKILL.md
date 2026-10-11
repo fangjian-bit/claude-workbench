@@ -78,10 +78,11 @@ edited it. **Default to the full checklist whenever unsure.**
    is easy to forget (`#215`). Look for one before the *Read the
    cursor* step reads what it would change:
    ```bash
-   cursor-sync-pr.sh {repo} {pr_base} "$(yq -r '(.ruleset.required_checks // []) | join(",")' .ai/project.yml 2>/dev/null)"
+   cursor-sync-pr.sh {repo} {pr_base} "$(yq -r '((.rulesets // [{"required_checks": .ruleset.required_checks}]) | [.[].required_checks // [] | .[]]) | unique | join(",")' .ai/project.yml 2>/dev/null)"
    ```
-   (bare name, same `bin/` `PATH` as `cursor-drift.sh`; the third argument is
-   `{ruleset.required_checks}` comma-joined — an empty or failed read passes an empty string,
+   (bare name, same `bin/` `PATH` as `cursor-drift.sh`; the third argument is the union of
+   every declared ruleset's `required_checks` — `{rulesets}` when present, else
+   `{ruleset.required_checks}` (`WB-D24`) — comma-joined; an empty or failed read passes an empty string,
    which only ever refuses; if the *Ensure the schema is complete* step left `{repo}` or
    `{pr_base}` unanswered, treat this as `unreadable` without running it). It prints one line;
    which PRs qualify, and why, is argued in the script's own header.
@@ -307,6 +308,51 @@ edited it. **Default to the full checklist whenever unsure.**
    - Either `gh api` call failed, `jq` failed or is missing, or `.ai/project.yml` did not supply
      the expected shape → **inconclusive**, never healthy, and say **which** — an unreachable
      identity and a failed lookup are different reports.
+
+   **When `.ai/project.yml` declares a `rulesets` list** (`WB-D24`, `#384`), the single-ruleset
+   check above is replaced by this one, run after the same reach check: the expected state is the
+   **union** of every declared ruleset (the checks ruleset and the code-owner approval ruleset, one
+   of them possibly an organization's), and an approval ruleset with **any bypass actor** is drift.
+   Without a `rulesets` list the check above stands unchanged and bypass actors are not read: a
+   repo that has not cut over still carries the admin bypass on purpose. Each entry's `source`
+   decides the API (`repo` → `repos/{repo}/rulesets`, `org` → `orgs/<owner>/rulesets`, `<owner>`
+   being the owner of `{repo}`); anything else is inconclusive, never read as `repo`. Names and
+   lists are bound as values (`jq --arg`), never spliced; the entries come out of one `yq` call:
+   ```bash
+   R={repo} && OWNER=${R%%/*} &&
+   B=$(gh api --paginate "repos/$R/rules/branches/{pr_base}") &&
+   B=$(printf '%s' "$B" | jq -s 'add // []') &&
+   E=$(yq -r '.rulesets[] | [.name, .source, (.rule_types | join(",")), ((.required_checks // []) | join(","))] | @tsv' .ai/project.yml) &&
+   [ -n "$E" ] &&
+   printf '%s\n' "$E" | while IFS="$(printf '\t')" read -r NAME SRC TYPES CHECKS; do
+     case "$SRC" in repo) API="repos/$R/rulesets" ;; org) API="orgs/$OWNER/rulesets" ;; *) echo "ruleset $NAME inconclusive"; continue ;; esac
+     L=$(gh api --paginate "$API" </dev/null) || { echo "ruleset $NAME inconclusive"; continue; }
+     RID=$(printf '%s' "$L" | jq -r --arg n "$NAME" 'first(.[] | select(.name==$n) | .id) // empty') || { echo "ruleset $NAME inconclusive"; continue; }
+     [ -n "$RID" ] || { echo "ruleset $NAME missing"; continue; }
+     case "$RID" in *[!0-9]*) echo "ruleset $NAME inconclusive"; continue ;; esac
+     BYP=$(gh api "$API/$RID" --jq 'if (.bypass_actors | type) == "array" then (.bypass_actors | length) else "unknown" end' </dev/null) || { echo "ruleset $NAME inconclusive"; continue; }
+     case "$BYP" in '' | *[!0-9]*) echo "ruleset $NAME inconclusive (bypass actors not visible to this identity)"; continue ;; esac
+     MT=$(printf '%s' "$B" | jq -r --argjson id "$RID" --arg t "$TYPES" '[.[] | select(.ruleset_id==$id) | .type] as $have | ($t | split(",") | map(select(. != ""))) - $have | join(",")') || { echo "ruleset $NAME inconclusive"; continue; }
+     MC=$(printf '%s' "$B" | jq -r --argjson id "$RID" --arg c "$CHECKS" '[.[] | select(.ruleset_id==$id and .type=="required_status_checks") | .parameters.required_status_checks[].context] as $have | ($c | split(",") | map(select(. != ""))) - $have | join(",")') || { echo "ruleset $NAME inconclusive"; continue; }
+     AP=$(printf '%s' "$B" | jq --argjson id "$RID" '[.[] | select(.ruleset_id==$id and .type=="pull_request")] | length') || { echo "ruleset $NAME inconclusive"; continue; }
+     printf 'ruleset %s missing_types=[%s] missing_checks=[%s] approval=%s bypass_actors=%s\n' "$NAME" "$MT" "$MC" "$AP" "$BYP"
+   done
+   ```
+   One line per entry. A failed `gh api`, `yq` or `jq` call breaks the chain or prints `inconclusive`
+   — never healthy. `missing` is "weakened or missing". A non-empty `missing_types` or
+   `missing_checks` is weakened, naming exactly what is absent. **`approval=1` (a `pull_request`
+   rule) with `bypass_actors` above `0` is drift:** name the ruleset and say the approval gate
+   has a standing bypass. Everything else is healthy. Report it in the **same single line** as above,
+   per ruleset only when something is wrong (`Ruleset check: healthy (2 rulesets, 4 rule types, 3
+   required checks).`). It is still a report, not a gate. An organization ruleset a repo-scoped
+   token cannot read is `inconclusive`, and the report says so rather than guessing. So is a
+   ruleset whose response carries no `bypass_actors` array (the key missing, or sent as `null` — which one GitHub
+   sends a caller who cannot edit the ruleset was not observed, so the check keys on the type):
+   a dev-App token reads `inconclusive`, never `0`. A run that prints no line at all for the
+   entries (a failed `yq` or `jq`) is inconclusive too. The check
+   confirms that the declared rule types, check names and (lack of) bypass actors are there; it
+   does not read the approval rule's parameters (approval count, code-owner review) or an
+   app pin, so a ruleset weakened only in those still reads healthy.
 
    **When a migration is live, also check the default branch.** `/way-of-working:architect-review`
    accepts a non-default PR base only because the **default branch's own** `.ai/project.yml`

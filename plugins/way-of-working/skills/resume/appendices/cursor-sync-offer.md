@@ -54,7 +54,7 @@ Loaded on demand from `SKILL.md`'s *Offer to merge a forgotten cursor-sync PR* s
      and where the admin's bypass also covers required checks it is the only thing; its
      header lists what it cannot see. The human's confirmation above and
      `--match-head-commit` bound what is merged, and **no other merge this plugin runs carries
-     `--admin`** (`/way-of-working:pr-checks` only names it as advice, never runs it) —
+     `--admin`** (`/way-of-working:pr-checks` no longer names it either, `#384`) —
      never add it to any other merge. Never add `--delete-branch` (it
      switches the local checkout itself; the *Prune squash-merged local branches* step
      removes the branch once merged) or `--auto`. Then, if the current branch is
@@ -65,9 +65,12 @@ Loaded on demand from `SKILL.md`'s *Offer to merge a forgotten cursor-sync PR* s
      the checkout actually holds. On **no**, or a merge `gh` refuses, report it and continue.
    - **`refuse <N> <reason>`** or **`ambiguous <N> <N>...`** — never merge. Report one line
      naming the PR(s) and the reason (`Cursor-sync PR #210 is open but not offered:
-     state-dirty — resolve or close it by hand.`) and continue. Four reasons need a word
-     more. `state-blocked` now means a check is not recognisably green, the rollup
-     is empty, a name in `{ruleset.required_checks}` is missing from the rollup (a required
+     state-dirty — resolve or close it by hand.`) and continue. Five reasons need a word
+     more. `awaiting-approval` (`#384`, `WB-D24`) means every check is green and every
+     required name present, and the PR waits on an approval (nothing here rules out another unmet rule): a human gives
+     it, from a code owner other than the account that pushed last — say so, and that there
+     is no merge for this skill to offer. `state-blocked` now means a check is not recognisably green, the rollup
+     is empty, a required check name (the union of the declared rulesets' `required_checks`) is missing from the rollup (a required
      check that never reported — everything shown may be green) or that list came back
      empty, a review is blocking, or no `update` rule applies to the base to explain
      it — not merely the restriction — so look at the PR's checks, and at which required

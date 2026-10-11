@@ -1,30 +1,37 @@
 #!/bin/sh
-# Read a PR's `mergeStateStatus: BLOCKED` correctly: is it GitHub re-evaluation lag, or
-# the standing effect of an `update` rule that only a bypass actor can get past?
+# Read a PR's `mergeStateStatus: BLOCKED` correctly: is it GitHub re-evaluation lag, a
+# required approval nobody has given yet, or a rule this script cannot judge?
 #
 # Issue #224: /way-of-working:pr-checks read "BLOCKED with nothing red or pending" as
-# GitHub re-evaluation lag and said to wait. Under a restrict-updates ruleset (an
-# `update` rule whose only bypass actor is the repository admin role) every green PR
-# reads BLOCKED to every viewer, the admin included -- measured on a scratch repo (this
-# plugin's own sprint-orchestrator test, 2026-10-05) -- so on any repo carrying that rule
-# the lag reading never
-# clears and pr-checks could never again return a merge-ready verdict. Whether such a
-# rule applies is a deterministic question with a correctness argument, so it is a
-# tested script the skill invokes rather than a rule described in prose (WB-D10).
+# GitHub re-evaluation lag and said to wait, so a rule that holds a green PR BLOCKED for good
+# made the lag reading never clear. Whether such a rule applies is a deterministic question
+# with a correctness argument, so it is a tested script the skill invokes rather than a rule
+# described in prose (WB-D10).
 #
-# Usage: blocked-state.sh <mergeStateStatus> <green>      (rule lines on stdin; the
-#        caller captures `gh`'s output first -- see the failed-gh warning below -- and
-#        never pipes `gh` itself, whose exit status a pipe would hide)
+# Issue #384 (WB-D24): the merge gate is one human code-owner approval, not the admin role.
+# The admin-merge verdict this script used to print is gone: nothing here reads a bypass
+# actor, and a PR that only an `update` rule's bypass actor could merge is no longer a
+# ready PR. The approval a PR waits for is now a verdict of its own, read from
+# `reviewDecision` instead of folded into <green>.
+#
+# Usage: blocked-state.sh <mergeStateStatus> <green> <reviewDecision>      (rule lines on
+#        stdin; the caller captures `gh`'s output first -- see the failed-gh warning below
+#        -- and never pipes `gh` itself, whose exit status a pipe would hide)
 #
 #   <mergeStateStatus>  the PR's mergeStateStatus, as `gh pr view --json` prints it
 #   <green>             1 only when the caller has established ALL of: every required
 #                       check green (or legitimately skipped) with none pending, red or
-#                       missing a run -- over the union of {ruleset.required_checks} and
-#                       the contexts the branch's own required_status_checks rule names;
-#                       a non-empty {ruleset.required_checks}; and a reviewDecision that
-#                       is neither REVIEW_REQUIRED nor CHANGES_REQUESTED. Else 0. The
-#                       caller computes it; this script cannot see any of it, so a wrong
-#                       1 is a wrong verdict.
+#                       missing a run -- over the union of every declared ruleset's
+#                       required checks and the contexts the branch's own
+#                       required_status_checks rule names; a non-empty required-check
+#                       list; and, for each context that rule pins to an app
+#                       (`integration_id`), a run of that name posted BY that app. Else 0.
+#                       The review is NOT part of it any more: <reviewDecision> carries it.
+#                       The caller computes it; this script cannot see any of it, so a
+#                       wrong 1 is a wrong verdict.
+#   <reviewDecision>    the PR's reviewDecision, as `gh pr view --json` prints it, with the
+#                       empty string (no review rule applies) written NONE: one of
+#                       APPROVED | REVIEW_REQUIRED | CHANGES_REQUESTED | NONE
 #
 # stdin is the rules that apply to the PR's own base branch (its baseRefName, not the
 # configured {pr_base}), one per line: the rule type, then for the two types whose
@@ -44,79 +51,83 @@
 # (one line per rule; the line breaks above are for reading: the pr-checks skill carries
 # the exact, single-line form, and a break inside the output is a stdin line this script
 # rejects.) A key may appear once, and only on the type that owns it. `gh`
-# embeds jq, so neither the caller nor this script needs a separate jq. The exact type
-# `update` is what makes `admin-merge-ready`. A rule this script cannot evaluate is
+# embeds jq, so neither the caller nor this script needs a separate jq. Those are the rules
+# of EVERY ruleset applying to the branch -- the endpoint merges them, so a checks ruleset and a
+# separate approval ruleset (WB-D24) arrive as one list. A rule this script cannot evaluate is
 # never read as absent -- see "cannot evaluate" below. The caller must not let a
 # failed `gh api` reach this script: a rule list that never arrived is indistinguishable
-# from one with no `update` rule, and the answer would be `lag` -- a fail-open. It
+# from one with no rules, and the answer would be `lag` -- a fail-open. It
 # captures the call's output first (`T=$(gh api ...) &&`) or redirects it to a file, and
 # only then feeds this script, never `gh api | blocked-state.sh`, whose exit status a pipe
 # discards (the same principle review-gate-state.sh states for its own input).
 #
 # Prints exactly one word to stdout and exits 0:
 #   not-blocked        -- the state is not BLOCKED; this script has nothing to say
-#   admin-merge-ready  -- BLOCKED, `green` is 1, and an `update` rule applies: that rule
-#                         alone keeps a green PR BLOCKED, and a bypass actor can get past
-#                         it. This script does not read bypass actors, so whether the
-#                         human holds the bypass is theirs to know. NOT "bypass the
-#                         checks": where the checks sit in a ruleset the admin cannot
-#                         bypass, --admin still enforces them (measured: --admin was
-#                         refused on a red PR where the checks sat in such a ruleset) -- which
-#                         is why `green` must be 1 first -- but whether the admin can
-#                         bypass that ruleset is not visible from here
-#   lag                -- BLOCKED, `green` is 1, no `update` rule applies, and every rule
-#                         that does apply is one this script can evaluate and finds
-#                         satisfied: usually GitHub is still re-evaluating. A rule type
-#                         outside the list below (e.g. `workflows`) is ignored, so a
+#   blocked            -- BLOCKED, and either `green` is 0 (a check red, pending or missing,
+#                         a pinned check from the wrong app, an empty check list) or
+#                         <reviewDecision> is CHANGES_REQUESTED: what the caller found
+#                         wrong, not a rule, is what to report
+#   awaiting-approval  -- BLOCKED, `green` is 1, <reviewDecision> is REVIEW_REQUIRED, and a
+#                         `pull_request` rule that demands an approving review or a code
+#                         owner's review applies: the approval is what the PR waits for, and
+#                         only a human reviewer can give it. Printed before the "cannot
+#                         evaluate" refusal below, because it is true whatever else is also
+#                         unmet -- a later poll names that
+#   lag                -- BLOCKED, `green` is 1, <reviewDecision> is APPROVED or NONE, and
+#                         every rule that applies is one this script can evaluate and
+#                         finds satisfied: usually GitHub is still re-evaluating. A rule
+#                         type outside the list below (e.g. `workflows`) is ignored, so a
 #                         `lag` that does not clear is still not proof of lag
-#   blocked            -- BLOCKED, and `green` is 0 (a check red, pending or missing, an
-#                         empty check list, or a blocking review): what the caller found
-#                         wrong, not the restriction, is what to report
 # Exits 2, printing NOTHING to stdout, when the question cannot be answered: a wrong
-# argument count, a state outside GitHub's documented vocabulary, a <green> that is not
-# 0 or 1, a stdin line that is not a rule-type token optionally followed by key=value
-# words, or -- the case #248 adds -- the state is BLOCKED, `green` is 1, and a rule this
-# script cannot evaluate applies. The stderr line says why and NAMES those rules, which
-# the pr-checks skill puts in the verdict text (it captures stderr). The CALLER decides
-# policy for 2; pr-checks treats it as no admin-merge verdict.
+# argument count, a state or a decision outside the documented vocabulary, a <green> that
+# is not 0 or 1, a stdin line that is not a rule-type token optionally followed by
+# key=value words, or -- the case #248 adds -- the state is BLOCKED, `green` is 1, no
+# approval is awaited, and a rule this script cannot evaluate applies. The stderr line says
+# why and NAMES those rules, which the pr-checks skill puts in the verdict text (it
+# captures stderr). The CALLER decides policy for 2; pr-checks treats it as no verdict.
 #
-# Cannot evaluate (BLOCKED + green only; a not-BLOCKED state or a red check says nothing
-# about these, so `not-blocked` and `blocked` are unchanged):
+# Cannot evaluate (BLOCKED + green + no approval awaited only; a not-BLOCKED state, a red
+# check or a pending approval says nothing about these, so `not-blocked`, `blocked` and
+# `awaiting-approval` are unchanged):
 #   required_deployments, code_scanning, required_signatures, merge_queue
 #                         -- no state of the PR visible here says whether they are met
-#   pull_request          -- approvals>0, reviewers>0, threads=true, or codeowner=true. An
-#                         unmet approval count also makes reviewDecision REVIEW_REQUIRED, which
-#                         the caller folds into <green> (so that case is usually `blocked`
-#                         first); it is refused here regardless rather than trusting that fold
-#                         -- reviewDecision cannot see an unresolved conversation, and may not
-#                         see required-reviewer teams. A `pull_request` line missing any of the
-#                         four words means the caller dropped the parameters
-#   required_status_checks -- app_pinned>0: a context's check must come from a named app
-#                         (`integration_id`), and the rollup the caller reads by name
-#                         cannot say which app posted it; a line without `app_pinned=`
-#                         means the caller dropped the parameters
+#   update                -- the restriction a bypass actor could get past. It is what the old
+#                         admin-merge verdict was for; that verdict is gone (WB-D24), and
+#                         nothing here reads bypass actors, so a green, approved PR that
+#                         still reads BLOCKED under an `update` rule is not judged
+#   pull_request          -- threads=true (reviewDecision cannot see an unresolved
+#                         conversation) or reviewers>0 (it may not see required-reviewer
+#                         teams), or a line missing any of the four words, which means the
+#                         caller dropped the parameters. An approvals>0 or codeowner=true
+#                         requirement IS evaluated, from <reviewDecision>: APPROVED means it
+#                         is met, REVIEW_REQUIRED is `awaiting-approval`, and NONE next to
+#                         such a rule contradicts it, so that is refused too
+#   required_status_checks -- a line without `app_pinned=` means the caller dropped the
+#                         parameters. app_pinned>0 is evaluated by the CALLER, inside
+#                         <green> (a pinned context needs a run from its pinned app); the
+#                         word is only validated here
 # Bypass actors are deliberately not read: `current_user_can_bypass` is `never` to a
 # non-admin viewer, so for the viewers who most need the answer it cannot be reached
-# from here; the pr-checks skill's block (c) names the identity (under an App token, only
-# that an installation token is acting) and the value the token reads instead.
+# from here. The resume drift check reads them off the ruleset itself.
 #
-# What `admin-merge-ready` does not establish: an `update` rule applying says why the
-# PR can read BLOCKED, not that it is the ONLY unmet rule. A rule type outside the lists
-# above (`workflows`, `commit_message_pattern`, ...) is ignored, not evaluated, and would
-# read the same, and the admin's bypass would skip it. The verdict is "required checks
-# green, review not blocking, and no rule this script cannot evaluate", never "safe".
+# What `lag` does not establish: a rule type outside the lists above (`workflows`,
+# `commit_message_pattern`, ...) is ignored, not evaluated, and would read the same. So is
+# the approval ruleset's "last push must be approved by someone other than its pusher", which
+# no word on the line carries: an approval by the account that pushed last can leave
+# reviewDecision APPROVED beside a PR GitHub still holds. The verdict is "required checks green,
+# approval not outstanding, and no rule this script cannot evaluate", never "safe to merge".
 # `rules/branches/<branch>` is believed to list only active rulesets; whether an
-# evaluate-mode `update` rule would also appear is unverified.
+# evaluate-mode rule would also appear is unverified.
 #
 # Permitted toolset: POSIX sh and its standard utilities. No jq, no yq, no python.
 LC_ALL=C; export LC_ALL        # the [a-z_] token class below must not depend on locale
 set -u
 
-if [ "$#" -ne 2 ]; then
-  echo "blocked-state.sh: usage: blocked-state.sh <mergeStateStatus> <green>  (rule lines on stdin; see its header)" >&2
+if [ "$#" -ne 3 ]; then
+  echo "blocked-state.sh: usage: blocked-state.sh <mergeStateStatus> <green> <reviewDecision>  (rule lines on stdin; see its header)" >&2
   exit 2
 fi
-state="$1"; green="$2"
+state="$1"; green="$2"; decision="$3"
 
 case "$state" in
   BEHIND | BLOCKED | CLEAN | DIRTY | DRAFT | HAS_HOOKS | UNKNOWN | UNSTABLE) ;;
@@ -126,8 +137,12 @@ case "$green" in
   0 | 1) ;;
   *) echo "blocked-state.sh: <green> must be 0 or 1, got: $green" >&2; exit 2 ;;
 esac
+case "$decision" in
+  APPROVED | REVIEW_REQUIRED | CHANGES_REQUESTED | NONE) ;;
+  *) echo "blocked-state.sh: <reviewDecision> must be APPROVED, REVIEW_REQUIRED, CHANGES_REQUESTED or NONE, got: $decision" >&2; exit 2 ;;
+esac
 
-has_update=0
+wants_review=0
 unseen=
 # note <what>: record a rule this script cannot evaluate, once per distinct reason.
 note() {
@@ -172,35 +187,40 @@ while IFS= read -r line || [ -n "$line" ]; do
   # Counts are judged by pattern, never by `[ -gt ]`: an overlong count makes `[` error out,
   # which would skip the `note` below and read a non-zero requirement as zero.
   case "$rule" in
-    update) has_update=1 ;;
+    update) note "update (a bypass actor's restriction; the admin-merge verdict was retired)" ;;
     required_deployments | code_scanning | required_signatures | merge_queue) note "$rule" ;;
     pull_request)
       if [ -z "$approvals" ] || [ -z "$reviewers" ] || [ -z "$threads" ] || [ -z "$codeowner" ]; then
         note "pull_request (parameters not supplied)"
       else
-        case "$approvals" in *[1-9]*) note "pull_request requires $approvals approving review(s)" ;; esac
+        # An approval or code-owner requirement is judged from reviewDecision, not noted.
+        case "$approvals" in *[1-9]*) wants_review=1 ;; esac
+        [ "$codeowner" = true ] && wants_review=1
         case "$reviewers" in *[1-9]*) note "pull_request names required reviewers" ;; esac
         [ "$threads" = true ] && note "pull_request requires review-thread resolution"
-        [ "$codeowner" = true ] && note "pull_request requires code-owner review"
       fi ;;
     required_status_checks)
-      if [ -z "$pinned" ]; then
-        note "required_status_checks (parameters not supplied)"
-      else
-        case "$pinned" in *[1-9]*) note "required_status_checks pins a check to an app (integration_id)" ;; esac
-      fi ;;
+      [ -n "$pinned" ] || note "required_status_checks (parameters not supplied)" ;;
   esac
 done
 
 if [ "$state" != BLOCKED ]; then
   echo not-blocked
-elif [ "$green" != 1 ]; then
+elif [ "$green" != 1 ] || [ "$decision" = CHANGES_REQUESTED ]; then
   echo blocked
+elif [ "$decision" = REVIEW_REQUIRED ]; then
+  if [ "$wants_review" = 1 ]; then
+    echo awaiting-approval
+  else
+    echo "blocked-state.sh: reviewDecision is REVIEW_REQUIRED but no pull_request rule read here requires an approval or a code owner's review" >&2
+    exit 2
+  fi
+elif [ "$decision" = NONE ] && [ "$wants_review" = 1 ]; then
+  echo "blocked-state.sh: a pull_request rule requires an approval or a code owner's review, yet reviewDecision is NONE" >&2
+  exit 2
 elif [ -n "$unseen" ]; then
   echo "blocked-state.sh: cannot judge a green BLOCKED PR past rules it cannot evaluate: $unseen" >&2
   exit 2
-elif [ "$has_update" = 1 ]; then
-  echo admin-merge-ready
 else
   echo lag
 fi

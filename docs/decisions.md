@@ -1080,7 +1080,9 @@ take effect. Full reasoning and the task breakdown that implements them:
       `current_user_can_bypass`; `never` is `refuse <N> bypass-never`, and resume names the
       identity and sends the human to the web UI or a bypass-capable account. No `update`
       rule, a failed read or an unknown value does not offer. `pr-checks`' READY (admin
-      merge) verdict names the same identity and value instead of "if you hold the bypass".
+      merge) verdict named the same identity and value instead of "if you hold the bypass";
+      `WB-D24` task `#384` retired that verdict for every repo, cut over or not (a green PR
+      under an `update` rule now reads COULD NOT TELL), so only resume's offer remains.
   - **Cost, accepted: anyone who can open a PR can make auto-start wait.** A fork PR on a
     `docs/sync-cursor-*` branch reads `refuse`, or `ambiguous` beside a real one, until
     someone closes it. That fails closed, so it costs a "go", never an unapproved run.

@@ -29,6 +29,7 @@
 #                              from and merge with `gh pr merge --match-head-commit`
 #   refuse <N> <reason>     -- exactly one such PR, failing a check; <reason> is one of
 #                              cross-repository | files | not-local | bypass-never |
+#                              awaiting-approval |
 #                              state-<mergeStateStatus, lowercased>
 #   ambiguous <N> <N>...    -- more than one such PR (e.g. a forgotten earlier sync plus
 #                              a newer one). Never pick one: two syncs regenerate the same
@@ -69,7 +70,7 @@
 #     `gh` account other than the PR's author it reports `CONTRIBUTOR` for the repo's
 #     own maintainer (observed live on PR #210).
 #   - `mergeStateStatus` is CLEAN, or BLOCKED with every PRESENT check green, every name in
-#     <required_checks> among them, and no blocking review (#229, #245). Everything else -- BEHIND, DIRTY (conflicts, the usual
+#     <required_checks> among them, and no blocking review (#229, #245; a REVIEW_REQUIRED one is refused as awaiting-approval, #384). Everything else -- BEHIND, DIRTY (conflicts, the usual
 #     shape of a stale sync), DRAFT, UNSTABLE, UNKNOWN (GitHub still computing), and a
 #     BLOCKED that fails that test -- is refused with its name, for the human.
 #     Why BLOCKED is admitted at all: under a restrict-updates ruleset whose only bypass
@@ -81,13 +82,20 @@
 #     "nothing but the restriction is unmet" itself, fail-closed: `statusCheckRollup`
 #     non-empty with every entry green (CheckRun COMPLETED with SUCCESS, NEUTRAL or
 #     SKIPPED; StatusContext SUCCESS -- an empty rollup is no evidence, so it is not
-#     green), and `reviewDecision` neither REVIEW_REQUIRED nor CHANGES_REQUESTED. All
+#     green), and `reviewDecision` not CHANGES_REQUESTED (REVIEW_REQUIRED is column 2, below). All
 #     present checks, not only the required ones: stricter is the safe direction. And
 #     every name in <required_checks> must itself be present as a green entry (#245): a
 #     required check that never REPORTED (a workflow `paths:` filter that excludes `.ai/`,
 #     a job not yet registered) is absent from the rollup and so could not turn the
 #     all-green test to 0 on its own. An empty or missing list fails closed. A BLOCKED PR
 #     on that evidence is offered like a CLEAN one, once the bypass check below passes too.
+#     A BLOCKED PR whose checks are all green and present but whose `reviewDecision` is
+#     REVIEW_REQUIRED is a different shape (#384, WB-D24): the code-owner approval is what
+#     holds it, and no bypass is the answer. It is `refuse <N> awaiting-approval`, never
+#     `state-blocked`, so resume can say a human's approval is awaited and never offers a
+#     merge for it. (The jq below marks it `2` in the green column: checks green, review
+#     pending.) A rule list that carries several rulesets needs no change here: the
+#     bypass check below already reads every ruleset that has an `update` rule.
 #     Residuals, stated so the confirmation is not mistaken for more than it is:
 #       - <required_checks> is what the caller's working-tree `.ai/project.yml` says is
 #         required (a branch that edited it changes it), not what the ruleset on <base>
@@ -159,9 +167,9 @@ if ! gh pr list --repo "$repo" --base "$base" --state open --limit "$limit" \
             (.files | length),
             (if (((.statusCheckRollup // []) | length) > 0
                  and all((.statusCheckRollup // [])[]; green)
-                 and ((.reviewDecision // "") != "REVIEW_REQUIRED")
                  and ((.reviewDecision // "") != "CHANGES_REQUESTED"))
-             then "1" else "0" end),
+             then (if (.reviewDecision // "") == "REVIEW_REQUIRED" then "2" else "1" end)
+             else "0" end),
             ("\u001f" + ([(.statusCheckRollup // [])[] | select(green)
                           | (.name // .context) | select(type == "string" and (explode | all(. > 31)))]
                          | join("\u001f")) + "\u001f"),
@@ -197,7 +205,7 @@ while IFS="$tab" read -r number branch oid cross state nfiles green names path r
   is_oid "$oid" || { echo unreadable; exit 0; }
   case "$cross" in true | false) ;; *) echo unreadable; exit 0 ;; esac
   is_digits "$nfiles" || { echo unreadable; exit 0; }
-  case "$green" in 0 | 1) ;; *) echo unreadable; exit 0 ;; esac
+  case "$green" in 0 | 1 | 2) ;; *) echo unreadable; exit 0 ;; esac
   case "$names" in "$us"*"$us") ;; *) echo unreadable; exit 0 ;; esac
   [ -z "${rest:-}" ] || { echo unreadable; exit 0; }
   count=$((count + 1))
@@ -236,10 +244,11 @@ if [ "$count" -eq 1 ]; then
   # Every required check must be present in the rollup as a green entry (#245). An
   # empty or missing list is no evidence, the same reading as an empty rollup. Only
   # BLOCKED reaches the green column's result, so this never changes a CLEAN offer.
-  if [ "$c_green" = 1 ]; then
+  if [ "$c_green" != 0 ]; then
+    was="$c_green"
     c_green=0
     if [ -n "$required" ]; then
-      c_green=1; nwant=0
+      c_green="$was"; nwant=0
       oldifs="$IFS"; IFS=,; set -f
       for want in $required; do
         nwant=$((nwant + 1))
@@ -250,6 +259,13 @@ if [ "$count" -eq 1 ]; then
       # Fail closed even if a non-empty list ever split into no fields.
       [ "$nwant" -ge 1 ] || c_green=0
     fi
+  fi
+  # Every check green and every required name present, but a review still required: the
+  # approval rule (WB-D24) is what holds it, and only a human code owner can give that.
+  # This is not a bypass question, so it never reaches the check below.
+  if [ "$c_state" = BLOCKED ] && [ "$c_green" = 2 ]; then
+    echo "refuse $c_number awaiting-approval"
+    exit 0
   fi
   if [ "$c_state" != CLEAN ] && { [ "$c_state" != BLOCKED ] || [ "$c_green" != 1 ]; }; then
     lower="$(printf '%s' "$c_state" | tr 'A-Z' 'a-z')"

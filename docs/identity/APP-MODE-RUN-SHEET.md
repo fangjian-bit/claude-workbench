@@ -56,13 +56,11 @@ is what the skill text says should happen, checked for resume, ship, pr-checks a
 
 ### 3. `/way-of-working:pr-checks <N>` (changed by #467)
 
-- Run it on the PR from step 2 while it is `BLOCKED` with every check green and an `update` rule
-  applying; this is the path block (c) serves.
-- **Expect:** block (c) prints `actor app -` then a bypass value per ruleset; the report says
-  `an installation token that reaches <repo>; which App is not established`, and describes the
-  value as the App's own view, not the merging human's. It never names the declared `dev_app`.
-- **Record:** the exact lines, and the `current_user_can_bypass` values. If one is not `never`,
-  that is new: the App may be a bypass actor, which T2d did not observe.
+- **Retired by #384:** block (c), the identity read this step exercised, was removed with the
+  READY (admin merge) verdict it served. Run it on a `BLOCKED` PR with every check green and an
+  `update` rule applying and expect COULD NOT TELL naming the `update` rule; with an approval rule
+  and no approval, expect AWAITING APPROVAL. No identity or bypass value is printed.
+- **Record:** the exact verdict line and the rules it names.
 
 ### 4. `/way-of-working:handoff`
 

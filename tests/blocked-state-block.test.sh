@@ -1,11 +1,12 @@
 #!/bin/sh
-# Fixture tests for the shell block around blocked-state.sh in
-# plugins/way-of-working/skills/pr-checks/SKILL.md (block (b), "ask the predicate"; block (c), the acting identity, #467).
+# Fixture tests for the shell blocks around blocked-state.sh in
+# plugins/way-of-working/skills/pr-checks/SKILL.md (block (a2), the app-pinned contexts, #384;
+# block (b), "ask the predicate").
 #
 # Issue #244: tests/blocked-state.test.sh covers the predicate; this covers the chain that
 # feeds it. A failed gh must never reach the predicate and never print `lag`, and a branch
-# name is untrusted text that must stop the chain before any gh api call. The block is
-# extracted from the skill itself (not copied here), its placeholders filled in, and run
+# name is untrusted text that must stop the chain before any gh api call. The blocks are
+# extracted from the skill itself (not copied here), their placeholders filled in, and run
 # against a stub gh on PATH. Mutants then prove the assertions can fail.
 #
 # Permitted toolset: POSIX sh and its standard utilities. No jq, no yq, no python.
@@ -35,9 +36,11 @@ assert_eq() {
 }
 
 # --- extract block (b) from the skill ----------------------------------------
-# From the marker comment line to the closing fence, then fill the three placeholders.
+# From the marker comment line to the closing fence, then fill the placeholders. The
+# decision is filled with a shell default so each case picks it through DECISION.
 awk '/^ *# \(b\) ask the predicate/ { p = 1 } p && /^ *```/ { exit } p' "$skill" |
-  sed -e 's/^ *//' -e 's/<N>/7/g' -e 's/{repo}/o\/r/g' -e 's/<green>/1/g' >"$work/block.sh"
+  sed -e 's/^ *//' -e 's/<N>/7/g' -e 's/{repo}/o\/r/g' -e 's/<green>/1/g' \
+      -e 's/<decision>/${DECISION:-NONE}/g' >"$work/block.sh"
 if grep -Eq '(^|[^$])[<{][A-Za-z0-9_.-]+[>}]' "$work/block.sh"; then
   echo "FAIL - block (b) still has an unfilled placeholder; teach the fixture to fill it" >&2
   exit 1
@@ -49,25 +52,27 @@ fi
 
 # --- stubs --------------------------------------------------------------------
 # gh: logs every call; STUB_PR_RC / STUB_API_RC make that call fail; STUB_BASE is the
-# base branch name; STUB_RULES is the already-projected rule list the real --jq would print.
+# base branch name and STUB_SHA the head commit; STUB_RULES is the already-projected rule
+# list the real --jq would print for block (b), STUB_PINS the projected "<app id> <context>"
+# lines block (a2) asks for, STUB_RUNS the projected "<app id> <name>" passing check-runs.
 cat >"$stub/gh" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$*" >>"$STUB_LOG"
 case "$1 $2" in
   "pr view")
     [ "${STUB_PR_RC:-0}" = 0 ] || exit 1
-    printf '%s\n' "$STUB_BASE" ;;
+    case "$*" in
+      *headRefOid*) printf '%s\n' "${STUB_SHA-0123456789abcdef0123456789abcdef01234567}" ;;
+      *) printf '%s\n' "$STUB_BASE" ;;
+    esac ;;
   "api --paginate")
     [ "${STUB_API_RC:-0}" = 0 ] || { echo "stub gh: api failed" >&2; exit 1; }
-    [ -z "${STUB_RULES-}" ] || printf '%s\n' "$STUB_RULES" ;;
-  "api user")
-    [ "${STUB_USER_RC:-0}" = 0 ] || { echo "stub gh: 403" >&2; exit 1; }
-    [ -n "${STUB_USER_EMPTY-}" ] || printf 'octocat\n' ;;
-  "api --hostname")
-    [ -z "${STUB_INST_REPOS-}" ] || printf '%s\n' "$STUB_INST_REPOS"
-    [ "${STUB_INST_RC:-0}" = 0 ] || { echo "stub gh: installation refused" >&2; exit 1; } ;;
-  "api repos/o/r/rulesets/"*)
-    printf '%s\n' "${STUB_BYPASS-}" ;;
+    case "$*" in
+      */check-runs*) [ "${STUB_RUNS_RC:-0}" = 0 ] || { echo "stub gh: runs failed" >&2; exit 1; }
+                    [ -z "${STUB_RUNS-}" ] || printf '%s\n' "$STUB_RUNS" ;;
+      *'\(.integration_id) '*) [ -z "${STUB_PINS-}" ] || printf '%s\n' "$STUB_PINS" ;;
+      *) [ -z "${STUB_RULES-}" ] || printf '%s\n' "$STUB_RULES" ;;
+    esac ;;
   *) exit 99 ;;
 esac
 EOF
@@ -92,6 +97,7 @@ run_block() {
 calls() { grep -c "$1" "$work/log" || true; }
 
 pr0='pull_request approvals=0 threads=false codeowner=false reviewers=0'
+pr_co='pull_request approvals=1 threads=false codeowner=true reviewers=0'
 rsc0='required_status_checks app_pinned=0'
 export STUB_BASE=main STUB_PR_RC=0 STUB_API_RC=0
 STUB_RULES="$(printf 'deletion\nnon_fast_forward\n%s\n%s' "$pr0" "$rsc0")"
@@ -99,10 +105,17 @@ export STUB_RULES
 
 # --- answers ------------------------------------------------------------------
 assert_eq "empty rule list -> lag" "lag|0" "$(STUB_RULES= run_block "$work/block.sh")"
-assert_eq "no update rule -> lag" "lag|0" "$(run_block "$work/block.sh")"
-with_update="$(printf '%s\nupdate' "$STUB_RULES")"
-assert_eq "update rule -> admin-merge-ready" "admin-merge-ready|0" \
-  "$(STUB_RULES="$with_update" run_block "$work/block.sh")"
+assert_eq "no review rule -> lag" "lag|0" "$(run_block "$work/block.sh")"
+with_approval="$(printf 'deletion\nnon_fast_forward\n%s\n%s' "$pr_co" "$rsc0")"
+assert_eq "approval rule, REVIEW_REQUIRED -> awaiting-approval" "awaiting-approval|0" \
+  "$(DECISION=REVIEW_REQUIRED STUB_RULES="$with_approval" run_block "$work/block.sh")"
+assert_eq "approval rule, APPROVED -> lag" "lag|0" \
+  "$(DECISION=APPROVED STUB_RULES="$with_approval" run_block "$work/block.sh")"
+res="$(STUB_RULES="$(printf '%s
+update' "$STUB_RULES")" run_block "$work/block.sh")"
+case "$res" in *"cannot judge"*"|2") echo "ok - an update rule is no longer an admin-merge verdict: the refusal names it, exit 2" ;; *) echo "FAIL - update rule: got [$res]" >&2; fail=1 ;; esac
+res="$(DECISION=MAYBE run_block "$work/block.sh")"
+case "$res" in *"must be APPROVED"*"|2") echo "ok - a decision outside the vocabulary is refused, exit 2" ;; *) echo "FAIL - bad decision: got [$res]" >&2; fail=1 ;; esac
 
 # --- a failed gh never reaches the predicate ----------------------------------
 assert_eq "failing gh api -> no word, non-zero" "|1" "$(STUB_API_RC=1 run_block "$work/block.sh")"
@@ -119,46 +132,34 @@ done
 assert_eq "slashes, dots, dashes in a branch are allowed" "lag|0" \
   "$(STUB_BASE='feat/v1.2_x-y' run_block "$work/block.sh")"
 
-# --- block (c): the acting identity, user token or App token (#467) -------------
-# A user token names a login; an installation token is refused `gh api user`, so the block
-# probes installation/repositories and prints `actor app -`. A probe that does not reach the
-# repo, or a refused call, must stop the chain before any ruleset line.
-awk '/^ *# \(c\) the active identity/ { p = 1 } p && /^ *```/ { exit } p' "$skill" |
-  sed -e 's/^ *//' -e 's/<N>/7/g' -e 's/{repo}/o\/r/g' >"$work/blockc.sh"
-if [ ! -s "$work/blockc.sh" ] || grep -Eq '(^|[^$])[<{][A-Za-z0-9_.-]+[>}]' "$work/blockc.sh"; then
-  echo "FAIL - could not extract block (c) from $skill, or it has an unfilled placeholder" >&2
+# --- block (a2): a pinned context needs a run from its pinned app (#384) --------
+awk '/^ *# \(a2\) every context/ { p = 1 } p && /^ *```/ { exit } p' "$skill" |
+  sed -e 's/^ *//' -e 's/<N>/7/g' -e 's/{repo}/o\/r/g' >"$work/blocka2.sh"
+if [ ! -s "$work/blocka2.sh" ] || grep -Eq '(^|[^$])[<{][A-Za-z0-9_.-]+[>}]' "$work/blocka2.sh"; then
+  echo "FAIL - could not extract block (a2) from $skill, or it has an unfilled placeholder" >&2
   exit 1
 fi
-# gh-identity.sh by bare name, as the skill calls it (via sh, so no exec bit is needed).
-cat >"$stub/gh-identity.sh" <<EOF
-#!/bin/sh
-exec sh "$root_dir/plugins/way-of-working/bin/gh-identity.sh" "\$@"
-EOF
-chmod +x "$stub/gh-identity.sh"
-
-export STUB_USER_RC=0 STUB_INST_RC=0 STUB_INST_REPOS=o/r STUB_BYPASS=never
-rules_b="$STUB_RULES"
-STUB_RULES=5
-export STUB_RULES
-assert_eq "user token -> actor user octocat, ruleset line" "actor user octocat
-5 never|0" "$(run_block "$work/blockc.sh")"
-assert_eq "user token -> installation probe never ran" "0" "$(calls '^api --hostname')"
-assert_eq "App token reaching the repo -> actor app -, ruleset line" "actor app -
-5 never|0" "$(STUB_USER_RC=1 run_block "$work/blockc.sh")"
-assert_eq "App token -> installation probe ran" "1" "$(calls '^api --hostname')"
-assert_eq "App token not reaching the repo -> no output, non-zero" "|1" \
-  "$(STUB_USER_RC=1 STUB_INST_REPOS=o/other run_block "$work/blockc.sh")"
-assert_eq "App token, probe refused -> no output, non-zero" "|1" \
-  "$(STUB_USER_RC=1 STUB_INST_RC=1 STUB_INST_REPOS= run_block "$work/blockc.sh")"
-assert_eq "App token, refused probe -> rules never read" "0" "$(calls '^api --paginate')"
-assert_eq "App token, probe lists the repo then fails -> no output, non-zero" "|1" \
-  "$(STUB_USER_RC=1 STUB_INST_RC=1 run_block "$work/blockc.sh")"
-assert_eq "App token, probe returned nothing -> no output, non-zero" "|1" \
-  "$(STUB_USER_RC=1 STUB_INST_REPOS= run_block "$work/blockc.sh")"
-assert_eq "user token printing an empty login -> no output, non-zero" "|1" \
-  "$(STUB_USER_EMPTY=1 run_block "$work/blockc.sh")"
-assert_eq "failing rules read -> no output, non-zero" "|1" "$(STUB_API_RC=1 run_block "$work/blockc.sh")"
-STUB_RULES="$rules_b"
+export STUB_PINS="$(printf '15368 lint\n15368 coupling')"
+export STUB_RUNS="$(printf '15368 lint\n15368 coupling\n15368 invariants\n9999 other')"
+assert_eq "every pinned context has a run from its app -> pins-ok" "pins-ok|0" \
+  "$(run_block "$work/blocka2.sh")"
+assert_eq "no pinned context at all -> pins-ok" "pins-ok|0" "$(STUB_PINS= run_block "$work/blocka2.sh")"
+assert_eq "a pinned context whose only run came from another app -> unmet, named" "unmet 15368 coupling|0" \
+  "$(STUB_RUNS="$(printf '15368 lint\n9999 coupling')" run_block "$work/blocka2.sh")"
+assert_eq "a pinned context with no passing run at all -> unmet" "unmet 15368 lint
+unmet 15368 coupling|0" "$(STUB_RUNS= run_block "$work/blocka2.sh")"
+assert_eq "a context that merely contains the pinned name does not match" "unmet 15368 lint|0" \
+  "$(STUB_PINS='15368 lint' STUB_RUNS="$(printf '15368 lint-extra\n1536 lint')" run_block "$work/blocka2.sh")"
+assert_eq "a pinned context with a space in it is matched whole" "pins-ok|0" \
+  "$(STUB_PINS='15368 Run tests' STUB_RUNS='15368 Run tests' run_block "$work/blocka2.sh")"
+assert_eq "failing rules read -> no output, non-zero" "|1" "$(STUB_API_RC=1 run_block "$work/blocka2.sh")"
+assert_eq "failing check-runs read -> no output, non-zero" "|1" "$(STUB_RUNS_RC=1 run_block "$work/blocka2.sh")"
+assert_eq "failing pr view -> no output, non-zero" "|1" "$(STUB_PR_RC=1 run_block "$work/blocka2.sh")"
+for b in 'x$(touch PWN)' 'a;b' ''; do
+  assert_eq "branch [$b] -> no output, non-zero" "|1" "$(STUB_BASE="$b" run_block "$work/blocka2.sh")"
+  assert_eq "branch [$b] -> no gh api call" "0" "$(calls '^api')"
+done
+unset STUB_PINS STUB_RUNS
 
 # --- mutants: the assertions above must be able to fail ------------------------
 # (1) T=$(gh api ...) no longer chained to what follows (the && after it dropped).
@@ -184,17 +185,27 @@ assert_eq "mutant 2 made the gh api call" "1" "$(calls '^api')"
 assert_eq "mutant 3 (gh piped straight in) fails open on a failing gh api" "lag|0" \
   "$(STUB_API_RC=1 run_block "$work/mut3.sh")"
 
-# (4) block (c): the && after the installation probe dropped, so a probe that lists the repo
-# on page 1 and then fails on a later page still reads as an App token that reaches it.
-sed -e '/repos.txt" &&$/ s/ &&$//' "$work/blockc.sh" >"$work/mut4.sh"
-if cmp -s "$work/blockc.sh" "$work/mut4.sh"; then
-  echo "FAIL - mutant 4 did not change block (c) (the mutation no longer applies)" >&2
+# (4) block (a2): the check-runs read no longer chained, so a failed read leaves R empty and
+# every pin reads unmet -- the mutant must differ from the block (an unchained read that
+# fails would otherwise still print the unmet lines, so it is told apart by the exit status
+# the chain gives: the real block stops with 1, the mutant carries on and exits 0).
+sed -e '/^R=\$(/ s/ &&$//' "$work/blocka2.sh" >"$work/mut4.sh"
+if cmp -s "$work/blocka2.sh" "$work/mut4.sh"; then
+  echo "FAIL - mutant 4 did not change block (a2) (the mutation no longer applies)" >&2
   fail=1
 fi
-STUB_RULES=5
-assert_eq "mutant 4 (probe && dropped) fails open on a partly failed probe" "actor app -
-5 never|0" "$(STUB_USER_RC=1 STUB_INST_RC=1 run_block "$work/mut4.sh")"
-STUB_RULES="$rules_b"
+export STUB_PINS='15368 lint'
+assert_eq "mutant 4 (check-runs read not chained) carries on past a failed read" "unmet 15368 lint|0" \
+  "$(STUB_RUNS_RC=1 run_block "$work/mut4.sh")"
+# (5) block (a2): the whole-line match loosened to a substring match.
+sed -e 's/grep -Fxq/grep -Fq/' "$work/blocka2.sh" >"$work/mut5.sh"
+if cmp -s "$work/blocka2.sh" "$work/mut5.sh"; then
+  echo "FAIL - mutant 5 did not change block (a2) (the mutation no longer applies)" >&2
+  fail=1
+fi
+assert_eq "mutant 5 (substring match) wrongly accepts lint-extra for lint" "pins-ok|0" \
+  "$(STUB_RUNS='15368 lint-extra' run_block "$work/mut5.sh")"
+unset STUB_PINS
 
 if [ "$fail" -ne 0 ]; then
   echo "blocked-state-block.test.sh: FAILED" >&2
