@@ -4,14 +4,14 @@ description: >-
   Report the status of a PR's required checks and give an explicit merge-ready verdict
   WITHOUT merging. Run when asked whether a PR is green / ready to merge, or to poll a PR
   whose checks are still running. Reports ALL required checks (never a subset), decodes the
-  skipped/BLOCKED/conflict traps, and never merges — the human's merge is the approval.
+  skipped/BLOCKED/conflict traps, and never merges — a human's approval is the gate (the merge click, or the required approval an armed auto-merge waits on).
 ---
 
 # /way-of-working:pr-checks — report required-check status and merge-readiness (never merge)
 
 Goal: answer "is PR #N ready to merge?" with a trustworthy, complete verdict — every
 required check named and classified — and stop there. **Never** merge, `--approve`, or
-force-push. The human's merge is the approval. This is a read-only status skill.
+force-push. A human's approval is the gate (the merge, or the approval an armed auto-merge waits on). This is a read-only status skill.
 
 Argument: a PR number (e.g. `/way-of-working:pr-checks 94`). If none is given, resolve it from the
 current branch with `gh pr view --json number,url` — and stop with "could not tell" unless

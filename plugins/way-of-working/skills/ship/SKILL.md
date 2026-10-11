@@ -3,17 +3,19 @@ name: ship
 description: >-
   Close out a finished task — commit the working tree with a conventions-correct message,
   push to a branch cut from the PR base (never the base itself), and open a PR with a
-  length-checked title. Stops at the open PR — never merges, never --approve, never
-  force-pushes. Run when work is done and you want it on a PR.
+  length-checked title. Arms auto-merge on the open PR only where the repo allows it and the base requires a code-owner approval, then
+  stops — never merges directly, never --approve, never force-pushes. Run when work is
+  done and you want it on a PR.
 ---
 
-# /way-of-working:ship — commit, push, and open the PR (then stop)
+# /way-of-working:ship — commit, push, open the PR, arm auto-merge (then stop)
 
 Goal: turn a finished working tree into an open PR against `{pr_base}`, with every repo
 convention applied by construction — so the recurring slips (over-length PR title,
-committing on the base branch, a wrong scope) can't happen. This skill **opens** the PR and
-**stops**. It never merges, `--approve`s, or force-pushes — the human's merge is the
-approval.
+committing on the base branch, a wrong scope) can't happen. This skill **opens** the PR,
+**arms auto-merge** on it where the repo allows it and the base requires a code-owner approval (`WB-D24`), and **stops**. It never
+merges directly, `--approve`s, or force-pushes — the approval the base requires
+is the gate, and an armed PR merges only once every rule is met.
 
 **Read `.ai/project.yml` first** for `{pr_base}`, `{repo}`, `{code_paths}`,
 `{review.ci_gate}`, `{planning.kind}`, and — for the ledger-conflict rule in the *Preflight
@@ -292,7 +294,55 @@ here. The *Open the PR against `{pr_base}`* step also reads `pointers.sprint_pla
    draft conversion or body edit — each is another write by the possibly-wrong identity; the
    human decides. The remaining steps below do not run.
 
-6. **Label on the three axes** if labels are being used: type (`bug`/`feature`/`docs`/
+6. **Arm auto-merge, only where an approval stands behind it (`WB-D24`, `#386`).** Arming is
+   the one merge-adjacent write this skill makes, and it is safe only when the base *requires
+   a code-owner approval*: `gh pr merge --auto` **merges immediately** on a PR that is already
+   mergeable, so on a base without a required code-owner approval it is an agent-run merge on green checks.
+   The plugin's tested predicate (`auto-merge-arm.sh`, bare name on the Bash tool's `PATH`
+   like `cursor-drift.sh`) decides from three facts GitHub reports; never judge them by eye
+   and never pipe `gh` output into it. **Run the whole block in one Bash call** — each call
+   is a fresh shell, so a `$OID` read in one call is empty in the next and would arm the PR
+   with no head pin. `<N>` is the PR number the *Open the PR* step created:
+   ```bash
+   ALLOW=$(gh api repos/{repo} --jq .allow_auto_merge) &&
+   RULES=$(gh api --paginate repos/{repo}/rules/branches/{pr_base}) &&
+   APPR=$(printf '%s' "$RULES" | jq -s '[.[][] | select(.type == "pull_request" and .parameters.require_code_owner_review == true)
+            | .parameters.required_approving_review_count] | max // 0') &&
+   PRV=$(gh pr view <N> --repo {repo} --json headRefOid,mergeStateStatus \
+           --jq '[.headRefOid, .mergeStateStatus] | @tsv') &&
+   OID=$(printf '%s' "$PRV" | cut -f1) && STATE=$(printf '%s' "$PRV" | cut -f2) &&
+   HEAD=$(git rev-parse HEAD) || { echo "Auto-merge: not armed (a read failed)"; exit 1; }
+   [ -n "$OID" ] && [ "$OID" = "$HEAD" ] ||
+     { echo "Auto-merge: not armed (PR head $OID is not the pushed $HEAD)"; exit 1; }
+   V=$(auto-merge-arm.sh "$ALLOW" "$APPR" "$STATE") || V=unreadable
+   echo "Auto-merge: $V"
+   if [ "$V" = arm ]; then
+     gh pr merge <N> --repo {repo} --auto --squash --match-head-commit "$OID"
+   fi
+   ```
+   Report the printed line as the outcome:
+   - **`arm`** — the `gh pr merge` call ran, pinned to the head just read. No other flags:
+     never `--admin`, never `--delete-branch`, never the form without `--auto`. If `gh`
+     refuses, report `not armed — gh refused: <its message>` (on a PR that has just turned
+     mergeable that means it is mergeable, and the merge is the human's); do not retry another
+     way. An armed `BEHIND` PR on a base that requires an up-to-date branch waits for someone
+     to update it.
+   - **`not-armed <reason>`** — nothing ran. Say what that leaves: `disallowed` is the
+     ordinary state of a repo that has not turned auto-merge on, and `no-approval` that of a
+     base whose rulesets require no code-owner approval (a repo before its WB-D24 cutover; classic branch protection is not read, so a repo using only that reads the same) — either way the PR waits for a
+     human's merge, as before, and neither setting is ship's to change; `mergeable` means the
+     PR is already clear to merge and the merge is the human's; `draft` and `conflicts` need a
+     human first.
+   - **`unreadable`**, or the block's own `a read failed` line (a `gh`, `jq` or `git` read failed;
+     the tools must be on `PATH`) — arm nothing and say so. A `PR head … is not the pushed …` line
+     means the PR head and local `HEAD` differ: a push landed, or a local commit was made, since the
+     *Push the branch* step — arm nothing either.
+
+   Arming pins the head only at the moment of arming; a later push to the branch is not
+   re-pinned (`WB-D24`, accepted residual) — the base's stale-approval dismissal is what
+   guards the new head. After pushing again to an armed PR, say so in the report.
+
+7. **Label on the three axes** if labels are being used: type (`bug`/`feature`/`docs`/
    `chore`), `area/*` (mirrors the scope), `status/*` — see `reference/conventions.md`
    § *Issue + label taxonomy*. Machine-emitted labels stay namespaced under **the emitting
    system**; for a label this skill emits, that emitter is the repo's own automation, so the
@@ -301,7 +351,7 @@ here. The *Open the PR against `{pr_base}`* step also reads `pointers.sprint_pla
    emitter is a separately-named engine, is real and is covered in `conventions.md` — but it
    is never what *this* skill emits, so it never changes the answer here.
 
-7. **If a review gate applies, flag it — do not satisfy it here.**
+8. **If a review gate applies, flag it — do not satisfy it here.**
    - **`{review.ci_gate}` is set and the diff touches `{code_paths}`:** the
      `{review.ci_gate.check}` check stays red until a **fresh-session** review is posted
      against the PR's current head commit. `/way-of-working:ship` does **not** post that
@@ -312,12 +362,15 @@ here. The *Open the PR against `{pr_base}`* step also reads `pointers.sprint_pla
      one — do not invent a review step, and do not describe the PR as exempt from a gate
      that does not exist. The PR is complete at the *Stop at the open PR* step.
 
-8. **Stop at the open PR.** Report the PR URL and, if you want, hand off to `/way-of-working:pr-checks <N>`
-   to watch the required checks. **No `gh pr merge`, no `gh pr review --approve`, no
-   `git push --force`** — the merge is the human's.
+9. **Stop at the open PR.** Report the PR URL, the *Arm auto-merge* step's outcome (armed, or
+   not armed and why), and, if you want, hand off to `/way-of-working:pr-checks <N>` to watch
+   the required checks. **No `gh pr review --approve`, no `git push --force`, and no
+   `gh pr merge` beyond the *Arm auto-merge* step's one `--auto` call** — an armed PR merges
+   when the rules on `{pr_base}` are met, and the approval they require is a human's.
 
 ## Guardrail summary
 
 Branch from `{pr_base}` · push to the branch never the base · title ≤72 (measured, not
-eyeballed) · base `{pr_base}` · commit per `reference/conventions.md` · **never merge /
-approve / force-push**.
+eyeballed) · base `{pr_base}` · commit per `reference/conventions.md` · arm auto-merge only
+through `auto-merge-arm.sh`, with `--auto --squash --match-head-commit` and no other
+merge flag · **never merge now / `--admin` / approve / force-push**.

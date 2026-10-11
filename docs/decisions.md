@@ -1583,7 +1583,9 @@ take effect. Full reasoning and the task breakdown that implements them:
          Team plan, carries the approval rules as an org ruleset with an explicit include
          list.
     3. **Merging is mechanical.** `ship` arms auto-merge (`--auto --squash
-       --match-head-commit`). The approval is the control, the merge click is not, and
+       --match-head-commit`) only where the repo allows it and the base requires a code-owner
+       approval (`gh pr merge --auto` merges a mergeable PR at once, so elsewhere arming is an
+       agent-run merge; #386). The approval is the control, the merge click is not, and
        "the human's merge is the approval" becomes "the human's code-owner approval is the
        approval". `/resume`'s agent-run merge is **removed**, not kept for cursor-sync PRs.
        Routine cursor fields later move to an unprotected `ai/cursor` branch, while
@@ -1618,6 +1620,12 @@ take effect. Full reasoning and the task breakdown that implements them:
       sessions in the transcript window. It has the highest blast radius, and AWS
       sessions cannot be revoked on demand.
   - **Accepted residuals.**
+    - Arming (`ship`, #386) reads whether a code-owner approval rule exists, not whether the arming
+      identity can bypass it. Before a repo's cutover its human login may be a bypass actor on that rule; after,
+      the dev App has none. Whether GitHub completes an auto-merge using the enabler's bypass is
+      unverified. It also reads the ruleset's code-owner flag, not whether `CODEOWNERS` covers the
+      PR's paths: where it does not, GitHub asks only for the count, which any write-access
+      approver can meet. Cutover has `CODEOWNERS` cover `*`.
     - The Claude login credential lives in each container's home volume.
     - Admin mode elevates the whole container.
     - The reviewer token exists for a few minutes after the review sandbox is destroyed.

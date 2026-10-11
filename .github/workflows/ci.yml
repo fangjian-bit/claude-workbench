@@ -91,6 +91,8 @@ jobs:
         run: sh tests/blocked-state.test.sh
       - name: pr-checks blocked-state block fixtures
         run: sh tests/blocked-state-block.test.sh
+      - name: auto-merge-arm.sh fixtures
+        run: sh tests/auto-merge-arm.test.sh
       - name: prune-verdict.sh fixtures
         run: sh tests/prune-verdict.test.sh
       - name: invariants-check.sh reach-order fixtures

@@ -37,7 +37,8 @@ updates:
     # and stays legible. This is the setup Dependabot handles best, not a workaround.
     #
     # These PRs are reviewed and merged by a human like any other. No auto-merge:
-    # reference/conventions.md is explicit that nothing auto-merges, and an action bump is
+    # an armed auto-merge needs a required code-owner approval (reference/conventions.md), which this
+    # repo does not have until its WB-D24 cutover, and an action bump is
     # a change to the code that runs every gate in this repo.
 
     # One PR for all action bumps rather than one per action. With few actions the noise
