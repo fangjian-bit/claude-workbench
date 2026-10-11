@@ -3776,3 +3776,85 @@ first write but cannot gate it, which is why ship's push preflight still stops i
 Not measured: the skills run as interactive Claude Code sessions (the command sequences above
 were run by hand in a scratch clone), and resume's review-step derivation, which needs a user
 login.
+
+
+## Session 7 (#464 PR 2): the skills as interactive sessions under a dev-App token
+
+Run on 2026-10-11 against `603-Identity/identity-ruleset-scratch`, following
+[docs/identity/APP-MODE-RUN-SHEET.md](../identity/APP-MODE-RUN-SHEET.md). Each skill ran as a
+`claude` CLI session in a VS Code terminal started with `GH_TOKEN` set from a token minted by
+`scripts/identity/mint.sh`, with the plugin loaded by `--plugin-dir plugins/way-of-working` (the
+0.17.0 source at `84ba6fc`; the scratch clone does not enable the plugin). Before each launch,
+`gh api user` returned 403 and `installation/repositories` listed only the scratch repo. Results
+below are the sessions' own summaries plus what GitHub shows afterwards, not a raw log. All seven
+skills have now run; where a result rests only on a session's own report and was not read back
+from GitHub, the row says so.
+
+Setup, all by the dev App (`603id-dev[bot]`, id 340163647) unless noted: PR #7 added
+`.ai/project.yml` (`identities.maintainer` JaredGroves-603 id 281693088, `dev_app`, `reviewer_app`
+`603id-review[bot]` id 340164886 taken from `apps.json`, not yet seen in a write response);
+the maintainer approved it and it merged by auto-merge. Milestones 1 and 2, issues #8 (milestone 1,
+the task), #9 (milestone 1, closed) and #10 (no milestone). A local `.ai/state.json` and
+`.ai/next-steps.md`, git-excluded, with `plan-anchor.sh verify` printing `match`.
+
+| Skill | Result |
+|---|---|
+| resume | **Waited, for a reason the sheet did not expect.** The author-trust check on #8 came back untrusted: the dev App wrote the issue and `identities.maintainer` lists only the human. That is the fixture, not a plugin defect; auto-start under App mode needs a maintainer-authored task. `Ruleset check` healthy, read through an installation token. The review step read `none`: no PR existed yet, so `show <M> app-mode` was **not exercised**. After the human's `go` it read #8 once (`updated_at` matched the anchor) and made the edit. |
+| ship | **Matched the sheet.** PR #11, author `603id-dev[bot]` id 340163647, `pr-actor` printed `match`, `git push --dry-run` passed, push pinned to `gh`'s token, `mergeable_state` `blocked`. `review.ci_gate` is `null`. **New:** the commit inside the PR is authored and committed by `Jared Groves <jared.groves@603identity.com>`, GPG-verified, because the clone uses the human's git config with `commit.gpgsign=true`; the session asked for the human's passphrase. The PR is the App's, the commit is the human's. |
+| ship, wrong credential | **Stopped, but not at the designed check.** Token from the reviewer App (`contents: read`, `pull_requests: write`; `contents: write` was refused at mint, 422 "not granted to this installation"). The session stopped before commit, push or any probe, because `gh auth status` showed `603id-review[bot]` against the declared `603id-dev[bot]`. `ship/SKILL.md` has no such pre-push check; its designed catch is `pr-actor` after the PR exists. No other App here can push, so `mismatch` was **not reached live** (fixtures in `tests/gh-identity.test.sh` only). Filed as #476. |
+| pr-checks, token without `statuses`/`checks` | **COULD NOT TELL.** `gh pr checks` (GraphQL), `commits/{sha}/status` and `commits/{sha}/check-runs` all returned 403. It gave no verdict and named the missing permissions. The run sheet's mint recommendation does not include them. |
+| pr-checks, token with `statuses: read`, `checks: read` | **NOT READY, correct.** `scratch/status` green on `28cad25`; `BLOCKED`, `reviewDecision` `REVIEW_REQUIRED`; passed `green=0` to `blocked-state.sh`, as its header says to for `REVIEW_REQUIRED`. Fell back to REST because `gh pr checks` fails under an App token. Noted, without verifying, that the check is pinned to an app. **Block (c) was not reached:** the only `update` rule is in `wb-tags`, which targets `refs/tags/v*`, not `main` (`wb-approval` and `wb-checks` carry none), so the admin-merge path does not exist for this repo's branch. |
+| merge | After the maintainer's approval and a green `scratch/status`, `gh pr merge 11 --auto --squash` run as the dev App merged PR #11 at once, 17:35:11 UTC, `merged_by` `603id-dev[bot]`. This is case k again. ship arms nothing, so the merge was a manual command; already tracked as #386 (a duplicate, #475, was filed and closed). |
+| archive-sprint, first run | **Stopped at preconditions, and two defects.** (1) It read `backlog.repo: null` as "no repo" and stopped (#479). (2) It took the maintainer's "yes" to "do you want me to open the PRs?" as approval of the HITL gate, which precondition 1 says never to assume; when the approval was stated outright on the later run it respected it. The rest was the fixture: the README had no roadmap row and `.ai/archive/` was not ignored, so it opened two PRs, #12 and #13, with plain `git push`. The PRs' author was the dev App; the pusher was the maintainer's own credential. The maintainer's approval of #12 showed as "1 approval" but the merge stayed blocked: "New changes require approval from someone other than JaredGroves-603 because they were the last pusher." #14 and #15, the same changes pushed by the dev App through the contents API, merged on the first approval (`merged_by` `603id-dev[bot]`, 17:56:48 and 19:22:43 UTC). That the pusher is what GitHub counted is inferred from this contrast and the commit authors; the events API returned no push record. #12 and #13 were closed. Filed as #478. |
+| archive-sprint, second run | **Worked up to the milestone close.** With the gate approved outright and a pinned-push instruction, it wrote the snapshot to `.ai/archive/` (ignored), advanced the cursor to scratch-2 (`planning`, `plan_anchor` null), pruned the one local branch whose merged PR tip matched, and left two it could not match. It pushed nothing and opened no PR. It did not check precondition 4 explicitly, and said so. The milestone close was **skipped**: #8 was still open, because PR #11's body had no `Closes #8` (the fixture). |
+| milestone close, direct | **Succeeded, but not through the skill.** After the maintainer's yes, `PATCH` on issue #8 (`state=closed`) and on milestone 1 (`state=closed`) with the dev App token (`contents`, `pull_requests`, `issues` write; `statuses`, `checks` read) both returned success; the milestone closed at 19:27:50 UTC with 0 open and 2 closed issues. So `issues: write` covers closing a milestone. The skill's own close step was not exercised. |
+| plan-sprint | **Matched the sheet where it ran.** The read-only gather worked, and the maintainer accepted placing #10 in milestone 2. Read back from GitHub: #10 is on milestone 2, and the triage comment (id 6112836920) is by `603id-dev[bot]`, `author_association` `NONE`. No milestone-description edit was needed, so the policy refusal and the staged script were **not exercised**. Its closing note said milestone 1 and #8 were still open; both had been closed minutes earlier, so that note was stale. |
+| handoff, first run | **No PR.** `.ai/next-steps.md` was git-excluded in the fixture, so there was nothing to commit; it wrote the cursor, opened a gate (first anchor for milestone 2) and said so. It carried forward a `Milestone close:` line saying milestone 1 and #8 were open, already false. |
+| handoff, second run | **Matched the sheet.** After the ledger was tracked (PR #16, App-authored, merged by the App after approval), it opened PR #17 with the cursor sync: author `603id-dev[bot]` id 340163647, one file changed, not merged, auto-merge not armed. The push was pinned because the maintainer said so, not because the skill does it (#478). The commit is again authored and committed by Jared Groves (verified). Read from GitHub: the PR's patch **removes** the stale `Milestone close:` line. It ran on Sonnet against an assigned opus and said so. This run chose the ledger PR; the no-op handoff was not exercised. |
+| retro | **Found nothing, filed nothing.** Run in the dev-App session, it read the scratch backlog and judged that no friction met its signal bar (a model mismatch, a hand-written `sed`, the all-`false` `.permissions`, an untouched ledger on `main`, a CRLF warning), so it wrote nothing. The sheet's expected issue or comment under the dev App's login was therefore **not produced by retro**; that write path is shown by plan-sprint's comment above. |
+
+| ship, declared `dev_app` wrong | **The designed `mismatch` stop, seen live.** A second probe, run after the rows above, because no other App here can push. PR #18 (dev App, approved and auto-merged) set `identities.dev_app` on `main` to `603id-mismatch[bot]`, id 999999999. ship was run with the real dev token and no extra instruction. Its preflight cleared (including the pinned `git push --dry-run`), it pushed the branch and opened PR #19 as `603id-dev[bot]`, and the actor check read `mismatch`: it stopped, added no label or comment, and left the PR for the maintainer. Read back from GitHub: #19 has 0 labels, 0 comments, auto-merge not armed. The stop came **after** the push and the PR, as #476 says. This stands in for a wrong credential with a wrong declaration; from ship's check the two are the same. PR #19 was closed and its branch deleted, and PR #20 restored the real `dev_app` (merged 19:54:16 UTC). |
+| pr-checks, block (c) with an `update` rule | **Not reached, and not reachable here.** The maintainer's admin credential created a temporary branch ruleset `wow-464-update-probe` (an `update` rule on the default branch, repo admin role as the only bypass), so `main`'s rules read `deletion, non_fast_forward, pull_request, required_status_checks, update`. PR #21 (dev App) had `scratch/status` green and the maintainer's approval; GitHub showed "Merging is blocked: Cannot update this protected ref." pr-checks read `BLOCKED`, `reviewDecision` `APPROVED`, and returned **COULD NOT TELL**: `blocked-state.sh` refused to judge, naming three rules it cannot evaluate (the approval requirement, the code-owner review, the check pinned to an app). That refusal is its design (#248). Block (c) is only reached on the admin-merge path, which the approval gate removes; #384 replaces that verdict with `awaiting-approval`. The ruleset was deleted, #21 closed and its branch deleted. |
+
+Follow-ups from this session: #476 (ship checks the acting App against `dev_app` before the push),
+#478 (handoff and archive-sprint push as the human in App mode), #479 (archive-sprint reads a null
+`backlog.repo` as no repo), and a comment on #386 (ship arms auto-merge). #478, #479 and the #386
+comment came from a retro run in the maintainer's own session, not from the dev-App retro above;
+#475 was filed as a duplicate of #386 and closed.
+
+## Status against the run sheet's closing criteria
+
+- Every skill has an entry above, including those that stopped. Met.
+- ship's actor check seen to `match` for the dev App: met (#11). Seen to stop for a different
+  credential: **met with a substitute.** With a reviewer-App token the stop was the session's own
+  judgement before any write; the designed `mismatch` stop was then seen live with a wrong
+  `dev_app` declaration standing in for the wrong credential (PR #19). A real wrong-App token that
+  can push was never available.
+- `pr-checks` block (c) seen under the dev App token: **not met, and not reachable on this
+  repo.** With an `update` rule applied, `blocked-state.sh` returns `could not tell` on the
+  approval and pinned-check rules, so block (c) is never printed. The path is the admin-merge
+  verdict the approval gate retires (#384).
+
+The first criterion is met; the second is met with the substitute described; the third is not
+met as written and cannot be on a repo under the approval ruleset. The maintainer decides whether
+to close #464 with the third criterion recorded as superseded by #384.
+
+## Configuration changes made during session 7
+
+- `603-Identity/identity-ruleset-scratch`: PRs #7 (`.ai/project.yml`), #11 (`s5/a.txt`), #14 and #15
+  (README roadmap row, `.gitignore` and `backlog.repo`), #16 (tracks `.ai/next-steps.md`), all merged;
+  #12 and #13 closed unmerged (replaced by #14 and #15); #17 (cursor sync) merged by the maintainer;
+  #18 (a wrong `dev_app`) and #20 (restoring it) merged; #19 (ship's probe PR) and #21 (the block (c)
+  probe) closed unmerged with their branches deleted. Milestones 1 (closed by a direct write at 19:27:50 UTC) and 2; issues #8 (closed by the same
+  direct write), #9 (closed fixture) and #10 (placed in milestone 2).
+- The clone's `.git/info/exclude` held `.ai/state.json` and, until #16 merged, `.ai/next-steps.md`.
+- Tokens: dev App, `contents`/`pull_requests`/`issues` write, with `statuses`/`checks` read from the
+  second token on; reviewer App, `contents: read` and `pull_requests: write`. All under an hour,
+  minted to files outside any repo, never printed; the expired and reviewer files were deleted.
+- Auto-merge was armed by hand as the dev App on #7, #11, #12, #13, #14, #15 and #16. On #11 it merged the PR
+  at once, as described above.
+- A temporary repo ruleset, `wow-464-update-probe`, was created with an admin-App token the
+  maintainer minted (`administration: write`, passphrase entered by them) and deleted afterwards;
+  the repo's rulesets are `wb-approval`, `wb-checks` and `wb-tags` again, and `main`'s rule types
+  are as before. While it existed nothing could merge into `main`. No App or org setting was
+  changed.
