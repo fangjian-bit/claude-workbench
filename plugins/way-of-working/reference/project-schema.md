@@ -498,10 +498,10 @@ rest of this file, read it from the **default branch's** copy before enforcing a
 
 **Who reads the list (`#384`).** `/way-of-working:resume` reads it when it is present: its
 ruleset check verifies every declared ruleset and treats an approval ruleset (one carrying a
-`pull_request` rule) with any bypass actor as drift, and it passes the union of the
-`required_checks` to `cursor-sync-pr.sh`. `/way-of-working:pr-checks` reports that union. With no
-`rulesets` list both fall back to the single `ruleset.*` form and resume reads no bypass actors, so resume
-behaves as before on a repo that has not cut over, apart from `cursor-sync-pr.sh` naming a green PR that only lacks a review `awaiting-approval` instead of `state-blocked`. `pr-checks` does not: it no longer gives an admin-merge verdict on any repo (`#384`), so a green PR under an `update` rule reads COULD NOT TELL until the repo cuts over. The union, as `yq` prints it:
+`pull_request` rule) with any bypass actor as drift. `/way-of-working:pr-checks` reports the
+union of the `required_checks`. With no
+`rulesets` list both fall back to the single `ruleset.*` form and resume reads no bypass actors, so resume's ruleset check
+behaves as before on a repo that has not cut over. `pr-checks` does not: it no longer gives an admin-merge verdict on any repo (`#384`), so a green PR under an `update` rule reads COULD NOT TELL until the repo cuts over. The union, as `yq` prints it:
 ```bash
 yq -r '((.rulesets // [{"required_checks": .ruleset.required_checks}]) | [.[].required_checks // [] | .[]]) | unique | .[]' .ai/project.yml
 ```
@@ -526,11 +526,8 @@ on a `rulesets` entry).
 `required_checks` every check it requires. `/way-of-working:resume` verifies the live ruleset against all
 three; `/way-of-working:pr-checks` reports every name in `required_checks` and, beyond them,
 only a context the branch's own `required_status_checks` rule names (as *also required by
-the branch's rule*, on its `BLOCKED` path). `/way-of-working:resume` also passes the list to
-`cursor-sync-pr.sh`, which offers a `BLOCKED` cursor-sync PR for an `--admin` merge only if
-every name in it is present in the PR's rollup as a green check — so an entry that no
-longer reports refuses every such PR, and a missing one is a check that offer never looks
-for.
+the branch's rule*, on its `BLOCKED` path). Nothing merges on the strength of the list:
+`/way-of-working:resume` reports a cursor-sync PR and never merges it (`#385`).
 
 Keep `required_checks` in sync with the **live** ruleset, not with a plan or a wish. The
 list here is what skills report as authoritative, so a stale entry produces a confident

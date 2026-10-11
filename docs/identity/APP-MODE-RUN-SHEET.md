@@ -36,7 +36,7 @@ is what the skill text says should happen, checked for resume, ship, pr-checks a
 ### 1. `/way-of-working:resume`
 
 - Needs a cursor (`.ai/state.json`) and, under `github_milestones`, a milestone with an issue.
-- **Expect:** the schema check runs; a cursor-sync offer, if one is open, needs the human's explicit yes and merges with `--admin`, which the App cannot do (record what happens; resume never merges on its own). The review-step derivation takes the identity from the
+- **Expect:** the schema check runs; an open cursor-sync PR is reported only (resume merges nothing; record the line it prints). The review-step derivation takes the identity from the
   declared `dev_app` (`gh api user` fails), and an App-mode review step is **shown, never
   auto-started** (`show <M> app-mode`). With `dev_app` null it derives nothing.
 - **Record:** the ruleset-check line (`Ruleset check:`) and whether it reads healthy, weakened or

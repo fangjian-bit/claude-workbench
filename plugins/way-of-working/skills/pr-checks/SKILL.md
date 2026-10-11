@@ -305,7 +305,7 @@ what is actually enforced.
    `gh pr review --approve`, no `git push --force`, ever. If the user asks you to merge,
    confirm the verdict is READY and hand it back — the merge is theirs, or auto-merge's
    once it is approved; and approving is a human reviewer's, never this
-   skill's. This skill never names a bypass (`--admin`) in any verdict.
+   skill's. This skill never names a bypass in any verdict.
    The **only** sanctioned write is `gh run rerun <old_failed_run_id>` on a **confirmed** stale review
    run (the *Read the review gate on both surfaces it can post to* step).
 

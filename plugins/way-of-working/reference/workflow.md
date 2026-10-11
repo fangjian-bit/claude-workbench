@@ -96,9 +96,8 @@ never carries into the coding session, and vice-versa — that is the token savi
 
 **A merged PR is the human approval.** Nothing reaches the integration branch
 without it. Claude commits and pushes freely on a sprint branch, opens the PR, and
-**never merges** it. The one merge Claude runs anywhere is `/way-of-working:resume`'s
-offer for a forgotten docs-only cursor-sync PR, and only as the answer to the human's
-explicit confirmation (`WB-D20`).
+**never merges** it. `/way-of-working:resume` only reports a forgotten docs-only
+cursor-sync PR; it merges nothing (`WB-D24`).
 
 - **Branch per sprint:** `sprint/NN-slug`, cut from `pr_base` (`.ai/project.yml`).
 - **PR base is `pr_base`.** Every sprint PR merges into that branch — normally the repo's
@@ -286,16 +285,15 @@ description and cannot be mistaken for the human's approval.
   sync branch under HEAD, and —
   under `github_milestones` — the plan anchor verified and the task issue's author trusted
   (the skill's own *Auto-start* rule is the complete list). Before reading the cursor it
-  offers to merge a forgotten handoff cursor-sync PR, showing its **Next:** and the
-  `next_action` auto-start would run, and merges only on the human's confirmation (`WB-D20`).
+  reports a forgotten handoff cursor-sync PR, which it never merges (`WB-D24`).
   Anything else — a `planning`
   status, an open gate, an unreadable one, a wrong model, a dirty tree — and it states the
   pick-up point and waits. The rule **fails closed**: not being able to tell whether a
   gate is open counts as open. The approval that carries signal is the `hitl_gate`, which
   is unchanged and still enforced; what auto-start removes is the content-free "go" that
   re-approved a `next_action` the human already approved by merging its cursor-sync PR (a
-  merge on GitHub approves the ledger's **Next:**; one at `/resume`'s offer approves the
-  `next_action` itself, shown beside it — `WB-D20`).
+  merge on GitHub approves the ledger's **Next:**, which `next_action` should match but
+  which nothing compares).
   After a **no-op handoff** (below) it also derives a review or merge step from GitHub state
   alone — never from `next_action` — and auto-starts
   `/way-of-working:architect-review <M> --pin <oid>` only when `state.json` agrees on the PR,

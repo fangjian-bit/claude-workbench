@@ -74,7 +74,7 @@ append "$(skill_in "$d")" 'gh api repos/x \
 assert_fires "pipe on a backslash-continued line" "$d"
 
 d="$(tree appendix)"
-append "$(ls "$d"/plugins/*/skills/resume/appendices/cursor-sync-offer.md)" 'gh api repos/x | blocked-state.sh BLOCKED 1'
+append "$(ls "$d"/plugins/*/skills/resume/appendices/schema-interview.md)" 'gh api repos/x | blocked-state.sh BLOCKED 1'
 assert_fires "a skill appendix, not only SKILL.md" "$d"
 
 d="$(tree agent)"

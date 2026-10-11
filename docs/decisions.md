@@ -1005,8 +1005,8 @@ take effect. Full reasoning and the task breakdown that implements them:
 
 - **WB-D20 (`#215`) — a forgotten cursor-sync PR is merged at `/resume`, on confirmation;
   handoff still never merges.** *Superseded by `WB-D24` (2026-10-08): the agent-run merge
-  is removed at each repo's cutover. Until then the text below still describes live
-  behaviour.* Handoff's docs-only cursor-sync PR was regularly left open,
+  is removed for every repo, cut over or not (`#385`); `/resume` now only reports the PR. The text below is the record of
+  what it did.* Handoff's docs-only cursor-sync PR was regularly left open,
   so `{pr_base}`'s cursor went stale. `/way-of-working:resume` now runs
   `bin/cursor-sync-pr.sh` before it reads the cursor. When exactly one qualifying PR is
   open, it shows the PR's **Next:** paragraph and **HITL Gate** line (if any) read at its
@@ -1381,7 +1381,8 @@ take effect. Full reasoning and the task breakdown that implements them:
     - **Why giving it up is acceptable.** The property is given up only for a `next_action`
       whose sole effect is a vote on a step derived elsewhere. The command is rebuilt from
       GitHub state, so a harmful `next_action` can at worst make auto-start wait. A
-      free-prose `next_action` keeps `WB-D20`'s display through the ledger PR.
+      free-prose `next_action` kept `WB-D20`'s display through the ledger PR. (`/resume`'s
+      display of it was removed with the merge, `WB-D24`/`#385`.)
     - **The first unattended review post.** Until now an `architect-review` next action
       anchored `task_issue: null` and never auto-started. This makes it the first review
       the plugin posts without a human approving that step. Resume's *Why auto-start is not
