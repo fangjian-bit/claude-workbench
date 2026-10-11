@@ -1,14 +1,14 @@
 # Cursor — claude-workbench
 
-**Now:** **Sprint 14** (cursor id `sprint-14`) on [milestone 17, *Identity M2: dual-mode plugin v0.18.0*](https://github.com/glunk-works/claude-workbench/milestone/17), anchored at `9f2fbed`. Status: **implementing**.
+**Now:** **Sprint 14** (cursor id `sprint-14`) on [milestone 17, *Identity M2: dual-mode plugin v0.18.0*](https://github.com/glunk-works/claude-workbench/milestone/17), anchored at `06656e9`. Status: **implementing**.
 
-**Just done (2026-10-10):**
-- **#381 merged** ([#469](https://github.com/glunk-works/claude-workbench/pull/469), `9f2fbed`). Under an installation token resume's derive chain and handoff's no-op handoff now run as the declared `identities.dev_app` (new `review-step.sh login` mode); a `null`, absent or malformed `dev_app` derives nothing. `decide` takes a required `mode` key and **App mode never reaches `auto`** (`show <M> app-mode`), since the App holding the token is unproven. Recorded as a WB-D24 amendment to WB-D22.
-- Critic pass (security-critic, architect, docs-consistency): 2 rounds, converged; round 1 found the uncapped-App-mode hole, round 2 tightenings only. All on the critics' default models; no second-opinion round.
-- **Not done, for a follow-up:** a stub-`gh` test of the resume/handoff shell blocks; a no-op handoff in App mode followed by a user-mode resume derives `none` silently.
+**Just done (2026-10-10/11):**
+- **#464 PR 1 merged** (#471, ship's App-mode preflight). The merge closed #464 by mistake, so it was **reopened**: its PR 2, the human-attended end-to-end skill runs under a dev-App token, has not happened.
+- **#467 built** as [PR #472](https://github.com/glunk-works/claude-workbench/pull/472) (`Closes #467`): `pr-checks` block (c) prints `actor app -` under an App token instead of failing on `gh api user`; fixtures for it in `tests/blocked-state-block.test.sh`. Critic pass: architect, security-critic and docs-consistency, 3 rounds, converged, all on default models. Not merged.
+- **Run sheet for #464 PR 2** drafted as [PR #473](https://github.com/glunk-works/claude-workbench/pull/473) (`docs/identity/APP-MODE-RUN-SHEET.md`, `Refs #464`). Docs only, no critic pass. The expectations for archive-sprint, plan-sprint and retro in it are guesses and marked so.
 
-**Next:** task #464 — PR 1 per the [plan comment](https://github.com/glunk-works/claude-workbench/issues/464#issuecomment-6097114231): in App mode ship's Push-reach preflight runs `git push --dry-run` instead of reading `.permissions.push`, and the opened PR's author must equal `identities.dev_app` (via `gh-identity.sh classify`), else stop and touch nothing further. Fixtures for the actor-check predicate, then the green gate, `/way-of-working:critic-gate` (architect + security-critic at least) and `/way-of-working:ship` with `Refs #464`. PR 2, the end-to-end runs, is human-attended. Build on **sonnet** (coder).
+**Next:** task #384 — build the ruleset verdicts for the code-owner gate per the [issue body](https://github.com/glunk-works/claude-workbench/issues/384). Start only after the human has merged #472 (same `pr-checks` block (c) and `blocked-state.sh`); sync main first. Build on **sonnet** (coder); green gate, `/way-of-working:critic-gate`, `/way-of-working:ship` with `Closes #384`.
 
-**HITL Gate: NONE OPEN — the next gate is the human's merge of the #464 PR 1.**
+**HITL Gate: OPEN — the human merges #472 and #473 first. #464's PR 2 (the six interactive runs under a dev-App token, per the run sheet) is the human's and still outstanding; #464 stays open until it is recorded.**
 
 **Pointers:** [docs/decisions.md](../docs/decisions.md) · [milestone 17](https://github.com/glunk-works/claude-workbench/milestone/17) · [.ai/parked/](parked/)
