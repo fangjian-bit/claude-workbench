@@ -1587,7 +1587,7 @@ take effect. Full reasoning and the task breakdown that implements them:
        approval (`gh pr merge --auto` merges a mergeable PR at once, so elsewhere arming is an
        agent-run merge; #386). The approval is the control, the merge click is not, and
        "the human's merge is the approval" becomes "the human's code-owner approval is the
-       approval". `/resume`'s agent-run merge is **removed**, not kept for cursor-sync PRs.
+       approval". `/resume`'s agent-run merge is **removed**, not kept for cursor-sync PRs. A stalled auto-merge (armed, approved, `CLEAN`, approval on the current head) is reported by `pr-checks` with the pinned merge command, never merged by an agent: which App holds the token is not established, so an agent-run stall merge waits on a measured dev-App proof (#432, residual tracked separately).
        Routine cursor fields later move to an unprotected `ai/cursor` branch, while
        `plan_anchor` changes stay on `{pr_base}` through an approved PR.
     4. **Claude runs in per-repo dev containers.** They hold no human credential (no

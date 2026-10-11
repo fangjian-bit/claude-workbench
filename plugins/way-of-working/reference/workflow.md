@@ -96,7 +96,7 @@ never carries into the coding session, and vice-versa — that is the token savi
 
 **A human approval gates every merge.** Nothing reaches the integration branch
 without it. Claude commits and pushes freely on a sprint branch, opens the PR, and
-**never merges** it directly (where the repo allows it and the base requires a code-owner approval, `ship` arms auto-merge, which waits for that approval). `/way-of-working:resume` only reports a forgotten docs-only
+**never merges** it directly (where the repo allows it and the base requires a code-owner approval, `ship` arms auto-merge, which waits for that approval; `pr-checks` reports an armed, approved, clean PR whose auto-merge has stalled, and merges nothing). `/way-of-working:resume` only reports a forgotten docs-only
 cursor-sync PR; it merges nothing (`WB-D24`).
 
 - **Branch per sprint:** `sprint/NN-slug`, cut from `pr_base` (`.ai/project.yml`).

@@ -25,7 +25,7 @@ this file.
 ## Commit / PR conventions
 
 - Commits are small, self-contained, and green (`ruff check` + `ruff format --check` + the test suite all pass before committing). Sign commits.
-- PRs target the integration branch (`develop`), never `main`/`master` directly, and never merged directly by an agent. Where the repo allows auto-merge and the base requires a code-owner approval, `/way-of-working:ship` arms it (`WB-D24`), so the merge waits for that approval and every other rule on the base; with no required code-owner approval it arms nothing.
+- PRs target the integration branch (`develop`), never `main`/`master` directly, and never merged directly by an agent. Where the repo allows auto-merge and the base requires a code-owner approval, `/way-of-working:ship` arms it (`WB-D24`), so the merge waits for that approval and every other rule on the base; with no required code-owner approval it arms nothing. If an armed, approved, clean PR does not merge, `/way-of-working:pr-checks` reports the stall and the pinned command; the merge stays the human's (`#432`).
 - A change touching a versioned state schema must bump its `schema_version` and extend the migration path in the same commit.
 
 ### Message grammar: Conventional Commits

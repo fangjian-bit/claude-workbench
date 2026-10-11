@@ -4,7 +4,7 @@ description: >-
   Report the status of a PR's required checks and give an explicit merge-ready verdict
   WITHOUT merging. Run when asked whether a PR is green / ready to merge, or to poll a PR
   whose checks are still running. Reports ALL required checks (never a subset), decodes the
-  skipped/BLOCKED/conflict traps, and never merges — a human's approval is the gate (the merge click, or the required approval an armed auto-merge waits on).
+  skipped/BLOCKED/conflict traps, and never merges — a human's approval is the gate (the merge click, or the required approval an armed auto-merge waits on). It also reports an armed auto-merge that has stalled on an approved, clean PR.
 ---
 
 # /way-of-working:pr-checks — report required-check status and merge-readiness (never merge)
@@ -52,7 +52,7 @@ what is actually enforced.
 1. **Pull status in one shot.** Run:
 
    ```bash
-   gh pr view <N> --repo {repo} --json number,title,mergeable,mergeStateStatus,reviewDecision,isDraft,headRefName,headRefOid,baseRefName,url
+   gh pr view <N> --repo {repo} --json number,title,mergeable,mergeStateStatus,reviewDecision,isDraft,headRefName,headRefOid,baseRefName,autoMergeRequest,url
    gh pr checks <N> --repo {repo}         # per-check state (pass/fail/pending/skipping)
    ```
 
@@ -301,11 +301,58 @@ what is actually enforced.
      line, name those rules, so the human knows what to check by hand — and give no
      merge-ready verdict.
 
-5. **Never act on the PR** — with one narrow, documented exception. No `gh pr merge`, no
-   `gh pr review --approve`, no `git push --force`, ever. If the user asks you to merge,
-   confirm the verdict is READY and hand it back — the merge is theirs, or auto-merge's
-   once it is approved; and approving is a human reviewer's, never this
-   skill's. This skill never names a bypass in any verdict.
+5. **Report a stalled auto-merge (`WB-D24`, `#432`).** Only when the first step's
+   `autoMergeRequest` is non-null (auto-merge is armed); otherwise skip it and say nothing.
+   GitHub's auto-merge sometimes does not fire under rulesets: an approved, `CLEAN` PR with
+   auto-merge armed can sit unmerged with nothing pointing at it. This step points at it. It
+   **only reports**: which App holds the token is not established here (`resume` says the same,
+   `reference/conventions.md` § *Acting identity and reach*), so no agent merges. The tested
+   predicate (`stall-merge.sh`, bare name on `PATH`) decides from facts GitHub reports; never
+   judge them by eye and never pipe `gh` output into it. The mode argument is always the
+   literal `user`: `app` is reserved for the follow-up that proves the dev App from the token.
+   **Run the whole block in one Bash call** — each call is a fresh shell, and the head read
+   here is the one the command is pinned to:
+   ```bash
+   PRV=$(gh pr view <N> --repo {repo} --json headRefOid,baseRefName,reviewDecision,mergeStateStatus,autoMergeRequest \
+           --jq '[.headRefOid, .baseRefName, (.reviewDecision | if . == "" then "NONE" else . end), .mergeStateStatus, (.autoMergeRequest != null), (.autoMergeRequest.mergeMethod // "-")] | @tsv') &&
+   HEAD=$(printf '%s' "$PRV" | cut -f1) && B=$(printf '%s' "$PRV" | cut -f2) &&
+   DEC=$(printf '%s' "$PRV" | cut -f3) && STATE=$(printf '%s' "$PRV" | cut -f4) &&
+   ARMED=$(printf '%s' "$PRV" | cut -f5) && METHOD=$(printf '%s' "$PRV" | cut -f6) &&
+   case "$B" in '' | *[!A-Za-z0-9._/-]*) false ;; esac &&
+   RULES=$(gh api --paginate "repos/{repo}/rules/branches/$B") &&
+   APPR=$(printf '%s' "$RULES" | jq -s '[.[][] | select(.type == "pull_request" and .parameters.require_code_owner_review == true)
+            | .parameters.required_approving_review_count] | max // 0') &&
+   REVS=$(gh api --paginate "repos/{repo}/pulls/<N>/reviews") &&
+   REV=$(printf '%s' "$REVS" | jq -s -r '[.[][] | select(.state == "APPROVED")] | last
+            | if . == null then "0000000000000000000000000000000000000000 0"
+              else "\(.commit_id) \(now - (.submitted_at | fromdateiso8601) | floor | if . < 0 then 0 else . end)" end') &&
+   AOID=${REV% *} && AGE=${REV#* } &&
+   V=$(stall-merge.sh user "$ARMED" "$APPR" "$DEC" "$STATE" "$HEAD" "$AOID" "$AGE") || V=unreadable
+   echo "Stall check: $V"
+   case "$METHOD" in SQUASH) F=--squash ;; MERGE) F=--merge ;; REBASE) F=--rebase ;; *) F= ;; esac
+   if [ "$V" = stalled ]; then
+     if [ -n "$F" ]; then echo "Command: gh pr merge <N> --repo {repo} $F --match-head-commit $HEAD"
+     else echo "Command: not printed (the armed merge method could not be read)"; fi
+   fi
+   ```
+   The head is pinned in the command so a push after this read makes it refuse; it is the
+   human's to run (or not), and it is never `--admin`. Report the printed line:
+   - **`stalled`** — GitHub reports the PR approved, clean and armed, and auto-merge has not fired. Give the printed command **only when the verdict above is READY**; if it is anything else (the declared checks disagree with the live ruleset, or a read failed), report the disagreement and give no command. Say
+     so, give the printed command, and add that re-approving is the cheaper remedy if the
+     approver is at hand (not a proven cause). Name no bypass. Where no command is printed,
+     the armed merge method could not be read: say so rather than guessing one.
+   - **`merge`** — impossible while the mode argument is `user`; if it ever prints, treat it as
+     COULD NOT TELL for this step and report that the predicate disagrees with the skill.
+   - **`no-merge <reason>`** — there is no stall to report. `not-armed`, `no-approval` and
+     `not-approved` mean nothing is waiting to fire; `not-clean` is whatever the *Classify
+     each required check* step already reports; `head-moved` means the approval is not on this
+     head; `too-soon` means auto-merge is likely still about to fire, so say wait and re-check, and that the human need not merge it yet even though the verdict reads READY.
+   - **`unreadable`**, or a failed read — report it. It changes no other verdict.
+
+6. **Never act on the PR.** No `gh pr merge`, no `gh pr review --approve`, no
+   `git push --force`, ever. If the user asks you to merge, confirm the verdict is READY and
+   hand it back — the merge is theirs, or auto-merge's once it is approved; and approving is
+   a human reviewer's, never this skill's. This skill never names a bypass in any verdict.
    The **only** sanctioned write is `gh run rerun <old_failed_run_id>` on a **confirmed** stale review
    run (the *Read the review gate on both surfaces it can post to* step).
 
@@ -335,3 +382,7 @@ On a repo whose branch requires a code-owner approval the state line reads `stat
 until one is given, and the verdict line is `Verdict: AWAITING APPROVAL into main — all 8
 required checks green (plus any contexts the branch rule names, listed); the code-owner
 approval is why it reads BLOCKED. A human gives it; I won't.`
+
+When the PR has auto-merge armed, a `Stall check:` line follows the verdict (the *Report a
+stalled auto-merge* step). A `stalled` result is a READY PR the armed auto-merge has not
+merged: print the pinned command under the verdict and leave the merge to the human.
