@@ -1426,6 +1426,10 @@ take effect. Full reasoning and the task breakdown that implements them:
       pinned runs. A hand-started review carries a wider form of
       this race today: from its pin to its post, with a poll that accepts the new head. A
       fresh machine with no pin only shows the step.
+      *Amended 2026-10-11 (#346):* every run, hand-started included, now posts through
+      `…/pulls/<M>/reviews` with `commit_id` set to the reviewed SHA, which narrows the post half
+      of that race for all runs where the adopter's gate honours `commit_id`. A head-keyed gate
+      can still go green on a moved head, which only a pinned run's poll reports.
     - **Anyone with write access can edit a PR's title and body**, not only its author.
       Adding `#N` to an unrelated open PR of the maintainer's makes two PRs qualify, so
       resume waits. On a fresh machine, it shows the wrong PR for one "go". Auto-start itself

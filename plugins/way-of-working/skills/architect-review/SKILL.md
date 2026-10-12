@@ -16,8 +16,9 @@ session.
 Argument: a PR number in the repo whose checkout you are standing in, at its root,
 optionally followed by `--pin <sha>` — a full 40-hex head SHA, compared byte for byte, never
 a prefix. `/way-of-working:resume` passes it when it starts this skill itself from the
-review step it derived (`WB-D22`); a hand-started run carries none and behaves as it always
-has. A value that is not exactly 40 lowercase hex is a stop. `--pin` is **never evidence of
+review step it derived (`WB-D22`); a hand-started run carries none, so the head is not
+compared to a SHA fixed before the run, but its post is bound to the reviewed SHA all the
+same. A value that is not exactly 40 lowercase hex is a stop. `--pin` is **never evidence of
 a fresh session** — the *State the integrity precondition, then honor it* step stays as
 written. Wherever
 you start — on the base, on the PR's own branch (whose `.ai/project.yml` is the author's),
@@ -228,28 +229,31 @@ guess a gate (`reference/project-schema.md`).
    untrusted, reviewed without local execution and marked per claim — each as the
    *Review by execution, in an isolated sandbox* step specifies; the verdict; ranked
    findings with reproductions; what you independently verified. Post with
-   `gh pr review <N> --comment --body-file <that path>`. **Never `--approve`, never
+   the REST reviews call below, **every run, pinned or not**. **Never `--approve`, never
    `--request-changes`, never merge**: the approval is the human's (a code-owner approval where the base requires one), and a
    Claude-issued approval would be a gate approving itself.
 
-   **With `--pin`, re-read the head immediately before posting** — `gh pr view <N> --repo {repo} --json
-   headRefOid -q .headRefOid` — and stop if it is not the pin, **then post against the pin, not
-   against whatever the head is by then**, instead of `gh pr review`:
+   **Re-read the head immediately before posting** — `gh pr view <N> --repo {repo} --json
+   headRefOid -q .headRefOid` — and stop if it is not `<sha>`, the SHA from the *Pin the target*
+   step (the one written in the `Reviewed against head` line; with `--pin` it is the pin).
+   **Then post against `<sha>`, not against whatever the head is by then**:
    ```bash
-   R=$(gh api -X POST "repos/{repo}/pulls/<N>/reviews" -f commit_id=<pin> -f event=COMMENT \
+   R=$(gh api -X POST "repos/{repo}/pulls/<N>/reviews" -f commit_id=<sha> -f event=COMMENT \
          -F body=@"<that path>" --jq '.commit_id + " " + .state') &&
-   [ "$R" = "<pin> COMMENTED" ] || { echo "STOP: review post returned ${R:-nothing}"; exit 1; }
+   [ "$R" = "<sha> COMMENTED" ] || { echo "STOP: review post returned ${R:-nothing}"; exit 1; }
    ```
    `event=COMMENT` is a fixed literal and is required: omitted, the API creates an invisible
    PENDING draft, the gate stays red and a stray draft is left behind. It is never `APPROVE` or
    `REQUEST_CHANGES`. The body is the same file, so the frozen header and attestation still
-   reach the gate byte for byte. The review is now attached to the pin even if a push landed
-   after the re-read, and a push that removes the pin from the PR makes the API refuse the post
+   reach the gate byte for byte. The review is now attached to `<sha>` even if a push landed
+   after the re-read, and a push that removes `<sha>` from the PR makes the API refuse the post
    (a stop). A gate keyed on the review's `commit_id` then stays red on the pushed head; a gate
-   keyed on the PR's head can still go green there, and the poll's head check reports it. A
+   keyed on the PR's head can still go green there, which only a `--pin` run's poll reports (the *Verify the post took* step). A
    refused POST (including a harness denying this `gh api` write) is a stop to report, never a
-   fall back to `gh pr review`. **Not yet verified live**: it runs only where `{review.ci_gate}`
-   is set, and a hand-started run keeps `gh pr review` unchanged.
+   fall back to `gh pr review`, which sends no commit and so attaches to whatever the head is at
+   submit time. **Not yet verified live**: this REST form has not posted on any gated repo yet, and it replaces the
+   `gh pr review` post every non-App hand-started run used until now; an adopter's first run is the
+   live check.
 
    **App mode — the post is made with a reviewer token requested after the sandbox is gone**
    (`WB-D24`, `#389`). Read the **default branch's** copy of `identities` (the copy the *Pin the
@@ -262,10 +266,10 @@ guess a gate (`reference/project-schema.md`).
    so no reviewer token **file** exists while sandboxed PR code runs. That is all the order buys:
    the sandbox is same-user accident containment, not a boundary, so PR code can still read the
    reviewer App's key or leave a process or `PATH` plant behind (`review-sandbox.sh`'s "does NOT
-   close" list, and `review-token.sh`'s header). The post is always the pinned API form above,
-   `<pin>` being the SHA from the *Pin the target* step and `<default>` the `default=` value
-   `review-base-anchor.sh` printed. The pre-post head re-read is not repeated here: `commit_id`
-   attaches the review to the pin whatever the head has become. One Bash call, whose trap deletes
+   close" list, and `review-token.sh`'s header). The post is always the API form above,
+   `<sha>` being the SHA from the *Pin the target* step and `<default>` the `default=` value
+   `review-base-anchor.sh` printed. The pre-post head re-read is done above, before this block, in App mode too: `commit_id`
+   attaches the review to `<sha>` whatever the head has become. One Bash call, whose trap deletes
    the token file on every exit:
    ```bash
    unset GH_HOST GH_ENTERPRISE_TOKEN; set -f
@@ -280,11 +284,11 @@ guess a gate (`reference/project-schema.md`).
      yq -e '.identities.reviewer_app | tag == "!!map"' "$T/def.yml" >/dev/null &&
      token-check.sh verify any {repo} "$F" "$T/inst.txt" "$T/def.yml" >/dev/null &&
      R=$(GH_TOKEN="$TOK" timeout 60 gh api --hostname github.com -X POST "repos/{repo}/pulls/<N>/reviews" \
-           -f commit_id=<pin> -f event=COMMENT -F body=@"<that path>" \
+           -f commit_id=<sha> -f event=COMMENT -F body=@"<that path>" \
            --jq '.commit_id + " " + .state + " " + .user.login + " " + (.user.id | tostring)'); } || RC=$?
    if [ "$RC" = 0 ]; then
      set -- $R   # <commit_id> <state> <login> <id>
-     if [ "$1" != "<pin>" ] || [ "$2" != COMMENTED ]; then RC=104
+     if [ "$1" != "<sha>" ] || [ "$2" != COMMENTED ]; then RC=104
      elif ! token-check.sh verify reviewer_app {repo} "$F" "$T/inst.txt" "$T/def.yml" "$3" "$4" >/dev/null; then RC=103
      fi
    fi
@@ -295,14 +299,14 @@ guess a gate (`reference/project-schema.md`).
    `GH_HOST`/`GH_ENTERPRISE_TOKEN` unset so `GH_TOKEN` is the credential used. Which App holds an
    installation token is provable only from a write response (`WB-D24`, `#380`), so the
    declared-`reviewer_app` check runs after the post, on the response's `user` login and id, and
-   before the trap's `discard` (it needs the token file). Anything but `0 <pin> COMMENTED …` is a
+   before the trap's `discard` (it needs the token file). Anything but `0 <sha> COMMENTED …` is a
    stop to report, never worked around by `gh pr review` under another login. **`103` and `104`
    (chosen outside any exit status a tool in the chain returns) mean a review did post**: the actor
    not proven to be the declared reviewer, or the wrong commit or state (or an empty response from a `0` exit: posted or unknown, so never retried blind). Say so plainly for the
    human to handle, and still consume the cursor's vote below. **Any other nonzero means no
    review was confirmed, not that none posted**: a `timeout` (124) or a dropped connection can
    follow a POST GitHub accepted, so read the PR's reviews before any retry, and a retry that
-   would post a second review on the same pin is a stop. `discard` removes only this host's copy:
+   would post a second review on the same `<sha>` is a stop. `discard` removes only this host's copy:
    the token lives out its hour on GitHub (`wow-review-mint`'s header). The tests
    (`tests/review-token.test.sh`) cover `review-token.sh` against a stub broker only, not this
    block. **The live run — one review posted on the scratch repo through this flow — is the
@@ -356,9 +360,9 @@ guess a gate (`reference/project-schema.md`).
    only on the pin, and a head other than the pin is a **stop to report** (never re-pin and
    repost: a pushed fix re-arms the gate on a commit nobody pinned, and a new no-op handoff
    from the fixed head is what re-pins it). Diagnosis (a) below does not apply, and a printed
-   `STOP` is reported as that, never run through (b) or (c). Today's unpinned loop polls the current head and accepts
+   `STOP` is reported as that, never run through (b) or (c). The unpinned loop polls the current head and accepts
    `success` there without comparing it to what was reviewed; that gap is closed for the
-   pinned run only.
+   pinned run only. The post itself is bound to `<sha>` for every run.
 
    Any word but `success`, or nothing (exit 2), is not green. Not `success` at the bound:
    diagnose **in order**. (a) **Head moved** — the printed SHA isn't the one
@@ -390,7 +394,7 @@ guess a gate (`reference/project-schema.md`).
 
 ## Guardrails
 
-- A COMMENT review only (`--comment`, or `event=COMMENT` on the pinned path). No `--approve`/`event=APPROVE`, no `event=REQUEST_CHANGES`, no `--request-changes`, no `gh pr merge`, no push to
+- A COMMENT review only (`event=COMMENT`, every run). No `--approve`/`event=APPROVE`, no `event=REQUEST_CHANGES`, no `--request-changes`, no `gh pr merge`, no push to
   the branch, no `--force`.
 - The two frozen strings are copied from `.ai/project.yml` on `{pr_base}`, never typed —
   why: `reference/project-schema.md`.
