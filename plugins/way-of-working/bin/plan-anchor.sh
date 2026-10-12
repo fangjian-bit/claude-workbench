@@ -42,8 +42,9 @@
 # exact comment (`reactions` of the comment id the anchor names, never another) that was
 # made by a declared maintainer (matched on the numeric user `id`, never the login),
 # whose `created_at` is STRICTLY after the comment's `updated_at` (a reaction does not
-# move `updated_at` -- assumed, not yet measured live; if wrong, nothing ever matches, never a
-# false match -- so an edit after the reaction leaves it stale), and whose content
+# move `updated_at` -- observed once, live, 2026-10-12, `#498`: a `rocket` added six seconds
+# after a comment was created left its `updated_at` equal to `created_at`; were that ever to
+# change, nothing would match, never a false match -- so an edit after the reaction leaves it stale), and whose content
 # is an approving one (`+1`, `heart`, `hooray`, `rocket`; `-1`, `confused`, `eyes` and
 # `laugh` never count). Otherwise it prints `unreacted`, which a caller treats as a wait,
 # exactly like `drift`. The ids arrive as an ARGUMENT, read by the caller from the
