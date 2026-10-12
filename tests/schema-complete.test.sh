@@ -745,6 +745,126 @@ assert_eq "rulesets[1].name: an entry with no name is invalid at its own index" 
   'incomplete
 invalid rulesets[1].name null' "$(run_check "$tmp/rsn_missing.yml")"
 
+echo "# check -- identities and rulesets ELEMENTS (#452)"
+
+# ident_with <file> <maintainer-entry> <dev_app value>
+ident_with() {
+  ident_fixture "$1" "  maintainer:" "    - $2" "  dev_app: $3" "  reviewer_app: null" "  loop_app: null"
+}
+ok_login='{ login: some-maintainer, id: 1001 }'
+
+ident_with "$tmp/el_ok.yml" "$ok_login" '{ login: "dev-app[bot]", id: 2001 }'
+assert_eq "a well-formed maintainer and App is complete" "complete" "$(run_check "$tmp/el_ok.yml")"
+ident_with "$tmp/el_ok.yml" '{ login: x, id: 123456789012345 }' '{ login: "a-b[bot]", id: 9 }'
+assert_eq "a real-sized id (15 digits) and a one-character login are complete" "complete" "$(run_check "$tmp/el_ok.yml")"
+
+# each rejected maintainer shape, named by index
+for m in 'some-login' '[a, b]' 'null' '{}' '{ id: 1 }' '{ login: some-login }' '{ login: some-login, id: "1001" }' \
+         '{ login: some-login, id: 0 }' '{ login: some-login, id: -3 }' '{ login: some-login, id: 1.5 }' \
+         '{ login: some-login, id: 0x10 }' '{ login: some-login, id: 0123 }' '{ login: some-login, id: true }' \
+         '{ login: some-login, id: [1] }' '{ login: 1001, id: 1001 }' '{ login: "", id: 1 }' \
+         '{ login: "-lead", id: 1 }' '{ login: "trail-", id: 1 }' '{ login: "a b", id: 1 }' '{ login: "a$(id)", id: 1 }' \
+         '{ login: "a[bot", id: 1 }' '{ login: "a\nb", id: 1 }'; do
+  ident_with "$tmp/el_bad.yml" "$m" 'null'
+  out=$(run_check "$tmp/el_bad.yml")
+  assert_eq "identities.maintainer[0]: $m is invalid, and the only finding" \
+    "incomplete|invalid identities.maintainer[0]|2" \
+    "$(printf '%s\n' "$out" | sed -n '1p;2p' | cut -d' ' -f1,2 | paste -sd'|')|$(printf '%s\n' "$out" | wc -l | tr -d ' ')"
+done
+
+# id spellings and bounds, login length, and a maintainer that is really an App
+for m in '{ login: some-login, id: 1234567890123456 }' '{ login: some-login, id: +5 }' '{ login: some-login, id: 1_000 }' \
+         '{ login: some-login, id: 0o17 }' '{ login: some-login, id: 1e3 }' '{ login: "aaaaaaaaaabbbbbbbbbbccccccccccdddddddddde", id: 1 }' \
+         '{ login: "dev-app[bot]", id: 1 }' '{ login: "[bot]", id: 1 }'; do
+  ident_with "$tmp/el_bad.yml" "$m" 'null'
+  out=$(run_check "$tmp/el_bad.yml")
+  assert_eq "identities.maintainer[0]: $m is invalid, and the only finding" \
+    "incomplete|invalid identities.maintainer[0]|2" \
+    "$(printf '%s\n' "$out" | sed -n '1p;2p' | cut -d' ' -f1,2 | paste -sd'|')|$(printf '%s\n' "$out" | wc -l | tr -d ' ')"
+done
+ident_with "$tmp/el_ok.yml" '{ login: "aaaaaaaaaabbbbbbbbbbccccccccccddddddddd", id: 123456789012345 }' 'null'
+assert_eq "a 39-character login and a 15-digit id are the largest legal pair" "complete" "$(run_check "$tmp/el_ok.yml")"
+
+# aliases and merge keys are read as the readers read them (explode): the earlier merge source wins
+anchors='x-bad: &bad { login: "-bad", id: "7" }
+x-good: &good { login: alice, id: 42 }'
+alias_fixture() { { grep -v '^identities:' "$base"; printf '%s\n' "$anchors" "identities:" "$@"; } >"$tmp/el_alias.yml"; }
+alias_fixture "  maintainer:" '    - { <<: [*bad, *good] }' "  dev_app: null" "  reviewer_app: null" "  loop_app: null"
+assert_eq "a merge-key sequence whose first source is malformed is invalid (the reader binds the first)" \
+  'incomplete
+invalid identities.maintainer[0] {"login":"-bad","id":"7"}' "$(run_check "$tmp/el_alias.yml")"
+alias_fixture "  maintainer:" '    - { <<: [*good, *bad] }' "  dev_app: null" "  reviewer_app: null" "  loop_app: null"
+assert_eq "a merge-key sequence whose first source is well-formed is complete (the reader binds the first)" \
+  "complete" "$(run_check "$tmp/el_alias.yml")"
+alias_fixture "  maintainer:" '    - *good' "  dev_app: { <<: [*bad, *good] }" "  reviewer_app: null" "  loop_app: null"
+assert_eq "an App read through a malformed merge source is invalid" \
+  'incomplete
+invalid identities.dev_app {"login":"-bad","id":"7"}' "$(run_check "$tmp/el_alias.yml")"
+{ cat "$base"; printf '%s\n' 'x-bad: &rbad { name: "ok", source: evil, rule_types: zz }' 'x-good: &rgood { name: ok, source: repo, rule_types: [x] }' 'rulesets:' '  - { <<: [*rbad, *rgood] }'; } >"$tmp/el_ralias.yml"
+assert_eq "a rulesets entry merged from a malformed source is invalid, both fields" \
+  'incomplete
+invalid rulesets[0].source "evil"
+invalid rulesets[0].rule_types "zz"' "$(run_check "$tmp/el_ralias.yml")"
+
+# the index names the bad entry, not the first
+ident_fixture "$tmp/el_idx.yml" "  maintainer:" "    - $ok_login" "    - bare-login" "  dev_app: null" "  reviewer_app: null" "  loop_app: null"
+assert_eq "identities.maintainer: the finding carries the index of the bad entry" \
+  'incomplete
+invalid identities.maintainer[1] "bare-login"' "$(run_check "$tmp/el_idx.yml")"
+
+# each App slot
+for app in dev_app reviewer_app loop_app; do
+  for v in '{}' '{ id: 5 }' '{ login: a }' '{ login: a, id: "5" }' '{ login: a, id: 0 }' '{ login: "a b", id: 5 }'; do
+    ident_fixture "$tmp/el_app.yml" "  maintainer:" "    - $ok_login" "  dev_app: null" "  reviewer_app: null" "  loop_app: null"
+    sed "s/^  $app: null/  $app: $v/" "$tmp/el_app.yml" >"$tmp/el_app.2.yml"
+    out=$(run_check "$tmp/el_app.2.yml")
+    assert_eq "identities.$app: $v is invalid, and the only finding" \
+      "incomplete|invalid identities.$app|2" \
+      "$(printf '%s\n' "$out" | sed -n '1p;2p' | cut -d' ' -f1,2 | paste -sd'|')|$(printf '%s\n' "$out" | wc -l | tr -d ' ')"
+  done
+done
+ident_fixture "$tmp/el_app_ok.yml" "  maintainer:" "    - $ok_login" "  dev_app: { login: d, id: 1 }" "  reviewer_app: { login: \"r[bot]\", id: 2 }" "  loop_app: { login: \"l[bot]\", id: 3 }"
+assert_eq "all three Apps well-formed is complete" "complete" "$(run_check "$tmp/el_app_ok.yml")"
+
+# an element finding is never raised for an identities: null repo, nor stacked on a shape finding
+ident_fixture "$tmp/el_shape.yml" "  maintainer: some-login" "  dev_app: null" "  reviewer_app: null" "  loop_app: null"
+assert_eq "a maintainer that is not a list is one shape finding, with no element findings" \
+  'incomplete
+invalid identities.maintainer "some-login"' "$(run_check "$tmp/el_shape.yml")"
+
+# rulesets entries
+rs_entry() { { cat "$base"; printf 'rulesets:\n'; printf '%s\n' "$@"; } >"$tmp/rse.yml"; }
+rs_entry '  - { name: protected, source: repo, rule_types: [deletion] }' '  - { name: approval, source: org, rule_types: [] }'
+assert_eq "rulesets entries with source repo/org and a rule_types list (even empty) are complete" "complete" "$(run_check "$tmp/rse.yml")"
+for e in '{ name: a, rule_types: [x] }' '{ name: a, source: bogus, rule_types: [x] }' '{ name: a, source: Repo, rule_types: [x] }' \
+         '{ name: a, source: "repo ", rule_types: [x] }' '{ name: a, source: 1, rule_types: [x] }' '{ name: a, source: null, rule_types: [x] }'; do
+  rs_entry "  - $e"
+  out=$(run_check "$tmp/rse.yml")
+  assert_eq "rulesets[0]: $e has a bad source, and that is the only finding" \
+    "incomplete|invalid rulesets[0].source|2" \
+    "$(printf '%s\n' "$out" | sed -n '1p;2p' | cut -d' ' -f1,2 | paste -sd'|')|$(printf '%s\n' "$out" | wc -l | tr -d ' ')"
+done
+for e in '{ name: a, source: repo }' '{ name: a, source: repo, rule_types: deletion }' '{ name: a, source: repo, rule_types: null }' \
+         '{ name: a, source: repo, rule_types: { a: 1 } }'; do
+  rs_entry "  - $e"
+  out=$(run_check "$tmp/rse.yml")
+  assert_eq "rulesets[0]: $e has a bad rule_types, and that is the only finding" \
+    "incomplete|invalid rulesets[0].rule_types|2" \
+    "$(printf '%s\n' "$out" | sed -n '1p;2p' | cut -d' ' -f1,2 | paste -sd'|')|$(printf '%s\n' "$out" | wc -l | tr -d ' ')"
+done
+for e in 'protected' '5' 'null' '[a, b]'; do
+  rs_entry "  - $e"
+  out=$(run_check "$tmp/rse.yml")
+  assert_eq "rulesets[0]: $e (not a map) is invalid as a whole entry, and the only finding" \
+    "incomplete|invalid rulesets[0]|2" \
+    "$(printf '%s\n' "$out" | sed -n '1p;2p' | cut -d' ' -f1,2 | paste -sd'|')|$(printf '%s\n' "$out" | wc -l | tr -d ' ')"
+done
+rs_entry '  - { name: ok, source: repo, rule_types: [x] }' '  - { name: bad, source: nope, rule_types: x }'
+assert_eq "a bad second entry is named by its own index, both fields" \
+  'incomplete
+invalid rulesets[1].source "nope"
+invalid rulesets[1].rule_types "x"' "$(run_check "$tmp/rse.yml")"
+
 echo "# check -- unreadable: no file, unparseable YAML, yq missing"
 
 assert_eq "a nonexistent file is unreadable" \

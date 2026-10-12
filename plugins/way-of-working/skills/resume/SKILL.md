@@ -784,9 +784,9 @@ edited it. **Default to the full checklist whenever unsure.**
      decided from that same file, in that same call: `yq -r 'has("identities"), (.identities | tag)' "$DEF_YML_FILE"` prints exactly the two lines `true` then `!!null`
      (legacy) → omit the flag; `!!map` → pass it; anything else, a missing key or an unreadable file
      **waits** — the flag is never omitted by default, and never decided from the author check, which
-     runs later (at the body fetch). Extract the ids with a type check, `yq -r '.identities.maintainer | map(.id) |
+     runs later (at the body fetch). Extract the ids with a type check, `yq -r '.identities.maintainer | explode(.) | map(.id) |
      join(",")' "$DEF_YML_FILE"` after confirming every entry's `id` is `!!int` (`yq -r
-     '[.identities.maintainer[].id | tag] | unique | join(",")'` prints `!!int`); an unreadable
+     '[.identities.maintainer | explode(.) | .[].id | tag] | unique | join(",")'` prints `!!int`); an unreadable
      file, an empty list, a string or missing `id` waits, never omits the flag. When
      `plan_anchor.spec_comment` is non-null (null is itself `unreacted`: an issue body alone is editable text that keeps its maintainer author, so a cut-over repo needs a spec comment to auto-start), it prints `match` only if a declared maintainer
      reacted `+1`, `heart`, `hooray` or `rocket` on **that exact comment** strictly after its
