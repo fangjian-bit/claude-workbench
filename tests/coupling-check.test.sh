@@ -12,7 +12,8 @@
 # that passed, so the behaviour is pinned here rather than left to convention.
 # Each assertion that pins a fix is mutation-checked: reverting that fix must fail
 # it. The rest are deliberate controls -- a clean tree, the real exclusions, a
-# nested reference/, and the working-grep pair -- which pin the absence of false
+# nested reference/, the working-grep pair, and the App-login controls (generic `[bot]`
+# handling, a third-party bot, a reference/ worked example) -- which pin the absence of false
 # positives and so have no fix to revert.
 # See issue #53.
 #
@@ -97,6 +98,46 @@ d="$(tree yaml_scalar_gap)"
 mkdir -p "$d/plugins/wow/skills"
 echo 'check: architect-review' >"$d/plugins/wow/skills/a.md"
 assert_status "check name: a YAML key's value is the stated gap and passes" 0 "$d"
+
+# --- #530: an App login is a repo-specific value, whatever its role suffix ----
+# TIER2 named the org (`glunk-works`) but not `glunk-<role>[bot]`, so #476's critics found
+# `glunk-dev[bot]` in shared skill prose while the gate passed. Dropping TIER4 fails the
+# App-login, 603 and GHCR cases; the upper-case, `seuss27` and `Claude-Workbench` cases pin
+# the case-insensitive (-i) pass instead. The three controls pin that generic `[bot]` handling, third-party bots and a
+# reference/ worked example stay legal.
+app_login_caught() { # app_login_caught <desc> <line>
+  d="$(tree "app_$(printf '%s' "$1" | tr -c 'a-z0-9' _)")"
+  mkdir -p "$d/plugins/wow/skills"
+  printf '%s\n' "$2" >"$d/plugins/wow/skills/a.md"
+  assert_status "App login: $1 is caught" 1 "$d"
+}
+app_login_caught "the dev App login" 'push as glunk-dev[bot] when the token is an App'
+app_login_caught "the review App login" 'the reviewer is `glunk-review[bot]`'
+app_login_caught "an App login not yet minted" 'authored by glunk-triage[bot]'
+app_login_caught "a 603 App login" 'push as 603id-dev[bot] when the token is an App'
+app_login_caught "the 603 org name" 'clone 603-Identity/devcontainers'
+app_login_caught "a lowercase GHCR image path" 'docker pull ghcr.io/603-identity/devcontainer-base'
+app_login_caught "an upper-case App login" 'push as Glunk-Dev[bot]'
+app_login_caught "a 603 repo name" 'see 603identity-site'
+
+d="$(tree bot_suffix_generic)"
+mkdir -p "$d/plugins/wow/skills"
+echo 'fold case and a trailing [bot] on both logins before comparing' >"$d/plugins/wow/skills/a.md"
+assert_status "App login: generic [bot] suffix handling is not coupling" 0 "$d"
+
+d="$(tree third_party_bot)"
+mkdir -p "$d/plugins/wow/skills"
+echo 'github-actions[bot] and dependabot[bot] are third-party Apps' >"$d/plugins/wow/skills/a.md"
+assert_status "App login: third-party bots with hyphenated logins are not coupling" 0 "$d"
+
+app_login_caught "a lowercase maintainer login" 'ask seuss27 to merge'
+app_login_caught "a differently-cased repo name" 'the Claude-Workbench repo'
+
+d="$(tree app_login_in_reference)"
+mkdir -p "$d/plugins/wow/reference" "$d/plugins/wow/skills"
+echo 'example: glunk-dev[bot]' >"$d/plugins/wow/reference/schema.md"
+echo "portable content" >"$d/plugins/wow/skills/a.md"
+assert_status "App login: a worked example in reference/ is still allowed" 0 "$d"
 
 # --- the #49 bug: a component directory nobody added to a list --------------
 d="$(tree newdir)"
@@ -216,6 +257,29 @@ if [ "$actual" -eq 1 ]; then
   echo "ok - grep: an erroring grep fails the gate instead of reading as clean"
 else
   echo "FAIL - grep: expected exit [1] when grep errors, got [$actual]" >&2
+  fail=1
+fi
+
+# The case-insensitive pass has its own exit-status branch: a grep that errors only when
+# given -i (the case-insensitive pass) must fail the gate too, not just one that always errors.
+real_grep="$(command -v grep)"
+stub2="$tmp/stub2"
+mkdir -p "$stub2"
+cat >"$stub2/grep" <<EOF
+#!/bin/sh
+case "\$1" in *i*) exit 2 ;; esac
+exec "$real_grep" "\$@"
+EOF
+chmod +x "$stub2/grep"
+d2="$(tree greperr_ci)"
+mkdir -p "$d2/plugins/wow/skills"
+echo "portable content" >"$d2/plugins/wow/skills/a.md"
+actual=0
+( cd "$d2" && PATH="$stub2:$PATH" bash "$script" >/dev/null 2>&1 ) || actual=$?
+if [ "$actual" -eq 1 ]; then
+  echo "ok - grep: an erroring case-insensitive pass fails the gate instead of reading as clean"
+else
+  echo "FAIL - grep: expected exit [1] when only the -i pass errors, got [$actual]" >&2
   fail=1
 fi
 

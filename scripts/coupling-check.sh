@@ -68,7 +68,7 @@ set -euo pipefail
 # token in backticks reads as a check name to this gate, by design. Pinned by
 # tests/coupling-check.test.sh, the `key: token` gap included.
 CHECK_NAME="[^:/ ]architect-review|(^|[^:]) architect-review|^architect-review"
-TIER1='hatch run|migration_roadmap|'"$CHECK_NAME"'|loop-orchestrator|Seuss27'
+TIER1='hatch run|migration_roadmap|'"$CHECK_NAME"'|loop-orchestrator'
 
 # Tier 2 -- every repo in the org, plus any emitter name the reference docs use as a worked
 # example. A skill that names one of these is the same defect as tier 1, caught before it
@@ -76,7 +76,7 @@ TIER1='hatch run|migration_roadmap|'"$CHECK_NAME"'|loop-orchestrator|Seuss27'
 # tier), but is listed here too so this tier's own membership rule is literally true on its
 # own and doesn't silently depend on TIER1 never being pruned. Hand-maintained: WB-D14
 # (docs/decisions.md) records the derive-vs-hand-maintain call; keep this list in sync
-# with `gh repo list glunk-works`.
+# with `gh repo list glunk-works`. Matched case-insensitively, in the TIER4 pass below.
 TIER2='bounty-infra|global-bootstrap|scope-core|glunk-works|claude-workbench|bedrock-serverless-rag|pm-agent-loop|appsec-triage-agent|loop-engine|loop-orchestrator'
 
 # Tier 3 -- structural literal SHAPES, not exact strings. SW Task 5 found that tiers 1-2
@@ -98,7 +98,29 @@ TIER2='bounty-infra|global-bootstrap|scope-core|glunk-works|claude-workbench|bed
 # than trusting a hardcoded list.
 TIER3='docs/[A-Za-z_]+roadmap\.md|\.ai/context/[A-Za-z_]+\.(md|json)'
 
-PATTERN="${TIER1}|${TIER2}|${TIER3}"
+# Tier 4 -- the App identities of the orgs this repo is worked from, and the 603 org name.
+# TIER2 names `glunk-works` (the org) but not the `glunk-<role>[bot]` logins of its GitHub
+# Apps (`glunk-dev[bot]`, `glunk-review[bot]`): a critic on #476's PR (#528) found both in shared skill
+# prose while this gate passed. The 603 Apps are `603id-<role>[bot]`, which shares no prefix
+# with their org `603-Identity`, so the prefix and the org name are listed separately. A
+# consuming repo's App logins live in .ai/project.yml (`identities`, and `orchestration.loop_identity` for the loop; null where unused),
+# never in plugin code. A prefix, not a list of roles, so a newly minted App is covered
+# without an edit; it is the orgs' own brand, which no portable plugin text has reason to
+# carry. See #530.
+#
+# Matched case-INSENSITIVELY, in its own grep pass below, together with TIER2 and the
+# maintainer's login: GitHub logins, org and repo names are case-insensitive and GHCR forces
+# image paths lowercase, so `ghcr.io/603-identity/...` or `seuss27` pasted from a working
+# command is the realistic leak. TIER1 and TIER3 stay case-sensitive (the tuned CHECK_NAME
+# and path shapes would grow false positives). `603-?id(entity)?` covers `603id-<role>`, the
+# org `603-Identity` and repos such as `603identity-site`. Not covered, stated: numeric App,
+# client and installation ids, user logins (beyond the maintainer's, below), and separator or Unicode lookalikes (none is a
+# real login, so only a deliberate evader writes one).
+TIER4='glunk-[a-z0-9-]+|603-?id(entity)?'
+LOGINS='Seuss27'
+
+PATTERN_CS="${TIER1}|${TIER3}"
+PATTERN_CI="${TIER2}|${TIER4}|${LOGINS}"
 
 fail=0
 scanned=0
@@ -143,17 +165,20 @@ for plugin_dir in plugins/*/; do
     # I/O error, bad regex). The old `if hits=$(grep ...)` form read >=2 as "clean" and
     # threw away any hits it had already found -- a gate that dies quietly reporting the
     # same "nothing to see" as a gate that passed. Same lesson invariants-check.sh names.
-    status=0
-    hits=$(grep -rnE "$PATTERN" "$target") || status=$?
-    if [ "$status" -eq 0 ]; then
-      echo "COUPLING FAIL: repo-specific literal in $target" >&2
-      echo "$hits" >&2
-      fail=1
-    elif [ "$status" -ne 1 ]; then
-      echo "COUPLING FAIL: grep exited $status on $target -- that is an error, not a clean" >&2
-      echo "result. Refusing to report a pass over a tree this gate could not read." >&2
-      fail=1
-    fi
+    # Two passes: TIER1 and TIER3 case-sensitive; TIER2, TIER4 and LOGINS case-insensitive.
+    for pass in "-rnE|$PATTERN_CS" "-rniE|$PATTERN_CI"; do
+      status=0
+      hits=$(grep "${pass%%|*}" "${pass#*|}" "$target") || status=$?
+      if [ "$status" -eq 0 ]; then
+        echo "COUPLING FAIL: repo-specific literal in $target" >&2
+        echo "$hits" >&2
+        fail=1
+      elif [ "$status" -ne 1 ]; then
+        echo "COUPLING FAIL: grep exited $status on $target -- that is an error, not a clean" >&2
+        echo "result. Refusing to report a pass over a tree this gate could not read." >&2
+        fail=1
+      fi
+    done
   done
   if [ "$plugin_scanned" -eq 0 ]; then
     echo "COUPLING FAIL: nothing scannable in $plugin_dir -- every entry was excluded or it is empty." >&2
