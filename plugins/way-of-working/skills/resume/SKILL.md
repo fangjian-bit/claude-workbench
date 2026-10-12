@@ -645,9 +645,10 @@ edited it. **Default to the full checklist whenever unsure.**
    - **under `{planning.kind}: github_milestones`, the plan verified** — the reach check
      above passed, both the milestone and the open-issues reads succeeded,
      ```bash
-     plan-anchor.sh verify [--loop-identity <login>] {backlog.repo} <pointers.sprint_plan> <anchor>
+     plan-anchor.sh verify [--loop-identity <login>] [--maintainer-ids <id,id,...>] {backlog.repo} <pointers.sprint_plan> <anchor>
      ```
-     (full mode, `reference/project-schema.md` § `planning`; `--loop-identity` is passed when
+     (full mode, `reference/project-schema.md` § `planning`; `--maintainer-ids` per *The
+     maintainer's reaction* below, **`unreacted` waits**; `--loop-identity` is passed when
      the default branch's `orchestration.loop_identity` is non-null, read as that section's
      *Passing it to `plan-anchor.sh verify`* paragraph says, and an unreadable read waits;
      `<anchor>` is
@@ -728,6 +729,28 @@ edited it. **Default to the full checklist whenever unsure.**
        error, or because the check didn't exist yet) must not silently read as "the approved
        spec" for this one either. A trusted `#N` with an untrusted spec-comment author still
        waits.
+
+     **The maintainer's reaction (`WB-D24`, `#383`).** A trusted author's comment is not an
+     approval. Under a map (`.identities | tag` is `!!map`), `plan-anchor.sh verify` also needs
+     `--maintainer-ids <id,id,...>`, the numeric `id` of every `identities.maintainer` entry from
+     the same default-branch copy (`$DEF_YML_FILE`, read in the **same** Bash call as the fetch,
+     never `.ai/project.yml` in the working tree, which a PR can edit to add its own id),
+     decided from that same file, in that same call: `yq -r 'has("identities"), (.identities | tag)' "$DEF_YML_FILE"` prints exactly the two lines `true` then `!!null`
+     (legacy) → omit the flag; `!!map` → pass it; anything else, a missing key or an unreadable file
+     **waits** — the flag is never omitted by default, and never decided from the author check, which
+     runs later (at the body fetch). Extract the ids with a type check, `yq -r '.identities.maintainer | map(.id) |
+     join(",")' "$DEF_YML_FILE"` after confirming every entry's `id` is `!!int` (`yq -r
+     '[.identities.maintainer[].id | tag] | unique | join(",")'` prints `!!int`); an unreadable
+     file, an empty list, a string or missing `id` waits, never omits the flag. When
+     `plan_anchor.spec_comment` is non-null (null is itself `unreacted`: an issue body alone is editable text that keeps its maintainer author, so a cut-over repo needs a spec comment to auto-start), it prints `match` only if a declared maintainer
+     reacted `+1`, `heart`, `hooray` or `rocket` on **that exact comment** strictly after its
+     `updated_at`; otherwise **`unreacted`**, which **waits** like `drift` and is stated in the
+     pick-up summary, impossible to miss: `Spec approval: waiting — a maintainer reaction
+     (👍, ❤️, 🎉 or 🚀) is needed on <comment URL>, after its last edit.` — or, with no
+     spec comment anchored, `Spec approval: waiting — no spec comment is anchored; post the spec
+     as a comment on #N, anchor it at handoff, and react to it.` An edit to the
+     comment after the reaction makes the reaction stale, and a comment alone never counts.
+     Under `legacy` (`identities: null`) the flag is omitted and nothing changes.
 
    Otherwise **state the pick-up point and wait.** In particular: always wait on
    `planning` (the planning pass is one question at a time — that dialogue *is* the

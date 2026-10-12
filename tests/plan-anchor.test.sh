@@ -58,6 +58,9 @@ case "$path" in
       *) echo "fake gh: unrecognised milestone jq: $*" >&2; exit 1 ;;
     esac
     ;;
+  repos/*/issues/comments/*/reactions)
+    [ "${FAKE_REACTIONS_FAIL:-0}" = 1 ] && exit 1
+    printf '%b' "${FAKE_REACTIONS-}" ;;
   repos/*/issues/comments/*)
     [ "${FAKE_COMMENT_FAIL:-0}" = 1 ] && exit 1
     case "$*" in
@@ -433,5 +436,72 @@ done
 
 out="$(lrun verify --loop-identity)"
 assert_eq "verify --loop-identity: the flag with no value is unreadable" "unreadable" "$out"
+
+echo "# the reaction rule: --maintainer-ids (#383) -- a comment alone never approves a spec"
+
+# tab-separated user id, content, created_at -- one record per line, as the real --jq prints
+rx() { printf '%s\t%s\t%s\n' "$1" "$2" "$3"; }
+M="1001,1002"
+
+out="$(FAKE_REACTIONS= lrun verify --maintainer-ids "$M" "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --maintainer-ids: no reaction waits" "unreacted" "$out"
+
+out="$(FAKE_REACTIONS="$(rx 1001 +1 2026-09-21T08:59:59Z)\n" lrun verify --maintainer-ids "$M" "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --maintainer-ids: a reaction before the spec's last edit is stale and waits" "unreacted" "$out"
+
+out="$(FAKE_REACTIONS="$(rx 1001 +1 2026-09-21T09:00:00Z)\n" lrun verify --maintainer-ids "$M" "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --maintainer-ids: a reaction in the same second as the edit waits" "unreacted" "$out"
+
+out="$(FAKE_REACTIONS="$(rx 1001 +1 2026-09-21T09:00:01Z)\n" lrun verify --maintainer-ids "$M" "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --maintainer-ids: a fresh maintainer reaction starts" "match" "$out"
+
+out="$(FAKE_REACTIONS="$(rx 1002 heart 2026-10-01T00:00:00Z)\n" lrun verify --maintainer-ids "$M" "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --maintainer-ids: any listed maintainer's fresh heart starts" "match" "$out"
+
+out="$(FAKE_REACTIONS="$(rx 1001 +1 2026-09-20T00:00:00Z)\n$(rx 1001 +1 2026-09-22T00:00:00Z)\n" lrun verify --maintainer-ids "$M" "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --maintainer-ids: a stale reaction beside a fresh one still starts" "match" "$out"
+
+out="$(FAKE_REACTIONS="$(rx 7777 +1 2026-10-01T00:00:00Z)\n" lrun verify --maintainer-ids "$M" "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --maintainer-ids: a fresh reaction by a non-maintainer waits" "unreacted" "$out"
+
+out="$(FAKE_REACTIONS="$(rx 10010 +1 2026-10-01T00:00:00Z)\n" lrun verify --maintainer-ids "$M" "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --maintainer-ids: an id that merely contains a maintainer id waits" "unreacted" "$out"
+
+for c in -1 confused eyes laugh; do
+  out="$(FAKE_REACTIONS="$(rx 1001 "$c" 2026-10-01T00:00:00Z)\n" lrun verify --maintainer-ids "$M" "$REPO" "$POINTER" "$spec_anchor")"
+  assert_eq "verify --maintainer-ids: a fresh maintainer [$c] is not approval" "unreacted" "$out"
+done
+
+out="$(FAKE_REACTIONS="$(rx 1001 +1 tomorrow)\n" lrun verify --maintainer-ids "$M" "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --maintainer-ids: a malformed reaction timestamp never counts" "unreacted" "$out"
+
+out="$(FAKE_REACTIONS_FAIL=1 lrun verify --maintainer-ids "$M" "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --maintainer-ids: a failed reactions read is unreadable, never a pass" "unreadable" "$out"
+
+out="$(FAKE_REACTIONS= lrun verify --maintainer-ids "$M" "$REPO" "$POINTER" "$good_anchor")"
+assert_eq "verify --maintainer-ids: no spec comment anchored is never an approval -- waits" "unreacted" "$out"
+
+out="$(FAKE_REACTIONS= lrun verify --plan --maintainer-ids "$M" "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --plan ignores --maintainer-ids" "match" "$out"
+
+out="$(FAKE_REACTIONS= FAKE_MS_STATE=open FAKE_MS_DESC="$plan_desc" FAKE_ISSUE_STATE=open FAKE_ISSUE_UPDATED="2026-09-20T12:00:00Z" \
+       FAKE_ISSUE_REPO_URL="https://api.github.com/repos/$REPO" FAKE_ISSUE_NUMBER=86 FAKE_ISSUE_MILESTONE=12 \
+       FAKE_COMMENT_UPDATED="2026-09-22T00:00:00Z" FAKE_COMMENT_ISSUE_URL="https://api.github.com/repos/$REPO/issues/86" \
+       run verify --maintainer-ids "$M" "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --maintainer-ids: a drifted spec comment is drift, ahead of the reaction rule" "drift" "$out"
+
+out="$(FAKE_REACTIONS="$(rx 1001 +1 2026-10-01T00:00:00Z)\n" lrun verify "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify without --maintainer-ids keeps today's behavior (no reaction read)" "match" "$out"
+
+for bad in '' 'abc' '*' '[0-9]*' '1001,' ',1001' '1001,,1002' '0' '01001' '1001 1002' '-1'; do
+  out="$(lrun verify --maintainer-ids "$bad" "$REPO" "$POINTER" "$spec_anchor")"
+  assert_eq "verify --maintainer-ids: a malformed list [$bad] is unreadable" "unreadable" "$out"
+done
+
+out="$(lrun verify --maintainer-ids)"
+assert_eq "verify --maintainer-ids: the flag with no value is unreadable" "unreadable" "$out"
+
+out="$(FAKE_REACTIONS="$(rx 1001 +1 2026-10-01T00:00:00Z)\n" FAKE_COMMENT_AUTHOR='loop-app[bot]' lrun verify --loop-identity 'loop-app[bot]' --maintainer-ids "$M" "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify: --loop-identity still wins over a fresh reaction" "untrusted" "$out"
 
 exit "$fail"

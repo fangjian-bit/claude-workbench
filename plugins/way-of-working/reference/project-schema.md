@@ -424,9 +424,11 @@ accepted, stated trade, not a silent one:
 
 `bin/plan-anchor.sh` is the deterministic predicate over it, mirroring `cursor-drift.sh`'s
 shape: `write <repo> <milestone> <N|-> [<comment-id|->]` produces the anchor; `verify [--plan]
-[--loop-identity <login>] <repo> <pointer-url> <anchor-json>` compares it against the live
-milestone/issue/comment and answers `match | drift | unreadable | untrusted` (`untrusted`:
-the loop's own login authored one of them, § `orchestration`), always exiting 0 — the verdict is stdout, the caller
+[--loop-identity <login>] [--maintainer-ids <id,id,...>] <repo> <pointer-url> <anchor-json>` compares it against the live
+milestone/issue/comment and answers `match | drift | unreadable | untrusted | unreacted` (`untrusted`:
+the loop's own login authored one of them, § `orchestration`; `unreacted`: with `--maintainer-ids`,
+no declared maintainer has reacted approvingly on the anchored spec comment since its last edit, or no spec comment is anchored at all,
+§ `identities` — `WB-D24`, `#383`), always exiting 0 — the verdict is stdout, the caller
 decides policy. `--plan` mode checks only the milestone (open, number, description hash) and
 ignores `task_issue`/`spec_comment` — `/way-of-working:handoff`'s baseline re-anchor check uses
 it, since `#N` may not exist yet or may have just changed; `/way-of-working:archive-sprint`'s
@@ -826,7 +828,9 @@ id `bin/plan-gather.sh` prints) and `scripts/loop/preflight.sh github-dispatch`
 (`--identities`, the one reader that is its own implementation of the rule rather than a call
 to `gh-identity.sh`). Outside `token-check.sh` (below), `reviewer_app` and `loop_app` are read only to
 refuse them (as authors, and by `classify` as the acting identity) and to catch a duplicate id.
-`bin/token-check.sh verify` (`#436`) is the exception: a consumer of a minted token runs it before
+`plan-anchor.sh verify --maintainer-ids` (`#383`) takes the maintainers' numeric ids from the
+caller, which reads them from the default branch's copy: `resume` passes them under a map and
+omits the flag under `null`. `bin/token-check.sh verify` (`#436`) is the exception: a consumer of a minted token runs it before
 acting, and for a `dev_app`, `reviewer_app` or `loop_app` role it requires the token's actor and
 matches it against that declared entry through `gh-identity.sh role`; the actor must come from a GitHub
 response obtained with the token (measured in `#380`: the `user` of an issue or PR it created, so only after a first write). Nothing yet acts as `reviewer_app` or

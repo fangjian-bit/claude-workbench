@@ -12,8 +12,8 @@
 #   plan-anchor.sh write  <repo> <milestone> <N|-> [<comment-id|->]
 #     Prints the anchor JSON (one line, compact, fixed key order) on stdout,
 #     or `unreadable`.
-#   plan-anchor.sh verify [--plan] [--loop-identity <login>] <repo> <pointer-url> <anchor-json>
-#     Prints exactly one of `match | drift | unreadable | untrusted`.
+#   plan-anchor.sh verify [--plan] [--loop-identity <login>] [--maintainer-ids <id,id,...>] <repo> <pointer-url> <anchor-json>
+#     Prints exactly one of `match | drift | unreadable | untrusted | unreacted`.
 #
 # Both modes always exit 0 -- the verdict is stdout, exactly like
 # cursor-drift.sh; the caller decides policy.
@@ -35,6 +35,24 @@
 # bug and prints `unreadable` rather than silently disabling the rule. Everything
 # else about the verdict is unchanged: without the flag no author is read at all,
 # and `untrusted` is never printed.
+#
+# `--maintainer-ids <id,id,...>` is the reaction rule (`WB-D24`, `#383`): a comment alone
+# never approves a spec. When given, full-mode `verify` -- after every other check has
+# passed -- also requires a spec comment to be anchored and a reaction on that
+# exact comment (`reactions` of the comment id the anchor names, never another) that was
+# made by a declared maintainer (matched on the numeric user `id`, never the login),
+# whose `created_at` is STRICTLY after the comment's `updated_at` (a reaction does not
+# move `updated_at` -- assumed, not yet measured live; if wrong, nothing ever matches, never a
+# false match -- so an edit after the reaction leaves it stale), and whose content
+# is an approving one (`+1`, `heart`, `hooray`, `rocket`; `-1`, `confused`, `eyes` and
+# `laugh` never count). Otherwise it prints `unreacted`, which a caller treats as a wait,
+# exactly like `drift`. The ids arrive as an ARGUMENT, read by the caller from the
+# default branch's `identities.maintainer` (this script forbids `yq`); an empty or
+# non-numeric list is a caller bug and prints `unreadable`. A caller whose repo has not
+# cut over (`identities: null`) omits the flag and keeps today's behavior. With the flag and
+# NO spec comment anchored the verdict is `unreacted`: the issue body alone is editable text
+# whose author stays the maintainer, so it is never an approval. `--plan` mode validates
+# the list but otherwise ignores it, as it ignores the spec comment. A failed reactions read is `unreadable`.
 #
 # `verify` (full) checks: the milestone is open, its number equals the anchor's
 # and the pointer's; `#N` is open, a true issue (no `pull_request` key), its
@@ -208,22 +226,43 @@ fi
 plan_only=0
 loop_login=
 have_loop=0
+maint_ids=
+have_ids=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --plan) plan_only=1; shift ;;
     --loop-identity)
       [ "$#" -ge 2 ] || { echo unreadable; exit 0; }
       have_loop=1; loop_login="$2"; shift 2 ;;
+    --maintainer-ids)
+      [ "$#" -ge 2 ] || { echo unreadable; exit 0; }
+      have_ids=1; maint_ids="$2"; shift 2 ;;
     *) break ;;
   esac
 done
 
 if [ "$#" -ne 3 ]; then
-  echo "plan-anchor.sh: verify needs [--plan] [--loop-identity <login>] <repo> <pointer-url> <anchor-json>" >&2
+  echo "plan-anchor.sh: verify needs [--plan] [--loop-identity <login>] [--maintainer-ids <id,id,...>] <repo> <pointer-url> <anchor-json>" >&2
   echo unreadable
   exit 0
 fi
 repo="$1"; pointer="$2"; anchor="$3"
+
+# The maintainer ids: comma-separated positive integers, no empty element.
+if [ "$have_ids" -eq 1 ]; then
+  [ -n "$maint_ids" ] || { echo unreadable; exit 0; }
+  case "$maint_ids" in *[!0-9,]*) echo unreadable; exit 0 ;; esac
+  oldifs="$IFS"; IFS=,
+  # shellcheck disable=SC2086
+  set -- $maint_ids
+  IFS="$oldifs"
+  for _id in "$@"; do
+    is_digits "$_id" || { echo unreadable; exit 0; }
+    case "$_id" in 0*) echo unreadable; exit 0 ;; esac
+  done
+  case "$maint_ids" in *,,* | ,* | *,) echo unreadable; exit 0 ;; esac
+  set -- "$repo" "$pointer" "$anchor"
+fi
 
 # The pointer must be exactly https://github.com/<repo>/milestone/<digits> --
 # an anchored match on <repo>, digits-only number (project-schema.md § `planning`).
@@ -374,6 +413,35 @@ if [ "$a_comment" != null ]; then
      || [ "$cm_issue_url" != "https://api.github.com/repos/$repo/issues/$a_task" ]; then
     echo drift; exit 0
   fi
+
+  if [ "$have_ids" -eq 1 ]; then
+    # c_updated equals the live value (checked above), so it is the spec's last edit.
+    case "$c_updated" in
+      [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) : ;;
+      *) echo unreadable; exit 0 ;;
+    esac
+    gh api "repos/$repo/issues/comments/$c_id/reactions" --paginate --jq \
+      '.[] | [(.user.id|tostring), .content, .created_at] | @tsv' \
+      >"$tmp/reactions" 2>/dev/null || { echo unreadable; exit 0; }
+    reacted=0
+    tab="$(printf '\t')"
+    while IFS="$tab" read -r r_uid r_content r_created || [ -n "$r_uid" ]; do
+      case ",$maint_ids," in *",$r_uid,"*) : ;; *) continue ;; esac
+      case "$r_content" in '+1' | heart | hooray | rocket) : ;; *) continue ;; esac
+      case "$r_created" in
+        [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) : ;;
+        *) continue ;;
+      esac
+      [ "$r_created" != "$c_updated" ] || continue
+      latest="$(printf '%s\n%s\n' "$c_updated" "$r_created" | sort | tail -n 1)"
+      if [ "$latest" = "$r_created" ]; then reacted=1; break; fi
+    done <"$tmp/reactions"
+    if [ "$reacted" -ne 1 ]; then echo unreacted; exit 0; fi
+  fi
+else
+  # No spec comment anchored: the issue body is the whole spec, and editing it leaves
+  # its author unchanged -- with the reaction rule on, that is never an approval.
+  if [ "$have_ids" -eq 1 ]; then echo unreacted; exit 0; fi
 fi
 
 echo match
