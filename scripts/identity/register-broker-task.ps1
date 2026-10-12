@@ -14,10 +14,12 @@
   whenever 30 minutes or less remain, so a missed or late start costs at most the gap until the
   next trigger. The task starts it once at registration too.
 
-  The task runs scripts/identity/ from the checkout it is registered from, beside every App key,
-  so register from a checkout nothing else writes to (not a container-mounted tree, not a
-  worktree you will delete), on a reviewed commit; re-register after changing the scripts.
-  $WOW_HOME must be a Windows path here, not the MSYS form review-token.sh needs.
+  The task does not run from a checkout. It installs the host scripts into $WowHome\bin with
+  install-host-tools.ps1 (committed code on origin/main only, with a MANIFEST of the commit and
+  hashes) and registers the task against those copies, so a container editing a bind-mounted
+  checkout cannot change what runs beside the App keys. Re-run this to upgrade; it stops the
+  task, reinstalls and restarts it. Run it from a clone no container opens.
+  A $WOW_HOME in MSYS form (/c/Users/...), as review-token.sh needs, is converted with cygpath.
 
   Run it from a PowerShell 7.2+ prompt on the host, once. The sh it records is resolved now (or
   -Sh), because a task does not search the same PATH an interactive shell does; openssl, curl
@@ -28,6 +30,7 @@
 param(
   [string]$WowHome = $(if ($env:WOW_HOME) { $env:WOW_HOME } else { Join-Path $HOME '.config/glunk-identity' }),
   [string]$Sh,
+  [string]$SourceRepo,
   [string]$TaskName = 'glunk-wow-broker',
   [switch]$Unregister
 )
@@ -44,14 +47,17 @@ if ($Unregister) {
   return
 }
 
-$broker = Join-Path $PSScriptRoot 'broker.ps1'
-if (-not (Test-Path -LiteralPath $broker -PathType Leaf)) { throw "broker.ps1 not found beside this script" }
-if (-not (Test-Path -LiteralPath $WowHome -PathType Container)) { throw "WowHome $WowHome does not exist; create it and its apps.json and broker.json first" }
 if (-not $Sh) { $Sh = (Get-Command sh -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source }
 if (-not $Sh -or -not (Test-Path -LiteralPath $Sh -PathType Leaf)) { throw 'no POSIX sh found: pass -Sh (Git for Windows sh.exe)' }
+if ($WowHome.StartsWith('/')) {
+  $conv = (& $Sh -c 'cygpath -w "$1"' sh $WowHome 2>$null)
+  if ($conv) { $WowHome = ("$conv").Trim() }
+}
+if (-not (Test-Path -LiteralPath $WowHome -PathType Container)) { throw "WowHome $WowHome does not exist; create it and its apps.json and broker.json first" }
 # Full paths, no trailing backslash (it would escape the closing quote on the task's command line).
 $WowHome = (Resolve-Path -LiteralPath $WowHome).ProviderPath.TrimEnd('\')
 $Sh = (Resolve-Path -LiteralPath $Sh).ProviderPath
+$broker = Join-Path $WowHome 'bin\broker.ps1' # the installed copy; install-host-tools.ps1 puts it there
 foreach ($p in $WowHome, $broker, $Sh) {
   if ($p -match '["`$]') { throw "path '$p' has a character the task command line cannot carry" }
 }
@@ -77,6 +83,21 @@ $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatt
   -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero) `
   -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
 $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
+
+# Install the committed scripts (its checks refuse a dirty or unmerged checkout, and only after they pass does it
+# stop the running broker), then register against the installed copy. Under -WhatIf the checks run (and the fetch
+# updates the source clone's origin ref); nothing is stopped, installed or registered.
+$install = @{ WowHome = $WowHome; StopTask = $TaskName }
+if ($SourceRepo) { $install.SourceRepo = $SourceRepo }
+try { & (Join-Path $PSScriptRoot 'install-host-tools.ps1') @install }
+catch {
+  # The install stops the task only once its checks pass; if it then fails, bring back the broker that was running.
+  Start-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+  throw
+}
+if (-not $WhatIfPreference -and -not (Test-Path -LiteralPath $broker -PathType Leaf)) {
+  throw "the installer did not leave $broker; not registering a task for a missing file"
+}
 
 if ($PSCmdlet.ShouldProcess($TaskName, "Register scheduled task running: $pwsh $arg")) {
   Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger @($logon, $wake, $every) `
