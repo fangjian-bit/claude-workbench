@@ -27,8 +27,9 @@ under-specified, or requires a design decision, STOP and report back rather than
 
 ## How to work
 
-1. **Read `.ai/project.yml` first** for `{sprints_dir}`, `{gates.green}`, `{code_paths}`,
-   `{roadmap}`, and `{planning.kind}`/`{backlog.repo}` when given a `{backlog.repo}#N` task.
+1. **Read `.ai/project.yml` first** for `{repo}`, `{sprints_dir}`, `{gates.green}`, `{code_paths}`,
+   `{roadmap}`, and `{planning.kind}`/`{backlog.repo}` when given a `{backlog.repo}#N` task
+   (a `null` `{backlog.repo}` means `{repo}`: every call below that names it takes `{repo}` then).
    If it is missing or unreadable, say so and stop before running anything that needs a value
    from it — never guess a gate command.
 2. **Under `{planning.kind}: github_milestones`: fetch the task once, then use it.** Fetch

@@ -15,8 +15,13 @@ Goal: close out a finished sprint cleanly and set up the next one, keeping the l
 cursor small and moving completed detail out of routine context. This is the ONLY
 command that archives — do not invoke it for ordinary session switches.
 
-**Read `.ai/project.yml` first** for `{roadmap}`, `{sprints_dir}`, `{pr_base}`, `{models}`,
-`{backlog}`, `{agents.enabled}`, `{load_bearing_docs}`, and `{planning.kind}`.
+**Read `.ai/project.yml` first** for `{repo}`, `{roadmap}`, `{sprints_dir}`, `{pr_base}`,
+`{models}`, `{backlog}`, `{agents.enabled}`, `{load_bearing_docs}`, and `{planning.kind}`.
+
+**`{backlog.repo}` of `null` means `{repo}`** (`reference/project-schema.md` § `backlog.repo`) —
+the common case, not "no repo." Resolve it once here, and every call below that names
+`{backlog.repo}` (the milestone reads, `plan-anchor.sh`, the close) takes `{repo}` when it is
+`null`. Never stop on a `null`, and never write a `backlog.repo` change to fix it.
 
 ## Preconditions (verify ALL before doing anything)
 
@@ -103,7 +108,7 @@ command that archives — do not invoke it for ordinary session switches.
    that is the tracking. Found there and closed: check whether the verification actually
    happened; if it did not, this precondition is unmet and a fresh item is the fix.
 
-   If `{backlog.repo}` is set, that backlog lives in a **sibling repo** and every `gh issue`
+   If `{backlog.repo}` is set (not `null`), that backlog lives in a **sibling repo** and every `gh issue`
    call takes `--repo {backlog.repo}` (`gh issue create --repo {backlog.repo} …`). Confirm
    reach first — `gh api repos/{backlog.repo} --jq .permissions`, no `pull` means stop and
    report the actor (`reference/conventions.md` § *Acting identity and reach*; an all-`false`

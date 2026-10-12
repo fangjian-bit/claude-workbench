@@ -13,9 +13,9 @@ One live cursor is the design. A parked sprint is a tracked snapshot beside it:
 **tracked**, unlike git-ignored `.ai/archive/`, because a parked cursor is the only copy of
 in-flight state. `/way-of-working:unpark-sprint` brings it back.
 
-**Read `.ai/project.yml` first** for `{pr_base}`, `{sprints_dir}`, `{roadmap}`, `{models}`,
+**Read `.ai/project.yml` first** for `{repo}`, `{pr_base}`, `{sprints_dir}`, `{roadmap}`, `{models}`,
 `{code_paths}`, `{ruleset.required_checks}`, `{review.ci_gate}`, `{planning.kind}`, and —
-under `github_milestones` — `{backlog.repo}`.
+under `github_milestones` — `{backlog.repo}` (`null` means `{repo}`).
 
 ## Preconditions — fail closed, stop at the first that fails
 

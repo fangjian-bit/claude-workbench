@@ -568,6 +568,25 @@ if [ -n "$ghpipe_hits" ]; then
     "  T=\$(gh api ...) && { [ -z \"\$T\" ] || printf '%s\\n' \"\$T\"; } | script.sh"
 fi
 
+# --- 12. A skill or agent that names {backlog.repo} says null reads as {repo} (#479) -
+#
+# `backlog.repo: null` is the common case and means the repo itself. archive-sprint wrote
+# `repos/{backlog.repo}/milestones/...` with no such note, and a live run read `null` as
+# "no repo", stopped, and put a backlog.repo change into a PR. A file that names the key
+# must state the null reading on a line that also names the key, in backticks: a bare
+# "null" elsewhere (`>/dev/null`, an unrelated `dev_app` sentence) must not satisfy it.
+nullrepo_hits=""
+nullrepo_pair='`null`.{0,60}`\{repo\}`|`\{repo\}`.{0,60}`null`'
+for f in "${SKILLS[@]}" "${AGENTS[@]}"; do
+  grep -q '{backlog\.repo}' "$f" || continue
+  { grep -F '{backlog.repo}' "$f" | grep -Eq "$nullrepo_pair"; } || nullrepo_hits+="$f"$'\n'
+done
+if [ -n "$nullrepo_hits" ]; then
+  report "a skill or agent names {backlog.repo} without saying null means {repo} (#479)" \
+    "$nullrepo_hits" \
+    "State it on a line that names the key: a \`null\` {backlog.repo} means \`{repo}\`."
+fi
+
 if [ "$fail" -ne 0 ]; then
   cat >&2 <<'EOF'
 

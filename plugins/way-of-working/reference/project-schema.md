@@ -249,9 +249,11 @@ named repo-local memory), and the first two are structural.
 
 #### `backlog.repo` — when the backlog lives in a sibling repo
 
-`null` means *this repo* — `{repo}` above — which is the common case and needs no thought;
-**absent prompts** — the key must always be present. Set it to an `owner/name` when the
-findings for this repo are tracked somewhere else.
+`null` means *this repo* — `{repo}` above — which is the common case and needs no thought.
+Every skill and agent that names `{backlog.repo}` says so on a line that names the key (a
+session once read `null` as "no repo" and stopped, `#479`), and `scripts/invariants-check.sh`
+check 12 fails one that does not. **Absent prompts** — the key must always be present. Set it
+to an `owner/name` when the findings for this repo are tracked somewhere else.
 
 That shape is real and not exotic: a **hub** repo holding the roadmap and backlog for a small
 family of satellite module repos, where a finding about a satellite is filed against the hub

@@ -23,6 +23,8 @@ this schema documents must be **present** — `null` is a decision, absence is a
 question, and this skill's own *Ensure the schema is complete* step (below) is where that
 question is asked (`WB-D17`, `#142`); no other step guesses a ruleset name, a check list, or
 any other schema value on a key it cannot read. See `reference/project-schema.md`.
+A `null` `{backlog.repo}` means `{repo}`: every call below that names `{backlog.repo}` takes
+`{repo}` then.
 
 ## Same-conversation shortcut
 

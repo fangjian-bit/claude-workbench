@@ -45,6 +45,7 @@ sh tests/schema-complete.test.sh  # WB-D17 .ai/project.yml completeness-checker 
 sh tests/plan-gather.test.sh    # plan-sprint's read-only gather-step fixtures (not yet required)
 sh tests/plan-depends.test.sh   # plan-sprint's depends_on marker read-back fixtures (not yet required)
 sh tests/invariants-reach-order.test.sh  # invariants-check.sh check 3 (reach precedes ruleset) fixtures (not yet required)
+sh tests/invariants-null-repo.test.sh  # invariants-check.sh check 12 (null backlog.repo means {repo}) fixtures (not yet required)
 sh tests/invariants-gh-pipe.test.sh  # invariants-check.sh check 11 (no gh output piped into a bin/ predicate) fixtures (not yet required)
 sh tests/cursor-sync-pr.test.sh # resume's cursor-sync PR report predicate fixtures (not yet required)
 sh tests/driver-lock.test.sh    # resume's driver-lock predicate fixtures (not yet required)

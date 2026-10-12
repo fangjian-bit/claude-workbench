@@ -128,7 +128,7 @@ Prose drifts in a small number of recognizable shapes. Find the instances of eac
   A decision recorded as locked should exist in `{decisions.log}` under
   `{decisions.prefix}`. **A backlog you could not reach is not a backlog that is empty** —
   a cross-repo `gh` call answers `404` when this identity cannot see the repo, so confirm
-  reach (`gh api repos/{backlog.repo} --jq .permissions`) before reporting any status claim
+  reach (`gh api repos/{backlog.repo} --jq .permissions`, `{repo}` when `null`) before reporting any status claim
   as unverified. Reporting "no such issue" when the truth is "could not look" is a false
   finding, which is the most trust-destroying output a critic can emit.
 - **Cross-doc agreement.** Where two documents in `{load_bearing_docs}` state the *same*

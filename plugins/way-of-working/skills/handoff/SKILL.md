@@ -14,9 +14,10 @@ Goal: leave a clean, self-contained cursor so the next (fresh, lean) session can
 `/way-of-working:resume` without inheriting this session's bloated context. This is the token-saving
 handoff point. It does **not** archive — that is `/way-of-working:archive-sprint`, only on completion.
 
-**Read `.ai/project.yml` first** for `{pr_base}`, `{roadmap}`, `{code_paths}`, `{models}`,
+**Read `.ai/project.yml` first** for `{repo}`, `{pr_base}`, `{roadmap}`, `{code_paths}`, `{models}`,
 `{ruleset.required_checks}`, `{review.ci_gate}`, and — under `{planning.kind}:
-github_milestones` — `{backlog.repo}`.
+github_milestones` — `{backlog.repo}`, where `null` means `{repo}`: every call below that
+names `{backlog.repo}` takes `{repo}` then (the derive line below passes `-` instead, as it says).
 
 ## Steps
 
