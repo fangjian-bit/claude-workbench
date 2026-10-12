@@ -67,7 +67,7 @@ case "$path" in
       *'.user.login'*)
         [ "${FAKE_COMMENT_AUTHOR_FAIL:-0}" = 1 ] && exit 1
         printf '%s\n' "${FAKE_COMMENT_AUTHOR-maintainer}" ;;
-      *'@tsv'*) printf '%s\t%s\n' "${FAKE_COMMENT_UPDATED:-2026-01-01T00:00:00Z}" "${FAKE_COMMENT_ISSUE_URL:-}" ;;
+      *'@tsv'*) printf '%s\t%s\t%s\n' "${FAKE_COMMENT_UPDATED:-2026-01-01T00:00:00Z}" "${FAKE_COMMENT_ISSUE_URL:-}" "${FAKE_COMMENT_AUTHOR_ID-1001}" ;;
       *) printf '%s\n' "${FAKE_COMMENT_UPDATED:-2026-01-01T00:00:00Z}" ;;
     esac
     ;;
@@ -480,6 +480,33 @@ assert_eq "verify --maintainer-ids: a failed reactions read is unreadable, never
 
 out="$(FAKE_REACTIONS= lrun verify --maintainer-ids "$M" "$REPO" "$POINTER" "$good_anchor")"
 assert_eq "verify --maintainer-ids: no spec comment anchored is never an approval -- waits" "unreacted" "$out"
+
+out="$(FAKE_COMMENT_AUTHOR_ID=7777 FAKE_REACTIONS="$(rx 1001 +1 2026-10-01T00:00:00Z)\n" lrun verify --maintainer-ids "$M" "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --maintainer-ids: an outsider's comment a maintainer reacted to is untrusted" "untrusted" "$out"
+
+out="$(FAKE_COMMENT_AUTHOR_ID=10010 FAKE_REACTIONS="$(rx 1001 +1 2026-10-01T00:00:00Z)\n" lrun verify --maintainer-ids "$M" "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --maintainer-ids: an author id that merely contains a maintainer id is untrusted" "untrusted" "$out"
+
+out="$(FAKE_COMMENT_AUTHOR_ID=1002 FAKE_REACTIONS="$(rx 1001 +1 2026-10-01T00:00:00Z)\n" lrun verify --maintainer-ids "$M" "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --maintainer-ids: any listed maintainer may author the comment" "match" "$out"
+
+out="$(FAKE_COMMENT_AUTHOR_ID= FAKE_REACTIONS="$(rx 1001 +1 2026-10-01T00:00:00Z)\n" lrun verify --maintainer-ids "$M" "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --maintainer-ids: a comment with no author id is untrusted" "untrusted" "$out"
+
+out="$(FAKE_COMMENT_AUTHOR_ID=7777 FAKE_REACTIONS= lrun verify --maintainer-ids "$M" "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --maintainer-ids: an outsider's comment is untrusted even with no reaction (author rule runs first)" "untrusted" "$out"
+
+out="$(FAKE_COMMENT_AUTHOR_ID=7777 FAKE_REACTIONS= FAKE_MS_STATE=open FAKE_MS_DESC="$plan_desc" FAKE_ISSUE_STATE=open FAKE_ISSUE_UPDATED="2026-09-20T12:00:00Z" \
+       FAKE_ISSUE_REPO_URL="https://api.github.com/repos/$REPO" FAKE_ISSUE_NUMBER=86 FAKE_ISSUE_MILESTONE=12 \
+       FAKE_COMMENT_UPDATED="2026-09-22T00:00:00Z" FAKE_COMMENT_ISSUE_URL="https://api.github.com/repos/$REPO/issues/86" \
+       run verify --maintainer-ids "$M" "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --maintainer-ids: an outsider's drifted comment is drift (the drift checks run before the author rule)" "drift" "$out"
+
+out="$(FAKE_COMMENT_AUTHOR_ID=7777 FAKE_REACTIONS= lrun verify "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify without --maintainer-ids reads no comment author (an outsider's comment still matches)" "match" "$out"
+
+out="$(FAKE_COMMENT_AUTHOR_ID=7777 FAKE_REACTIONS= lrun verify --plan --maintainer-ids "$M" "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --plan ignores the comment author under --maintainer-ids" "match" "$out"
 
 out="$(FAKE_REACTIONS= lrun verify --plan --maintainer-ids "$M" "$REPO" "$POINTER" "$spec_anchor")"
 assert_eq "verify --plan ignores --maintainer-ids" "match" "$out"

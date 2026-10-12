@@ -33,8 +33,8 @@
 # read, or an empty author, is `unreadable`, never a pass. A caller whose
 # `loop_identity` is `null` omits the flag; an EMPTY or malformed value is a caller
 # bug and prints `unreadable` rather than silently disabling the rule. Everything
-# else about the verdict is unchanged: without the flag no author is read at all,
-# and `untrusted` is never printed.
+# else about the verdict is unchanged: without this flag and without `--maintainer-ids`
+# no author is checked, and `untrusted` is never printed.
 #
 # `--maintainer-ids <id,id,...>` is the reaction rule (`WB-D24`, `#383`): a comment alone
 # never approves a spec. When given, full-mode `verify` -- after every other check has
@@ -47,7 +47,9 @@
 # change, nothing would match, never a false match -- so an edit after the reaction leaves it stale), and whose content
 # is an approving one (`+1`, `heart`, `hooray`, `rocket`; `-1`, `confused`, `eyes` and
 # `laugh` never count). Otherwise it prints `unreacted`, which a caller treats as a wait,
-# exactly like `drift`. The ids arrive as an ARGUMENT, read by the caller from the
+# exactly like `drift`. Before the reactions are read, the anchored comment's own author
+# (numeric `user.id`, never the login) must also be on the list (`#497`), else `untrusted`:
+# a reaction approves the text, not who wrote it. That check follows the drift checks. The ids arrive as an ARGUMENT, read by the caller from the
 # default branch's `identities.maintainer` (this script forbids `yq`); an empty or
 # non-numeric list is a caller bug and prints `unreadable`. A caller whose repo has not
 # cut over (`identities: null`) omits the flag and keeps today's behavior. With the flag and
@@ -176,7 +178,7 @@ case "$mode" in
   write | verify) shift ;;
   *)
     echo "plan-anchor.sh: usage: plan-anchor.sh write <repo> <milestone> <N|-> [<comment-id|->]" >&2
-    echo "                       plan-anchor.sh verify [--plan] [--loop-identity <login>] <repo> <pointer-url> <anchor-json>" >&2
+    echo "                       plan-anchor.sh verify [--plan] [--loop-identity <login>] [--maintainer-ids <id,id,...>] <repo> <pointer-url> <anchor-json>" >&2
     echo unreadable
     exit 0
     ;;
@@ -406,16 +408,22 @@ if [ "$a_comment" != null ]; then
     echo unreadable; exit 0
   fi
   comment_tsv="$(gh api "repos/$repo/issues/comments/$c_id" --jq \
-    '[.updated_at, .issue_url] | @tsv' 2>/dev/null)" \
+    '[.updated_at, .issue_url, ((.user.id // "") | tostring)] | @tsv' 2>/dev/null)" \
     && [ -n "$comment_tsv" ] || { echo unreadable; exit 0; }
   cm_updated="$(tsv_field 1 "$comment_tsv")"
   cm_issue_url="$(tsv_field 2 "$comment_tsv")"
+  cm_author_id="$(tsv_field 3 "$comment_tsv")"
   if [ "$cm_updated" != "$c_updated" ] \
      || [ "$cm_issue_url" != "https://api.github.com/repos/$repo/issues/$a_task" ]; then
     echo drift; exit 0
   fi
 
   if [ "$have_ids" -eq 1 ]; then
+    # The author half (`#497`): a reaction approves the comment's text, not who wrote it, so
+    # an outsider's comment a maintainer reacted to must not match. Numeric id against the
+    # same list, never the login; an empty id is not on it.
+    is_digits "$cm_author_id" || { echo untrusted; exit 0; }
+    case ",$maint_ids," in *",$cm_author_id,"*) : ;; *) echo untrusted; exit 0 ;; esac
     # c_updated equals the live value (checked above), so it is the spec's last edit.
     case "$c_updated" in
       [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) : ;;

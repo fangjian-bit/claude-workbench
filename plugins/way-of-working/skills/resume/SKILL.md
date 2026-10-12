@@ -166,7 +166,7 @@ edited it. **Default to the full checklist whenever unsure.**
        Auto-start rule's *plan verified* condition), full mode can only print `drift`
        (`bin/plan-anchor.sh` says so itself); run `verify --plan` instead, same flags,
        and report its word. Full mode also prints `drift` after any edit to `#N` (a new
-       comment moves its `updated_at`) and `unreacted` until a maintainer reacts: real results,
+       comment moves its `updated_at`), `untrusted` for a spec comment no declared maintainer wrote, and `unreacted` until a maintainer reacts: real results,
        reported as such.
 
        The word is informational and the auto-start input; `/way-of-working:handoff`'s baseline
@@ -704,7 +704,7 @@ edited it. **Default to the full checklist whenever unsure.**
      .pointers.plan_anchor .ai/state.json` — never pretty-printed, since the parser only
      matches a value on the same line as its key) printed `match` — **`untrusted` waits**, like
      `drift`: the milestone, the task, or the anchored spec comment was authored by the loop's
-     own login — the **leading-token
+     own login, or, with `--maintainer-ids`, the spec comment's author is not a declared maintainer — the **leading-token
      cross-check** passed, and every author-trust check below passed. Under `files`, this
      condition does not apply.
    - **when the cursor is the review shape (whatever `{planning.kind}` the working tree says — a PR can edit it)** — `next_action` begins `` review PR #`` or
@@ -790,7 +790,7 @@ edited it. **Default to the full checklist whenever unsure.**
      join(",")' "$DEF_YML_FILE"` after confirming every entry's `id` is `!!int` (`yq -r
      '[.identities.maintainer | explode(.) | .[].id | tag] | unique | join(",")'` prints `!!int`); an unreadable
      file, an empty list, a string or missing `id` waits, never omits the flag. When
-     `plan_anchor.spec_comment` is non-null (null is itself `unreacted`: an issue body alone is editable text that keeps its maintainer author, so a cut-over repo needs a spec comment to auto-start), it prints `match` only if a declared maintainer
+     `plan_anchor.spec_comment` is non-null (null is itself `unreacted`: an issue body alone is editable text that keeps its maintainer author, so a cut-over repo needs a spec comment to auto-start), it prints `untrusted` unless a declared maintainer (by numeric id) wrote that comment, and `match` only if a declared maintainer
      reacted `+1`, `heart`, `hooray` or `rocket` on **that exact comment** strictly after its
      `updated_at`; otherwise **`unreacted`**, which **waits** like `drift` and is stated in the
      pick-up summary, impossible to miss: `Spec approval: waiting — a maintainer reaction

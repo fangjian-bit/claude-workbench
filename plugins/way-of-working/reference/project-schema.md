@@ -428,7 +428,7 @@ accepted, stated trade, not a silent one:
 shape: `write <repo> <milestone> <N|-> [<comment-id|->]` produces the anchor; `verify [--plan]
 [--loop-identity <login>] [--maintainer-ids <id,id,...>] <repo> <pointer-url> <anchor-json>` compares it against the live
 milestone/issue/comment and answers `match | drift | unreadable | untrusted | unreacted` (`untrusted`:
-the loop's own login authored one of them, § `orchestration`; `unreacted`: with `--maintainer-ids`,
+the loop's own login authored one of them, § `orchestration`, or, with `--maintainer-ids`, the anchored spec comment's author is not a declared maintainer (`#497`); `unreacted`: with `--maintainer-ids`,
 no declared maintainer has reacted approvingly on the anchored spec comment since its last edit, or no spec comment is anchored at all,
 § `identities` — `WB-D24`, `#383`), always exiting 0 — the verdict is stdout, the caller
 decides policy. `--plan` mode checks only the milestone (open, number, description hash) and
@@ -768,7 +768,7 @@ LOOP=$(printf '%s' "$YML" | yq -r '.orchestration.loop_identity // ""')
 ```
 `plan-anchor.sh verify` prints `untrusted` when the milestone's creator, the task issue's
 author, or the anchored spec comment's author (the last two in full mode only) is that
-login. Every caller treats `untrusted` as a refusal: it is never `match`, and it is not
+login (with `--maintainer-ids` it also prints it for a spec comment no declared maintainer wrote, `#497`). Every caller treats `untrusted` as a refusal: it is never `match`, and it is not
 `drift` either, since no re-anchor or approval by the session itself repairs it.
 
 **What `complete` does and does not establish.** It means every key is present and well-formed
@@ -835,7 +835,7 @@ id `bin/plan-gather.sh` prints) and `scripts/loop/preflight.sh github-dispatch`
 (`--identities`, the one reader that is its own implementation of the rule rather than a call
 to `gh-identity.sh`). Outside `token-check.sh` (below) and `architect-review` (which requires `reviewer_app` to be a map, `#389`), `reviewer_app` and `loop_app` are read only to
 refuse them (as authors, and by `classify` as the acting identity) and to catch a duplicate id.
-`plan-anchor.sh verify --maintainer-ids` (`#383`) takes the maintainers' numeric ids from the
+`plan-anchor.sh verify --maintainer-ids` (`#383`, `#497`) takes the maintainers' numeric ids, for the reaction and the spec comment's author, from the
 caller, which reads them from the default branch's copy: `resume` passes them under a map and
 omits the flag under `null`. `bin/token-check.sh verify` (`#436`) is the exception: a consumer of a minted token runs it before
 acting, and for a `dev_app`, `reviewer_app` or `loop_app` role it requires the token's actor and
