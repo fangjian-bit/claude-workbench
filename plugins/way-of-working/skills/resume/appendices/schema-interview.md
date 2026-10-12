@@ -185,7 +185,9 @@ runs `git status --short` itself (the step it used to cite comes later).
         simple`, the common default — confirmed live) or, worse, silently pushes straight to
         `$BASE` itself (`push.default: upstream`) — an unreviewed answer landing directly on
         the branch it was supposed to reach only via review. Commit **only** `.ai/project.yml`,
-        **`git push -u origin "$BRANCH"`** — an explicit destination, never a bare `git push`
+        **`git push -u origin "$BRANCH"`** (in App mode, `gh api user` refused to an
+        installation token, **`app-push.sh -u origin "$BRANCH"`** so the dev App is the pusher,
+        `#478`) — an explicit destination, never a bare `git push`
         relying on tracking — and open the PR with `gh pr create --repo "$R" --base "$BASE"`
         — explicit `--repo`, never left to ambient context — with a body listing each
         `key: value` answered and what it routes to (*"findings will be filed at …", "PRs

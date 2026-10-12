@@ -190,6 +190,17 @@ uses.
 git -c credential.helper= -c credential.helper='!gh auth git-credential' push …
 ```
 
+In **App mode** a skill's push goes through `bin/app-push.sh`, which spells this pin once
+(adding `-c http.extraHeader=`, which clears only the generic key). The pin is not only a 403
+workaround there: a push made with the maintainer's own stored credential makes the human the
+*last pusher*, and a base whose approval rule sets `require_last_push_approval` then refuses
+the human's approval of the App-opened PR — a one-code-owner repo cannot merge it (`#478`).
+The pin works only over HTTPS with no URL-scoped `http.<url>.extraheader` set, so the script
+refuses (exit 2) any remote whose fetch or push URL is not `https://github.com/` — `pushurl`
+and `pushInsteadOf` count; over SSH no helper is consulted — or that has such a header. It also
+accepts only `-u` and `-n`, a remote name and plain refspecs, never a force, delete, mirror or
+prune spelling. `tests/app-push.test.sh` holds every pushing skill to that script.
+
 **Durable fix** (changes global git config — offer it, don't do it unasked): either
 `gh auth setup-git`, or clear the stale credential-manager entry for `github.com` so it
 stops resolving to the wrong account.

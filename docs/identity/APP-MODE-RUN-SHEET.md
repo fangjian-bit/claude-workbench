@@ -25,7 +25,7 @@ sheet expects, that is the finding. Write down what happened; do not adjust the 
 - **Before each session,** confirm the mode from outside it: `gh api user` must fail (403) and
   `gh api installation/repositories` must list the scratch repo. If `gh api user` succeeds, the
   token is a user's and the run proves nothing.
-- **`git` must use the same token as `gh`.** ship pins it for the push; for the other sessions, if
+- **`git` must use the same token as `gh`.** ship, handoff, archive-sprint and resume's schema interview push through `app-push.sh`, which pins it; for any other session, if
   a `git push` is needed, note which credential it used.
 
 ## Per skill

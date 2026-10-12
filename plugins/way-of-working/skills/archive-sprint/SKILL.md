@@ -63,7 +63,8 @@ command that archives — do not invoke it for ordinary session switches.
 
    Make the roadmap edit there, stage it by explicit path (`git add {roadmap}`, never `-A`
    or `-a` — precondition 2 admits unrelated uncommitted changes), commit (subject `docs:
-   mark <sprint> done in {roadmap}`), push, and open a PR against `{pr_base}` (`gh pr create
+   mark <sprint> done in {roadmap}`), push (in App mode `app-push.sh -u origin
+   docs/<sprint>-status`, else `git push -u origin docs/<sprint>-status`), and open a PR against `{pr_base}` (`gh pr create
    --base {pr_base}`) — this fix is not part of the sprint being archived and does not
    belong on its branch or in its PR. **A failed commit is a stop, reported the same way —
    but stay on `docs/<sprint>-status`, never `git checkout {pr_base}`**: a failed commit
@@ -71,7 +72,13 @@ command that archives — do not invoke it for ordinary session switches.
    across, landing exactly the edit-on-`{pr_base}` this precondition exists to prevent. **A
    failed push or `gh pr create`, by contrast, happens after a real commit exists on the
    side branch**, so `git checkout {pr_base}` there is safe — do it first, and say the
-   commit is waiting on `docs/<sprint>-status` for the human to push. On success,
+   commit is waiting on `docs/<sprint>-status` to be pushed. In App mode say so in those
+   words and have the push retried from this session (`app-push.sh`), not pushed by hand (if
+   `app-push.sh` itself refused, exit 2, report which remote URL or `http.*.extraheader` it
+   named — retrying cannot pass until the human fixes that, and a bare push is not the way
+   around it): a
+   human push makes them the last pusher and, on a base with `require_last_push_approval`,
+   their approval of the App-opened PR would not count. On success,
    `git checkout {pr_base}` and STOP per the rule below: the fix is not on
    `origin/{pr_base}` until a human merges that PR, so this precondition is still unmet.
    Report the PR link, note that preconditions 4-6
@@ -361,6 +368,12 @@ If any precondition fails, STOP and report why — do not archive.
    what makes the content durable — until then it exists in exactly one place. This push
    has no reach preflight of its own and carries the same push-identity exposure as
    `/way-of-working:ship`'s *Preflight the branch* step; a `403` here is diagnosed the same way.
+   **Every push this skill makes** (this one, the roadmap fix's above and the
+   milestone-outcome commit's below) goes through `app-push.sh -u origin <branch>` **in App mode** (`gh api
+   user` refused to an installation token) and `git push -u origin <branch>` in user mode: a
+   push made with the maintainer's own stored credential makes the human the last pusher, so
+   on a base with `require_last_push_approval` their approval of the App-opened PR no longer
+   counts (`#478`).
 
    Report `git show --stat HEAD` so the human sees what the close reclaimed, and hand them
    the PR link. **That PR is the human checkpoint for this step** — the sprint's own HITL
@@ -574,7 +587,7 @@ If any precondition fails, STOP and report why — do not archive.
    `implementing`); when it does happen to be `planning` (parked mid-planning), the script
    checks this cursor like any other and finds the (now singular, replaced) line `present`,
    which is correct, not coincidental. Either way this line is written for the same
-   human-legibility reason. Commit that as a second commit on the same branch and push it, updating
+   human-legibility reason. Commit that as a second commit on the same branch and push it (in App mode with `app-push.sh`), updating
    unpark's already-open PR rather than opening a second one — the delta is still
    `.ai/next-steps.md` only, so `cursor-drift.sh` still classifies it `cursor-sync`. **Also
    append the same pending-close note to `.ai/state.json`'s `hitl_gate`** (local, not

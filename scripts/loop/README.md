@@ -120,7 +120,7 @@ refusing at the first that fires: docker says no session container is running (a
 is a refusal); the tree has no special file, no name that folds onto `.git` (any case, `.git.`, `GIT~1`) and no symlink that leaves it or names a `.git`; a fresh clone of
 `origin/{base}` made by the driver is emptied and the tree is copied in with a non-dereferencing
 `tar` that excludes `.git` at any depth; the staged diff touches no human-only path (rename detection
-is off, so a move out of one lists its old path as a deletion) and no path in `--protected-paths-file` (nor any `.gitattributes` or NTFS alias of one, at any depth) (`scripts/loop/protected-paths.txt`: the nine trust predicates and their own fixtures, `#296`, refused as `protected`; the rest of `bin/` and `tests/` stays open); a diff under `plugins/*/bin/` or
+is off, so a move out of one lists its old path as a deletion) and no path in `--protected-paths-file` (nor any `.gitattributes` or NTFS alias of one, at any depth) (`scripts/loop/protected-paths.txt`: the trust predicates, the App-mode push pin and their own fixtures, `#296`, refused as `protected`; the rest of `bin/` and `tests/` stays open); a diff under `plugins/*/bin/` or
 `scripts/` also changes something under `tests/`; the `commit_message` from the stop output passes
 the commit grammar, with closing keywords, the final trailer paragraph and any Co-authored-by or Signed-off-by line stripped; the staged diff's added lines (symlink targets and converted encodings included), the changed paths and the
 message hold no token prefix (default `sk-ant-oat`); then the commit, with

@@ -186,16 +186,13 @@ here. The *Open the PR against `{pr_base}`* step also reads `pointers.sprint_pla
           or non-map `dev_app` means the actor check below could only ever fail: stop now,
           before a branch is pushed. (A map with a bad shape inside still reads `mismatch`
           later.)
-       3. **Pin `git` to `gh`'s token for every push this skill makes**, using the workaround
-          in `reference/conventions.md` § *Push identity* (`git -c credential.helper= -c
-          credential.helper='!gh auth git-credential' …`), so a host-configured helper cannot
-          push as another account, a human's included. Add `-c http.extraHeader=` too: a
-          persisted `Authorization` header would otherwise supply credentials and the helper
-          would never be asked. Then probe write reach, creating nothing:
+       3. **Pin `git` to `gh`'s token for every push this skill makes** by making each one
+          through `app-push.sh` (bare name, same `bin/` `PATH` as `cursor-drift.sh`; the pin and
+          why it matters are in its header and `reference/conventions.md` § *Push identity*),
+          so a host-configured helper cannot push as another account, a human's included.
+          Then probe write reach, creating nothing:
           ```bash
-          git -c credential.helper= -c credential.helper='!gh auth git-credential' \
-              -c http.extraHeader= \
-              push --dry-run origin <branch>      # the work branch
+          app-push.sh --dry-run origin <branch>      # the work branch
           ```
           A refusal (non-zero, e.g. `403 Write access to repository not granted`) stops ship.
           A pass says the token `gh` holds can write; it does not say *which* App that is. The
@@ -216,9 +213,8 @@ here. The *Open the PR against `{pr_base}`* step also reads `pointers.sprint_pla
    - If commits are signed, a signing *timeout* usually means the host pinentry is waiting
      for input — answer it and re-run the commit; it is not a commit failure.
 
-3. **Push the branch** (`git push -u origin <branch>`; in App mode `git -c credential.helper=
-   -c credential.helper='!gh auth git-credential' -c http.extraHeader= push -u origin <branch>`,
-   the pin from the preflight). Push freely to the work branch,
+3. **Push the branch** (`git push -u origin <branch>`; in App mode `app-push.sh -u origin
+   <branch>`, the pin from the preflight). Push freely to the work branch,
    **never to `{pr_base}`**. Once asked to push in a session, keep pushing later commits
    without re-confirming — but always to the branch.
 

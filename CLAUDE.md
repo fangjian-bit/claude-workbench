@@ -55,6 +55,7 @@ sh tests/blocked-state.test.sh  # pr-checks' BLOCKED verdict predicate fixtures 
 sh tests/blocked-state-block.test.sh  # pr-checks' blocked-state and pinned-app shell blocks vs a stub gh (not yet required)
 sh tests/prune-verdict.test.sh    # resume/archive-sprint prune: merged-tip-or-ancestor verdict fixtures (not yet required)
 sh tests/auto-merge-arm.test.sh  # ship's auto-merge arm predicate fixtures (not yet required)
+sh tests/app-push.test.sh      # app-push.sh App-mode pinned push and no-skill-pushes-unpinned fixtures (not yet required)
 sh tests/stall-merge.test.sh    # pr-checks' stalled-auto-merge predicate fixtures (not yet required)
 sh tests/review-step.test.sh    # review-step derive/decide predicate fixtures (not yet required)
 sh tests/critic-section.test.sh  # critic-section PR-body section fixtures (not yet required)
