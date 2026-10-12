@@ -5,7 +5,7 @@
 #
 # Mints from the reviewer App with fixed, least-privilege permissions (contents, checks and
 # statuses read; pull_requests write), scoped to <repo>. No passphrase: the reviewer key
-# (review.pem) is unencrypted so a review sandbox can ask for a token unattended.
+# (review.pem) is unencrypted so the reviewing session can ask for a token unattended, after its sandbox is destroyed (review-token.sh, #389).
 # The token and its expires_at go to --out, default $WOW_HOME/review-tokens/<repo>/reviewer-token, a tree no dev container mounts.
 # --out may name any path the caller can write; a broker forwarding sandbox input must not pass it.
 # The token is never printed. Run by path, not via a symlink. Layout and toolset: wow-common.sh.

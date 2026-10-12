@@ -251,6 +251,63 @@ guess a gate (`reference/project-schema.md`).
    fall back to `gh pr review`. **Not yet verified live**: it runs only where `{review.ci_gate}`
    is set, and a hand-started run keeps `gh pr review` unchanged.
 
+   **App mode — the post is made with a reviewer token requested after the sandbox is gone**
+   (`WB-D24`, `#389`). Read the **default branch's** copy of `identities` (the copy the *Pin the
+   target* step used, never the working tree's): when it is a map, this post is made as the
+   declared `reviewer_app`, and a `null` `reviewer_app` is a stop. When it is `null`, none of
+   this applies and the post above is unchanged. The host's `WOW_HOME` must be set (absolute) to
+   its identity directory, in this session's environment: `bin/review-token.sh` names no default
+   for it and each Bash call is a fresh shell. The order is mechanical: `review-token.sh request`
+   refuses while **any** review sandbox exists under the sandbox root (it takes no path from you),
+   so no reviewer token **file** exists while sandboxed PR code runs. That is all the order buys:
+   the sandbox is same-user accident containment, not a boundary, so PR code can still read the
+   reviewer App's key or leave a process or `PATH` plant behind (`review-sandbox.sh`'s "does NOT
+   close" list, and `review-token.sh`'s header). The post is always the pinned API form above,
+   `<pin>` being the SHA from the *Pin the target* step and `<default>` the `default=` value
+   `review-base-anchor.sh` printed. The pre-post head re-read is not repeated here: `commit_id`
+   attaches the review to the pin whatever the head has become. One Bash call, whose trap deletes
+   the token file on every exit:
+   ```bash
+   unset GH_HOST GH_ENTERPRISE_TOKEN; set -f
+   trap '[ -z "$T" ] || rm -rf "$T"; review-token.sh discard {repo} >/dev/null || { echo "STOP: reviewer token file not removed" >&2; exit 1; }' EXIT
+   R= RC=0 T=
+   { F=$(review-token.sh request {repo}) &&
+     TOK=$(token-check.sh token "$F") && [ -n "$TOK" ] &&
+     T=$(mktemp -d) &&
+     GH_TOKEN="$TOK" timeout 60 gh api --hostname github.com --paginate installation/repositories \
+       --jq '.repositories[].full_name' >"$T/inst.txt" &&
+     git show "refs/remotes/origin/<default>:./.ai/project.yml" >"$T/def.yml" &&
+     yq -e '.identities.reviewer_app | tag == "!!map"' "$T/def.yml" >/dev/null &&
+     token-check.sh verify any {repo} "$F" "$T/inst.txt" "$T/def.yml" >/dev/null &&
+     R=$(GH_TOKEN="$TOK" timeout 60 gh api --hostname github.com -X POST "repos/{repo}/pulls/<N>/reviews" \
+           -f commit_id=<pin> -f event=COMMENT -F body=@"<that path>" \
+           --jq '.commit_id + " " + .state + " " + .user.login + " " + (.user.id | tostring)'); } || RC=$?
+   if [ "$RC" = 0 ]; then
+     set -- $R   # <commit_id> <state> <login> <id>
+     if [ "$1" != "<pin>" ] || [ "$2" != COMMENTED ]; then RC=104
+     elif ! token-check.sh verify reviewer_app {repo} "$F" "$T/inst.txt" "$T/def.yml" "$3" "$4" >/dev/null; then RC=103
+     fi
+   fi
+   echo "$RC $R"; [ "$RC" = 0 ]
+   ```
+   `token-check.sh` is the fail-closed gate: an empty, expired or user token stops before `gh`
+   could fall back to a stored human login, and every call names `github.com` with
+   `GH_HOST`/`GH_ENTERPRISE_TOKEN` unset so `GH_TOKEN` is the credential used. Which App holds an
+   installation token is provable only from a write response (`WB-D24`, `#380`), so the
+   declared-`reviewer_app` check runs after the post, on the response's `user` login and id, and
+   before the trap's `discard` (it needs the token file). Anything but `0 <pin> COMMENTED …` is a
+   stop to report, never worked around by `gh pr review` under another login. **`103` and `104`
+   (chosen outside any exit status a tool in the chain returns) mean a review did post**: the actor
+   not proven to be the declared reviewer, or the wrong commit or state (or an empty response from a `0` exit: posted or unknown, so never retried blind). Say so plainly for the
+   human to handle, and still consume the cursor's vote below. **Any other nonzero means no
+   review was confirmed, not that none posted**: a `timeout` (124) or a dropped connection can
+   follow a POST GitHub accepted, so read the PR's reviews before any retry, and a retry that
+   would post a second review on the same pin is a stop. `discard` removes only this host's copy:
+   the token lives out its hour on GitHub (`wow-review-mint`'s header). The tests
+   (`tests/review-token.test.sh`) cover `review-token.sh` against a stub broker only, not this
+   block. **The live run — one review posted on the scratch repo through this flow — is the
+   human's.**
+
    **Consume the cursor's vote the moment a post succeeds — pinned or not, and before the poll
    below** (`WB-D22`, `#283`). The base, synced and clean, is the checkout resume auto-starts
    from, so nothing but the gate would stop a later resume there from starting a second review

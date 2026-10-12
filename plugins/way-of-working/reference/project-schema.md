@@ -826,15 +826,14 @@ account including the dev App — an agent never trusts its own text — and `le
 agent's, which points at it), `bin/review-sandbox.sh trust`, `plan-sprint` (judging the login and
 id `bin/plan-gather.sh` prints) and `scripts/loop/preflight.sh github-dispatch`
 (`--identities`, the one reader that is its own implementation of the rule rather than a call
-to `gh-identity.sh`). Outside `token-check.sh` (below), `reviewer_app` and `loop_app` are read only to
+to `gh-identity.sh`). Outside `token-check.sh` (below) and `architect-review` (which requires `reviewer_app` to be a map, `#389`), `reviewer_app` and `loop_app` are read only to
 refuse them (as authors, and by `classify` as the acting identity) and to catch a duplicate id.
 `plan-anchor.sh verify --maintainer-ids` (`#383`) takes the maintainers' numeric ids from the
 caller, which reads them from the default branch's copy: `resume` passes them under a map and
 omits the flag under `null`. `bin/token-check.sh verify` (`#436`) is the exception: a consumer of a minted token runs it before
 acting, and for a `dev_app`, `reviewer_app` or `loop_app` role it requires the token's actor and
 matches it against that declared entry through `gh-identity.sh role`; the actor must come from a GitHub
-response obtained with the token (measured in `#380`: the `user` of an issue or PR it created, so only after a first write). Nothing yet acts as `reviewer_app` or
-`loop_app`, which is the same stated, temporary state as `orchestration`'s.
+response obtained with the token (measured in `#380`: the `user` of an issue or PR it created, so only after a first write). `/way-of-working:architect-review` acts as `reviewer_app` under a map (`#389`, `bin/review-token.sh`); nothing yet acts as `loop_app`, which is the same stated, temporary state as `orchestration`'s.
 
 **`ship` reads `dev_app` in App mode** (`#464`). Before pushing it requires the default branch's
 copy to declare a `dev_app` map; after `gh pr create` it passes the PR's `user` login and id to
