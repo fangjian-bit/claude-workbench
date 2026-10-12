@@ -66,7 +66,7 @@ sh tests/loop-preflight.test.sh # scripts/loop/preflight.sh container and GitHub
 sh tests/loop-critic.test.sh   # scripts/loop/critic.sh bundle, launch line and system/init check, stub claude (not yet required)
 sh tests/identity-mint.test.sh  # scripts/identity/mint.sh JWT, request and failure fixtures, stub curl (not yet required)
 sh tests/identity-wow.test.sh   # scripts/identity/wow-admin and wow-review-mint fixtures, stub curl (not yet required)
-sh tests/identity-broker.test.sh  # scripts/identity/broker.ps1 dev-token rotation and reviewer-request fixtures, stub minters; needs pwsh, skips without (not yet required)
+sh tests/identity-broker.test.sh  # scripts/identity/broker.ps1 dev-token rotation and install-host-tools.ps1 fixtures, stub minters; needs pwsh, skips without (not yet required)
 ```
 
 `scripts/lint.sh` needs the `claude` CLI and `jq` on PATH. `scripts/invariants-check.sh` needs

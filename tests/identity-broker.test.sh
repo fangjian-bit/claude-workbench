@@ -1,9 +1,9 @@
 #!/bin/sh
 # Fixture tests for scripts/identity/broker.ps1 (issue #392).
 #
-# Stub mint.sh and wow-review-mint stand in for the real minters (their own suites cover them): they
-# record their argv and write a canned token. A throwaway $WOW_HOME is laid out like the real one
-# (apps.json with a "dev" entry, broker.json). The broker runs with -Once, one pass per case.
+# Stub mint.sh stands in for the real minter (its own suite covers it): it records its argv and writes a
+# canned token. A throwaway $WOW_HOME is laid out like the real one (apps.json with a "dev" entry,
+# broker.json). The broker runs with -Once, one pass per case.
 #
 #   mint         no token -> minted for the dev installation, one repo, the dev permissions, written to
 #                tokens/<repo>/dev-token; the staging file is gone
@@ -11,16 +11,13 @@
 #   rotation     a token with 10 minutes left, then an expired one, are replaced by the new token
 #   failure      a failed mint, or one that yields a non-token or already-expired file, exits 1 and
 #                keeps the old token untouched; no token text reaches stdout, stderr or broker.log
-#   request      req/<repo>/reviewer-token is consumed and wow-review-mint gets the bare repo name and
-#                nothing from the file; a directory of that name is ignored; a repo not in broker.json
-#                is never served
 #   survival     a repo whose token cannot be published (a directory in the way) is logged and exits 1;
 #                the other repo is still minted
 #   token shape  a CRLF token file, or one with a blank line, is not "current" and is replaced
-#   gating       a request waits while the sandbox root (-SandboxRoot, else ${TMPDIR:-/tmp}/review-sandbox)
-#                holds anything, and is served once it is empty
-#   expiry       a reviewer-token file older than the TTL is removed, a recent one kept
-#   registration -WhatIf: trailing backslash trimmed, no version-pinned Store pwsh path
+#   expiry       a reviewer-token file older than the TTL is removed for any repo, a recent one kept
+#   install      install-host-tools.ps1 exports committed files only into bin with a MANIFEST (commit, hashes),
+#                refuses an uncommitted change or a HEAD not on origin/main, and creates tokens/<repo>;
+#                register-broker-task.ps1 -WhatIf points the task at bin and installs nothing
 #   config       a bad repo name (or a trailing dot) or a missing broker.json exits 2 before anything
 #                is minted
 #
@@ -49,11 +46,6 @@ echo called >>"$STUB_DIR/mint-calls"
 while [ $# -gt 0 ]; do [ "$1" = --out ] && out=$2; shift; done
 [ -z "${STUB_FAIL:-}" ] || { echo "mint.sh: GitHub answered HTTP 401: Bad credentials" >&2; exit 1; }
 printf '%s\n%s\n' "$STUB_TOKEN" "$STUB_EXPIRES" >"$out"
-STUB
-cat >"$scripts/wow-review-mint" <<'STUB'
-#!/bin/sh
-printf '%s\n' "$@" >"$STUB_DIR/review-argv"
-echo called >>"$STUB_DIR/review-calls"
 STUB
 cat >"$home/apps.json" <<'CONF'
 {"dev": {"client_id": "Iv1devclient", "installation_id": "4242", "key": "dev.pem"}}
@@ -85,7 +77,7 @@ run_broker() { # leaves the exit code in $rc, output in $tmp/out
   pwsh -NoProfile -NonInteractive -File "$(wp "$root_dir/scripts/identity/broker.ps1")" \
     -WowHome "$(wp "$home")" -Sh "$sh_path" -ScriptsDir "$(wp "$scripts")" -Once >"$tmp/out" 2>&1 || rc=$?
 }
-reset() { rm -f "$stubdir"/*; rm -rf "$home/tokens" "$home/staging" "$home/req" "$home/broker.log"; echo "$repos_ok" >"$home/broker.json"; }
+reset() { rm -f "$stubdir"/*; rm -rf "$home/tokens" "$home/staging" "$home/broker.log"; echo "$repos_ok" >"$home/broker.json"; }
 calls() { if [ -f "$stubdir/$1" ]; then wc -l <"$stubdir/$1" | tr -d ' '; else echo 0; fi; }
 write_token() { # write_token <repo> <token> <expires>
   mkdir -p "$home/tokens/$1"; printf '%s\n%s\n' "$2" "$3" >"$home/tokens/$1/dev-token"
@@ -148,23 +140,6 @@ for f in "$tmp/out" "$home/broker.log"; do
   if grep -q "$fresh\|$old" "$f"; then bad "secrecy: token text in $(basename "$f")"; else ok "secrecy: no token text in $(basename "$f")"; fi
 done
 
-# --- request ---------------------------------------------------------------------------------
-reset
-soon=$(stamp '+45 minutes')
-write_token alpha "$old" "$soon"; write_token beta "$old" "$soon"
-mkdir -p "$home/req/alpha" "$home/req/beta" "$home/req/gamma"
-printf '%s\n' '--out /etc/evil; rm -rf /' >"$home/req/alpha/reviewer-token"
-mkdir "$home/req/beta/reviewer-token"; echo keep >"$home/req/beta/reviewer-token/x"
-echo x >"$home/req/gamma/reviewer-token"
-run_broker
-check "request: exits 0" test "$rc" -eq 0
-check "request: consumed" test ! -e "$home/req/alpha/reviewer-token"
-check "request: one reviewer mint" test "$(calls review-calls)" -eq 1
-check "request: only the repo name is passed" test "$(cat "$stubdir/review-argv")" = alpha
-check "request: directory of that name ignored" test -f "$home/req/beta/reviewer-token/x"
-check "request: repo not in broker.json not served" test -f "$home/req/gamma/reviewer-token"
-check "request: no dev mint needed" test "$(calls mint-calls)" -eq 0
-
 # --- survival --------------------------------------------------------------------------------
 reset
 mkdir -p "$home/tokens/alpha/dev-token"   # unpublishable: a directory where the token file goes
@@ -182,58 +157,85 @@ run_broker
 check "shape: CRLF token is replaced" test "$(tokfile alpha)" = "$(expect_fresh)"
 check "shape: token with a blank line is replaced" test "$(tokfile beta)" = "$(expect_fresh)"
 
-# --- request gating --------------------------------------------------------------------------
 reset
-soon=$(stamp '+45 minutes')
+mkdir -p "$home/review-tokens/gone-repo" "$home/review-tokens/alpha"
+echo t >"$home/review-tokens/gone-repo/reviewer-token"; touch -d '-20 minutes' "$home/review-tokens/gone-repo/reviewer-token"
+echo t >"$home/review-tokens/alpha/reviewer-token"   # recent
 write_token alpha "$old" "$soon"; write_token beta "$old" "$soon"
-mkdir -p "$home/req/alpha" "$tmp/sandbox"; echo x >"$tmp/sandbox/pr-1"
-echo x >"$home/req/alpha/reviewer-token"
-run_broker_extra() { rc=0
-  pwsh -NoProfile -NonInteractive -File "$(wp "$root_dir/scripts/identity/broker.ps1")" \
-    -WowHome "$(wp "$home")" -Sh "$sh_path" -ScriptsDir "$(wp "$scripts")" -Once "$@" >"$tmp/out" 2>&1 || rc=$?
-}
-run_broker_extra -SandboxRoot "$(wp "$tmp/sandbox")"
-check "gating: a live review sandbox holds the request" test -f "$home/req/alpha/reviewer-token"
-check "gating: no reviewer mint while it exists" test "$(calls review-calls)" -eq 0
-rm "$tmp/sandbox/pr-1"; run_broker_extra -SandboxRoot "$(wp "$tmp/sandbox")"
-check "gating: served once the sandbox is gone" test ! -e "$home/req/alpha/reviewer-token"
-check "gating: then the reviewer mint runs" test "$(calls review-calls)" -eq 1
-
-# The same gate with no -SandboxRoot and no REVIEW_SANDBOX_ROOT: the root is ${TMPDIR:-/tmp}/review-sandbox,
-# resolved by sh in its MSYS form, exactly as review-sandbox.sh and review-token.sh resolve it.
-reset
-soon=$(stamp '+45 minutes')
-write_token alpha "$old" "$soon"; write_token beta "$old" "$soon"
-mkdir -p "$home/req/alpha" "$tmp/tmpd/review-sandbox"; echo x >"$tmp/tmpd/review-sandbox/pr-1"
-echo x >"$home/req/alpha/reviewer-token"
-rc=0
-env -u REVIEW_SANDBOX_ROOT TMPDIR="$tmp/tmpd" pwsh -NoProfile -NonInteractive -File "$(wp "$root_dir/scripts/identity/broker.ps1")" \
-  -WowHome "$(wp "$home")" -Sh "$sh_path" -ScriptsDir "$(wp "$scripts")" -Once >"$tmp/out" 2>&1 || rc=$?
-check "gating: the default sandbox root is checked too" test -f "$home/req/alpha/reviewer-token"
-check "gating: no reviewer mint under the default root" test "$(calls review-calls)" -eq 0
-rm -f "$tmp/tmpd/review-sandbox/pr-1"
-env -u REVIEW_SANDBOX_ROOT TMPDIR="$tmp/tmpd" pwsh -NoProfile -NonInteractive -File "$(wp "$root_dir/scripts/identity/broker.ps1")" \
-  -WowHome "$(wp "$home")" -Sh "$sh_path" -ScriptsDir "$(wp "$scripts")" -Once >"$tmp/out" 2>&1 || rc=$?
-check "gating: served once the default root is empty" test ! -e "$home/req/alpha/reviewer-token"
-
-# --- reviewer token expiry -------------------------------------------------------------------
-reset
-write_token alpha "$old" "$soon"; write_token beta "$old" "$soon"
-mkdir -p "$home/review-tokens/alpha" "$home/review-tokens/beta"
-echo t >"$home/review-tokens/alpha/reviewer-token"; touch -d '-20 minutes' "$home/review-tokens/alpha/reviewer-token"
-echo t >"$home/review-tokens/beta/reviewer-token"
 run_broker
-check "expiry: an old reviewer token file is removed" test ! -e "$home/review-tokens/alpha/reviewer-token"
-check "expiry: a recent one is kept" test -e "$home/review-tokens/beta/reviewer-token"
+check "expiry: an old file is removed for a repo not in broker.json" test ! -e "$home/review-tokens/gone-repo/reviewer-token"
+check "expiry: a recent file is kept" test -e "$home/review-tokens/alpha/reviewer-token"
 
-# --- registration ----------------------------------------------------------------------------
+# --- install-host-tools / register -----------------------------------------------------------
+# A throwaway source repo with the host scripts committed on main, and a bare origin it is pushed to.
+src="$tmp/src" origin="$tmp/origin.git"
+git init -q -b main "$src" && git init -q --bare -b main "$origin"
+mkdir -p "$src/scripts/identity"
+for f in broker.ps1 mint.sh wow-common.sh wow-review-mint wow-admin register-broker-task.ps1 install-host-tools.ps1; do
+  cp "$root_dir/scripts/identity/$f" "$src/scripts/identity/$f"
+done
+git -C "$src" -c user.name=t -c user.email=t@t add -A
+git -C "$src" -c user.name=t -c user.email=t@t commit -q -m seed
+git -C "$src" remote add origin "$(wp "$origin")"
+git -C "$src" push -q origin main
+head=$(git -C "$src" rev-parse HEAD)
+run_install() { rc=0
+  pwsh -NoProfile -NonInteractive -File "$(wp "$root_dir/scripts/identity/install-host-tools.ps1")" \
+    -WowHome "$(wp "$home")" -SourceRepo "$(wp "$src")" "$@" >"$tmp/out" 2>&1 || rc=$?
+}
+has_cr() { [ "$(tr -cd '\015' <"$1" | wc -c | tr -d ' ')" -gt 0 ]; }
+not_cr() { for p in "$@"; do ! has_cr "$p" || return 1; done; }
+# A CRLF working tree (autocrlf) that git still reports clean: only a blob export keeps the install LF.
+git -C "$src" config core.autocrlf true
+rm -f "$src"/scripts/identity/*; git -C "$src" checkout -q -- scripts/identity
+check "install setup: the source working tree really is CRLF" has_cr "$src/scripts/identity/mint.sh"
+reset; rm -rf "$home/bin"
+run_install
+check "install: exits 0" test "$rc" -eq 0
+check "install: broker and mint.sh land in bin" test -f "$home/bin/broker.ps1" -a -f "$home/bin/mint.sh"
+check "install: MANIFEST records the commit" grep -q "^commit $head\$" "$home/bin/MANIFEST"
+check "install: MANIFEST has one hash per file" test "$(grep -c '^[0-9a-f]\{64\}  ' "$home/bin/MANIFEST")" -eq 5
+ok_hash=1
+for f in broker.ps1 mint.sh wow-common.sh wow-review-mint wow-admin; do
+  want=$(git -C "$src" cat-file blob "HEAD:scripts/identity/$f" | sha256sum | cut -d' ' -f1)
+  grep -q "^$want  $f\$" "$home/bin/MANIFEST" || ok_hash=
+  [ "$(sha256sum <"$home/bin/$f" | cut -d' ' -f1)" = "$want" ] || ok_hash=
+done
+check "install: every installed file is the committed blob" test -n "$ok_hash"
+check "install: files are LF" not_cr "$home/bin/mint.sh" "$home/bin/wow-admin" "$home/bin/broker.ps1"
+check "install: no staging left" test ! -e "$home/bin.new" -a ! -e "$home/bin.old"
+check "install: tokens/<repo> created for each repo" test -d "$home/tokens/alpha" -a -d "$home/tokens/beta"
+manifest=$(cat "$home/bin/MANIFEST")
+
+echo '# dirty' >>"$src/scripts/identity/mint.sh"
+run_install
+check "install: an uncommitted change is refused" test "$rc" -ne 0
+check "install: ...for that reason" grep -q 'uncommitted changes' "$tmp/out"
+check "install: ...and bin is untouched" test "$(cat "$home/bin/MANIFEST")" = "$manifest"
+git -C "$src" checkout -q -- scripts/identity/mint.sh
+
+git -C "$src" -c user.name=t -c user.email=t@t commit -q --allow-empty -m unpushed
+run_install
+check "install: a HEAD not on origin/main is refused" test "$rc" -ne 0
+check "install: ...for that reason" grep -q 'is not on origin/main' "$tmp/out"
+check "install: ...and bin is untouched (unmerged)" test "$(cat "$home/bin/MANIFEST")" = "$manifest"
+git -C "$src" branch origin/main   # a local branch named like the remote ref must not satisfy the check
+run_install
+check "install: a local branch named origin/main does not bypass it" test "$rc" -ne 0
+check "install: ...still for that reason" grep -q 'is not on origin/main' "$tmp/out"
+git -C "$src" branch -q -D origin/main
+git -C "$src" reset -q --hard "$head"
+
+
+rm -rf "$home/bin"
 reg=$(pwsh -NoProfile -NonInteractive -File "$(wp "$root_dir/scripts/identity/register-broker-task.ps1")" \
-  -WowHome "$(wp "$home")\\" -Sh "$sh_path" -WhatIf 2>&1) || reg="failed: $reg"
+  -WowHome "$(wp "$home")\\" -Sh "$sh_path" -SourceRepo "$(wp "$src")" -TaskName "wow-broker-test-$$" -WhatIf 2>&1) || reg="failed: $reg"
 case "$reg" in
-  *'-WowHome "'*'/home" -Sh'*|*'-WowHome "'*'\home" -Sh'*) ok "register: trailing backslash trimmed from the command line" ;;
+  *'-File "'*'bin\broker.ps1" -WowHome "'*'\home" -Sh'*) ok "register: runs the installed copy, trailing backslash trimmed" ;;
   *) bad "register: command line was $reg" ;;
 esac
 case "$reg" in *WindowsApps\\Microsoft.PowerShell_*) bad "register: version-pinned Store pwsh path recorded" ;; *) ok "register: no version-pinned Store pwsh path" ;; esac
+check "register: -WhatIf installs nothing" test ! -e "$home/bin"
 
 # --- config ----------------------------------------------------------------------------------
 reset

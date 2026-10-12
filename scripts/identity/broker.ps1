@@ -1,8 +1,9 @@
 #Requires -Version 7.2
 <#
 .SYNOPSIS
-  Host token broker: keeps each repo's dev token fresh and serves reviewer-token requests
-  (WB-D24, issue #392). Registered as a scheduled task by register-broker-task.ps1.
+  Host token broker: keeps each repo's dev token fresh (WB-D24, issue #392). Installed with the
+  other host scripts by install-host-tools.ps1 and registered as a scheduled task by
+  register-broker-task.ps1; it runs from $WowHome\bin, never from a checkout.
 
 .DESCRIPTION
   Runs on the host, where the App keys live; no key is ever copied into a container.
@@ -21,25 +22,15 @@
   token-shaped and still live, then publishes it with [IO.File]::Move(src, dst, overwrite) on the
   same volume, so a reader sees the old token or the new one, never a partial file. A failed mint
   leaves the old token in place (it stays valid until it expires) and is retried after
-  -RetrySeconds.
+  -RetrySeconds. Docker Desktop may hold a token file open and make the move fail with a sharing
+  violation; that is logged and retried, not an error to chase.
 
-  Reviewer-token requests. A container may write an empty file named `reviewer-token` into
-  $WowHome\req\<repo>\ (the request directory is its one writable mount). The broker deletes it,
-  then runs wow-review-mint <repo> from this directory. The request's content is never read, and
-  the repo comes from the directory name, so the requester chooses nothing but "now": no --out,
-  no repo, no permission. The token lands in $WowHome\review-tokens\<repo>\reviewer-token, a tree
-  no dev container mounts. At most one reviewer mint per repo per -ReviewMinGapSeconds: a request
-  inside the gap stays in place and is served when the gap ends. While -SandboxRoot (default
-  $env:REVIEW_SANDBOX_ROOT, the root review-sandbox.sh builds under) holds anything, requests
-  wait, the same refusal review-token.sh makes. The root is resolved by sh with the same default
-  (${TMPDIR:-/tmp}/review-sandbox), so it is checked even when the variable is unset; -SandboxRoot
-  overrides it. A root that cannot be listed counts as occupied. Like review-token.sh's own check,
-  it is only as good as the root matching the one the review session builds under: the broker
-  resolves it once, in the task's environment. The broker also
-  deletes a reviewer-token file older than -ReviewTtlMinutes, so a requested token's file does
-  not sit on the host. A request that is not a plain file is ignored, never followed or removed.
-  Who consumes this path is open (WB-D24 forbids mounting review-tokens/ into a dev container);
-  review-token.sh calls wow-review-mint directly and does not use it.
+  Reviewer tokens. The broker mints none: review-token.sh (the host review flow) calls
+  wow-review-mint itself, and a reviewer token never reaches a dev container (WB-D24; reviewer and
+  author are separate identities). There is deliberately no request channel for containers, so
+  nothing under $WowHome is container-writable. The broker's only part is cleanup: every pass it
+  deletes any $WowHome\review-tokens\<repo>\reviewer-token older than -ReviewTtlMinutes, for any
+  repo, which covers a review session killed before it ran `review-token.sh discard`.
 
   One bad repo or one failed file operation is logged and retried; it never stops the others.
 
@@ -51,11 +42,17 @@
   Without it the broker loops every -PollSeconds until stopped.
 
 .PARAMETER Sh
-  The POSIX shell that runs mint.sh and wow-review-mint (Git for Windows' sh.exe). Default: the
-  first sh on PATH. openssl, curl and jq must be on the PATH this process has.
+  The POSIX shell that runs mint.sh (Git for Windows' sh.exe). Default: the first sh on PATH.
+  openssl, curl and jq must be on the PATH this process has.
 
 .PARAMETER ScriptsDir
-  Where mint.sh and wow-review-mint live. Default: this script's directory.
+  Where mint.sh lives. Default: this script's directory.
+
+.PARAMETER WowHome
+  The identity directory (default $env:WOW_HOME, else ~/.config/glunk-identity). A value in MSYS
+  form (/c/Users/...), as review-token.sh needs, is converted with the shell's cygpath. One home
+  holds one org's Apps (apps.json has one "dev" entry); a second org needs a second home, a second
+  broker.json and a second task (-TaskName in register-broker-task.ps1).
 #>
 [CmdletBinding()]
 param(
@@ -66,9 +63,7 @@ param(
   [int]$RefreshMinutes = 30,
   [int]$PollSeconds = 5,
   [int]$RetrySeconds = 60,
-  [int]$ReviewMinGapSeconds = 30,
-  [int]$ReviewTtlMinutes = 10,
-  [string]$SandboxRoot = $env:REVIEW_SANDBOX_ROOT
+  [int]$ReviewTtlMinutes = 10
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -175,48 +170,31 @@ function Update-DevToken([string]$repo) {
   $true
 }
 
-# Test-SandboxPresent: $true if anything is under the review-sandbox root. Fails closed: a root that
-# cannot be listed, or is a link, counts as occupied (review-token.sh makes the same refusal).
-function Test-SandboxPresent {
-  if (-not (Test-Path -LiteralPath $script:SandboxWin)) { return $false }
-  try {
-    if ((Get-Item -LiteralPath $script:SandboxWin -Force).LinkType) { return $true }
-    @(Get-ChildItem -LiteralPath $script:SandboxWin -Force -ErrorAction Stop).Count -gt 0
-  } catch { $true }
+
+# Expire-ReviewTokens: delete every repo's reviewer-token file older than the TTL. Walks the directory,
+# not broker.json, so a repo dropped from the config is still cleaned. Links are never followed.
+function Expire-ReviewTokens {
+  $root = Join-Path $WowHome 'review-tokens'
+  if (-not (Test-Path -LiteralPath $root -PathType Container)) { return }
+  foreach ($d in @(Get-ChildItem -LiteralPath $root -Directory -Force -ErrorAction SilentlyContinue)) {
+    if ($d.LinkType -or -not (Test-RepoName $d.Name)) { continue }
+    $f = Join-Path $d.FullName 'reviewer-token'
+    $item = Get-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue
+    if ($item -and -not $item.PSIsContainer -and ([DateTime]::UtcNow - $item.LastWriteTimeUtc).TotalMinutes -gt $ReviewTtlMinutes) {
+      try {
+        Remove-Item -LiteralPath $f -Force
+        Write-Log "review $($d.Name)`: reviewer token file expired and removed"
+      } catch { Write-Log "review $($d.Name)`: $($_.Exception.Message)" }
+    }
+  }
 }
 
-# Serve-Request <repo>: consume a reviewer-token request file, then mint. $true unless the mint failed.
-function Serve-Request([string]$repo) {
-  $req = Join-Path $WowHome "req/$repo/reviewer-token"
-  $item = Get-Item -LiteralPath $req -Force -ErrorAction SilentlyContinue
-  if (-not $item -or $item.PSIsContainer -or $item.LinkType -or $item.Attributes -band [IO.FileAttributes]::ReparsePoint) { return $true }
-  # A request that must wait is left in place (and not logged again until the gap has passed).
-  $last = $script:lastReview[$repo]
-  if ($last -and ([DateTime]::UtcNow - $last).TotalSeconds -lt $ReviewMinGapSeconds) { return $true }
-  if (Test-SandboxPresent) {
-    $script:lastReview[$repo] = [DateTime]::UtcNow
-    Write-Log "review $repo`: a review sandbox exists under $($script:SandboxWin); request waits"
-    return $true
-  }
-  $script:lastReview[$repo] = [DateTime]::UtcNow
-  Remove-Item -LiteralPath $req -Force
-  $r = Invoke-Sh @((ToSh (Join-Path $ScriptsDir 'wow-review-mint')), $repo)
-  if ($r.Code -ne 0) {
-    Write-Log "review $repo`: mint failed (exit $($r.Code)): $($r.Text)"
-    return $false
-  }
-  Write-Log "review $repo`: reviewer token minted on request"
-  $true
-}
-
-# Expire-ReviewToken <repo>: delete this host's copy of the reviewer token once it is older than the TTL.
-function Expire-ReviewToken([string]$repo) {
-  $f = Join-Path $WowHome "review-tokens/$repo/reviewer-token"
-  $item = Get-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue
-  if ($item -and -not $item.PSIsContainer -and ([DateTime]::UtcNow - $item.LastWriteTimeUtc).TotalMinutes -gt $ReviewTtlMinutes) {
-    Remove-Item -LiteralPath $f -Force
-    Write-Log "review $repo`: reviewer token file expired and removed"
-  }
+# Get-ManifestCommit: the commit install-host-tools.ps1 recorded for this install, for the log. Never trusted for anything.
+function Get-ManifestCommit {
+  $m = Join-Path $ScriptsDir 'MANIFEST'
+  if (-not (Test-Path -LiteralPath $m -PathType Leaf)) { return 'none (not an installed copy)' }
+  $l = Get-Content -LiteralPath $m | Where-Object { $_ -match '^commit ' } | Select-Object -First 1
+  if ($l -match '^commit ([0-9a-f]{7,40})$') { $Matches[1] } else { 'unreadable' }
 }
 
 function Get-Repos {
@@ -238,28 +216,19 @@ function Stop-Setup([string]$msg) {
   Write-Error $msg -ErrorAction Continue
   exit 2
 }
+$script:ShPath = if ($Sh) { $Sh } else { (Get-Command sh -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source }
+if ($script:ShPath -and $WowHome.StartsWith('/') -and (Test-Path -LiteralPath $script:ShPath -PathType Leaf)) {
+  $conv = (& $script:ShPath -c 'cygpath -w "$1"' sh $WowHome 2>$null)
+  if ($conv) { $WowHome = ("$conv").Trim() }
+}
 if (-not (Test-Path -LiteralPath $WowHome -PathType Container)) {
   Write-Error "WowHome $WowHome does not exist" -ErrorAction Continue
   exit 2
 }
-$script:ShPath = if ($Sh) { $Sh } else { (Get-Command sh -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source }
 if (-not $script:ShPath -or -not (Test-Path -LiteralPath $script:ShPath -PathType Leaf)) {
   Stop-Setup 'no POSIX sh found: pass -Sh (Git for Windows sh.exe)'
 }
-foreach ($s in 'mint.sh', 'wow-review-mint') {
-  if (-not (Test-Path -LiteralPath (Join-Path $ScriptsDir $s) -PathType Leaf)) { Stop-Setup "$s not found in $ScriptsDir" }
-}
-
-# The sandbox root, resolved by the same shell and rule review-sandbox.sh and review-token.sh use
-# (REVIEW_SANDBOX_ROOT, else ${TMPDIR:-/tmp}/review-sandbox), then made a Windows path where cygpath
-# exists. -SandboxRoot overrides the variable and may be in either form.
-if ($SandboxRoot) { $env:REVIEW_SANDBOX_ROOT = $SandboxRoot }
-$resolved = & $script:ShPath -c 'r=${REVIEW_SANDBOX_ROOT:-${TMPDIR:-/tmp}/review-sandbox}; cygpath -w "$r" 2>/dev/null || printf "%s" "$r"' 2>$null
-$script:SandboxWin = ("$resolved").Trim()
-if (-not $script:SandboxWin) { Stop-Setup 'cannot resolve the review sandbox root' }
-if (-not [IO.Path]::IsPathFullyQualified($script:SandboxWin)) {
-  Stop-Setup "the review sandbox root '$($script:SandboxWin)' is not a full Windows path (relative, or sh has no cygpath)"
-}
+if (-not (Test-Path -LiteralPath (Join-Path $ScriptsDir 'mint.sh') -PathType Leaf)) { Stop-Setup "mint.sh not found in $ScriptsDir" }
 
 try {
   $lock = [IO.File]::Open((Join-Path $WowHome 'broker.lock'), 'OpenOrCreate', 'ReadWrite', 'None')
@@ -269,11 +238,10 @@ try {
   exit $(if ($Once) { 1 } else { 0 }) # a second scheduled start is not a failure
 }
 
-$script:lastReview = @{}
 $retryAt = @{}
 $exit = 0
 try {
-  Write-Log 'broker started'
+  Write-Log "broker started, installed from commit $(Get-ManifestCommit)"
   while ($true) {
     $failed = $false
     try {
@@ -289,14 +257,12 @@ try {
     foreach ($repo in $repos) {
       # Each step is its own try: a throw (a held file, a swapped directory) is logged, never fatal.
       if (-not ($retryAt[$repo] -and [DateTime]::UtcNow -lt $retryAt[$repo] -and -not $Once)) {
-        # a failed dev mint waits out the retry gap; a reviewer request is still served
+        # a failed dev mint waits out the retry gap
         try { $ok = Update-DevToken $repo } catch { Write-Log "dev $repo`: $($_.Exception.Message)"; $ok = $false }
         if (-not $ok) { $retryAt[$repo] = [DateTime]::UtcNow.AddSeconds($RetrySeconds); $failed = $true }
       }
-      try { if (-not (Serve-Request $repo)) { $failed = $true } }
-      catch { Write-Log "review $repo`: $($_.Exception.Message)"; $failed = $true }
-      try { Expire-ReviewToken $repo } catch { Write-Log "review $repo`: $($_.Exception.Message)" }
     }
+    try { Expire-ReviewTokens } catch { Write-Log "review: $($_.Exception.Message)" }
     if ($Once) { if ($failed) { $exit = 1 }; break }
     Start-Sleep -Seconds $PollSeconds
   }

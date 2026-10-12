@@ -10,13 +10,15 @@
 #   tokens/<repo>/         the only directory of secrets a repo's container mounts, read-only: admin-token
 #                          (wow-admin) and dev-token (broker.ps1), each the token then its
 #                          expires_at. Admin and dev credentials only.
-#   dev.pem, broker.json   broker.ps1's config: the dev App's unencrypted key (name by convention), and {"repos": [...]},
-#                          the repos it keeps a dev token for. It also uses staging/<repo>/, a
-#                          broker.lock and broker.log, none mounted anywhere, and serves
-#                          req/<repo>/reviewer-token requests: req/<repo>/ is the one other
-#                          directory a container may mount, writable, and holds no secret.
+#   dev.pem, broker.json   broker.ps1 config: the dev App's unencrypted key (name by convention), and
+#                          {"repos": [...]}, the repos it keeps a dev token for. Also broker.lock,
+#                          broker.log and staging/<repo>/, none mounted anywhere.
 #   review-tokens/<repo>/  reviewer-token, in the same format. Never mounted into a dev
 #                          container: the reviewer is a different identity from the PR's author.
+#   bin/                   the installed copies of these scripts (install-host-tools.ps1, from
+#                          committed code on origin/main, with a MANIFEST); the broker task and the
+#                          human commands run from here, never from a checkout a container can write.
+# Invariant: no path under $WOW_HOME is container-writable; only tokens/<repo>/ is mounted, read-only.
 # What these commands write: tokens/ and review-tokens/ directories, a per-repo .lock directory
 # and a transient .unlock.* directory (both removed on exit), admin-token (replaced or removed),
 # reviewer-token (default review-tokens/<repo>/, or the path --out names), and the .mint.* file
