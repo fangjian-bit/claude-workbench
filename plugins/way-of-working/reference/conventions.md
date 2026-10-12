@@ -238,11 +238,48 @@ exactly right when the wrong commit is installed, and therefore proves nothing:
 ```bash
 jq -r '.plugins["<plugin>@<marketplace>"][] | "\(.projectPath) \(.version) \(.gitCommitSha)"' \
   ~/.claude/plugins/installed_plugins.json
-git ls-remote --tags <marketplace-repo-url> <ref>
+git ls-remote --tags <marketplace-repo-url> <ref> '<ref>^{}'
 ```
 
-The two shas must be equal. A version string that matches while the shas differ is the
-failure this section exists for, and it is silent in every other surface.
+The two shas must be equal, **and every record whose `projectPath` is this project — each
+drive-letter casing — must carry that sha**, not just one of them. For an annotated tag
+`ls-remote` prints two lines, the tag object and then the commit on the `<ref>^{}` line;
+compare against the `^{}` one. A lightweight tag prints one line, which is the commit.
+A version string that matches while the shas differ is the failure this section exists
+for, and it is silent in every other surface.
+
+**On Windows, mirror the record onto the other drive-letter casing.**
+`installed_plugins.json` keys each project-scoped install by `projectPath` as an exact,
+case-sensitive string. A terminal `claude` resolves `C:\…\repo`; VS Code sessions pass
+`c:\…\repo`. The install commands in *What actually rotates the pin* rewrite only the
+record whose casing matches the CLI's working directory, so the other record keeps the
+old version and the other session keeps running it, with nothing warning. When the `jq`
+listing above shows **more than one casing** of the project path and one of them lacks
+the tag's sha, copy the record that carries it onto the stale one. `fresh` and `stale`
+are the two `projectPath` spellings exactly as that listing prints them, so the same
+filter serves either direction; close other `claude` sessions first, since one rewriting
+this file mid-edit would undo it:
+
+```bash
+jq --arg fresh '<projectPath of the record carrying the sha>' \
+   --arg stale '<projectPath of the record that does not>' \
+   --arg sha '<commit sha from ls-remote, never from the jq listing>' \
+  '.plugins["<plugin>@<marketplace>"] as $r
+   | ($r | map(select(.projectPath == $fresh and .gitCommitSha == $sha)) | .[0]) as $g
+   | if $g == null then error("no record at \($fresh) carries \($sha)")
+     elif ($r | any(.projectPath == $stale) | not) then error("no record at \($stale)")
+     else .plugins["<plugin>@<marketplace>"] |= map(
+            if .projectPath == $stale then ($g + {projectPath: $stale}) else . end)
+     end' \
+  ~/.claude/plugins/installed_plugins.json > ~/.claude/plugins/installed_plugins.json.new &&
+  mv ~/.claude/plugins/installed_plugins.json.new ~/.claude/plugins/installed_plugins.json
+```
+
+The filter fails closed: a spelling that matches nothing, or a source record not carrying
+the sha, is an error, so the `&&` stops before the `mv` (delete the empty `.new` the redirect leaves).
+If no casing carries the sha, re-run the install commands first.
+The temp file sits beside the target so it stays out of the repo and the `mv` is a
+rename. Then **re-run the `jq` listing**: every casing must now show the sha.
 
 ## Issue + label taxonomy
 

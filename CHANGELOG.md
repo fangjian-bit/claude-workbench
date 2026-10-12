@@ -24,6 +24,12 @@ skill's `Base directory` header naming the new version's cache directory shows w
 loaded; which commit is installed is checked per *Verify by commit* in
 `plugins/way-of-working/reference/conventions.md`.
 
+**On Windows there may be two install records for one project** — `C:\…` and `c:\…` casings
+of `projectPath` in `~/.claude/plugins/installed_plugins.json` — and the CLI rewrites only the
+one matching its working directory; mirror the updated record onto the other, per *Bumping a
+pinned plugin* in `plugins/way-of-working/reference/conventions.md`, or the other session keeps
+the old version.
+
 **Verify with `claude plugin list`, never by looking for a new cache directory.** The cache
 keeps one directory per version and does **not** remove the old one, so "a new directory
 appeared" is true even while the session still runs the old code. Observed three times now —
