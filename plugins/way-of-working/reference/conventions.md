@@ -262,6 +262,14 @@ compare against the `^{}` one. A lightweight tag prints one line, which is the c
 A version string that matches while the shas differ is the failure this section exists
 for, and it is silent in every other surface.
 
+`claude plugin list` reads the same `plugin.json` version, so it is no better a check. Nor
+is a new directory under the plugin cache: a bump does not remove the old version's
+directory (an unreferenced one is only marked orphaned and swept later), so a new directory
+appears even while the session still runs the old code. To see whether a running session
+loaded an older *version*, re-invoke a skill — its `Base directory` header names the cache
+directory it came from. Cache directories are named by version, not commit, so the header
+cannot tell two commits of one version apart; the commit check above is what settles that.
+
 **On Windows, mirror the record onto the other drive-letter casing.**
 `installed_plugins.json` keys each project-scoped install by `projectPath` as an exact,
 case-sensitive string. A terminal `claude` resolves `C:\…\repo`; VS Code sessions pass

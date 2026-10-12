@@ -715,27 +715,12 @@ If any precondition fails, STOP and report why — do not archive.
    marked as needing a migration — "a newer tag exists" is not a decidable prompt, and a
    breaking change discovered *after* the bump is discovered in the worst place.
 
-   **Bumping the pin is three steps, and skipping either of the last two is silent.** Editing
-   the pin changes what is *pinned*; it does not change what is *loaded*.
-
-   ```bash
-   # 1. edit the ref in .claude/settings.json, then:
-   claude plugin update <plugin>@<marketplace>   # 2. fetch the newly pinned tag
-   # 3. restart the session, or run /reload-plugins — the CLI says "restart required to
-   #    apply", and a running session keeps executing the copy it started with
-   claude plugin list                            # verify: does it report the new version?
-   ```
-
-   **`/clear` is neither.** It looks like a restart and is not one: the stale session behaves
-   normally, so a live smoke or a review can silently validate the wrong version. Only a real
-   restart or `/reload-plugins` swaps the loaded copy. After either, re-invoke a skill: its
-   `Base directory` header naming the new version's cache directory shows which copy loaded
-   (the commit check in `reference/conventions.md` still decides which code is installed).
-
-   **Verify with `claude plugin list`, never by looking for a new cache directory.** The old
-   version's directory is **not** removed — the cache holds one directory per version, so
-   "a new directory appeared" is true even when the session is still running the old code.
-   That is precisely how this hides.
+   **Editing the pin does not change what is loaded**, and `claude plugin update --scope project`
+   after a ref edit reports success while changing nothing on a project-scoped install. The procedure that
+   works — re-add the marketplace at the new ref, uninstall and install at `--scope project`,
+   restart or `/reload-plugins` (never `/clear`), then verify **by commit**, not by version
+   string or `claude plugin list` — is *Bumping a pinned plugin* in
+   `reference/conventions.md`. Point the human at it; do not restate it here.
 
 ## Guardrails
 - Compaction (the *Compact the deep record* step) may remove a line from `{roadmap}` or `{backlog}` **only when the identical bytes appear in an archive file staged, and then committed, in the same change** — verify before reporting, per that step's checks. That is the bright line, and it is checkable before the commit rather than a claim about intent: a move that cannot show its destination is a deletion, whatever it was meant to be. The single exception is a correction annotation, which by definition has no destination — so it is fenced instead by a narrower test (the annotation must name the action it gates, and that action must be confirmably closed **as completed**, not merely `CLOSED`) plus the requirement that every removal claiming it is enumerated with its evidence in the commit and PR body. Self-certification with nothing to grep for afterwards is exactly why that enumeration is not optional. Compaction never rewrites what it moves; under `{planning.kind}: files`, the

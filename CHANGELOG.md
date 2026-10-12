@@ -8,33 +8,12 @@ trap.
 
 **Read the `⚠️ Migration` line, if a release has one, before bumping.**
 
-**Bumping the pin is three steps, and skipping either of the last two fails silently.**
-Editing `.claude/settings.json` changes what is *pinned*; it does not change what is *loaded*.
-
-```bash
-# 1. edit the ref in .claude/settings.json, then:
-claude plugin update <plugin>@<marketplace>   # 2. fetch the newly pinned tag
-# 3. restart the session, or run /reload-plugins — `update` reports "restart required to
-#    apply", and a running session keeps executing the copy it started with
-claude plugin list                            # verify: does it report the new version?
-```
-
-`/clear` is neither: it does not reload plugins, and the stale session behaves normally. A
-skill's `Base directory` header naming the new version's cache directory shows which copy
-loaded; which commit is installed is checked per *Verify by commit* in
-`plugins/way-of-working/reference/conventions.md`.
-
-**On Windows there may be two install records for one project** — `C:\…` and `c:\…` casings
-of `projectPath` in `~/.claude/plugins/installed_plugins.json` — and the CLI rewrites only the
-one matching its working directory; mirror the updated record onto the other, per *Bumping a
-pinned plugin* in `plugins/way-of-working/reference/conventions.md`, or the other session keeps
-the old version.
-
-**Verify with `claude plugin list`, never by looking for a new cache directory.** The cache
-keeps one directory per version and does **not** remove the old one, so "a new directory
-appeared" is true even while the session still runs the old code. Observed three times now —
-twice in `WB-D6`, and again during the `v0.5.0` release, where a session was served skills
-from a `0.1.0` cache directory while `claude plugin list` correctly reported `0.5.0`.
+**Editing the pin does not change what is loaded**, and `claude plugin update --scope project`
+after a ref edit reports success while changing nothing on a project-scoped install. The procedure that
+works (re-add the marketplace at the new ref, reinstall at `--scope project`, restart or
+`/reload-plugins`, verify by commit) is *Bumping a pinned plugin* in
+`plugins/way-of-working/reference/conventions.md` — including the Windows two-casings
+`installed_plugins.json` trap and why neither the version string, `claude plugin list` nor a new cache directory proves anything.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Releases before
 `v0.5.0` are summarized from their tags; the full record is `docs/decisions.md` (`WB-D*`) and
