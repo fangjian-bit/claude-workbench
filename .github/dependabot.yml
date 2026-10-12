@@ -1,10 +1,11 @@
 # Keeps the SHA-pinned GitHub Actions current.
 #
 # SCOPE, stated because it is easy to assume this covers more than it does: this repo has
-# NO package manifests -- no package.json, no requirements.txt, no go.mod, no Dockerfile.
-# The whole dependency surface is the actions used by `ci.yml` and `release.yml`, so
-# `github-actions` is the only ecosystem that applies. Adding another entry here would
-# silently do nothing, which is worse than no entry: it reads as coverage.
+# NO package manifests -- no package.json, no requirements.txt, no go.mod. The dependency
+# surface is the actions used by `ci.yml` and `release.yml`, plus the base image on the
+# `.devcontainer/Dockerfile` FROM line, so `github-actions` and `docker` are the only ecosystems that
+# apply. Adding another entry here would silently do nothing, which is worse than no entry:
+# it reads as coverage.
 #
 # NOT COVERED, named deliberately: `release.yml` installs the Claude CLI with
 # `npm install -g @anthropic-ai/claude-code@2.1.224`. A version pinned inside a `run:`
@@ -61,4 +62,23 @@ updates:
     labels:
       - dependencies
 
+    open-pull-requests-limit: 3
+
+  # The dev container's base image, pinned by tag AND digest on the Dockerfile's FROM line.
+  # Once the template's `verify / verify` workflow is adopted, a bump must pass its image check
+  # (first-attempt build, signed provenance); until then, check the attestation by hand with the
+  # command in the Dockerfile header. The `# syntax=` frontend pin in the same file is not
+  # bumped by Dependabot; the template owns it.
+  - package-ecosystem: docker
+    directory: /.devcontainer
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: ci
+      include: scope
+    labels:
+      - dependencies
     open-pull-requests-limit: 3

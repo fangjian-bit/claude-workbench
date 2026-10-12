@@ -84,6 +84,7 @@ orchestration:
     - plugins/way-of-working/.claude-plugin/
     - scripts/
     - scripts/identity/
+    - .devcontainer/
     - CLAUDE.md
   restrict_updates: restrict-updates-to-main
   loop_identity: "glunk-loop[bot]"

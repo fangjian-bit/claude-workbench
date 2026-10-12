@@ -1,0 +1,10 @@
+#!/bin/sh
+# gh, but only ever as the dev App (WB-D24, #393). The real gh is /usr/local/libexec/gh-real.
+# The token is read from the broker's file on every call and handed to the child for that
+# call only; it is never exported into a long-lived environment, because it goes stale
+# within the hour. An empty GH_TOKEN would make gh fall back to a stored login, so a failed
+# read stops here.
+set -eu
+TOK=$(/usr/local/libexec/dev-token) && [ -n "$TOK" ] || exit 2
+unset GH_HOST GH_ENTERPRISE_TOKEN GITHUB_TOKEN GITHUB_ENTERPRISE_TOKEN
+GH_TOKEN="$TOK" exec /usr/local/libexec/gh-real "$@"

@@ -50,6 +50,7 @@ sh tests/cursor-sync-pr.test.sh # resume's cursor-sync PR report predicate fixtu
 sh tests/driver-lock.test.sh    # resume's driver-lock predicate fixtures (not yet required)
 sh tests/gh-identity.test.sh    # gh-identity.sh user/App/unknown classification fixtures (not yet required)
 sh tests/token-check.test.sh    # token-check.sh empty/expired/user/wrong-App/right-App token fixtures (not yet required)
+sh tests/dev-token.test.sh      # .devcontainer/dev-token live/near-expiry/user/malformed token and credential-helper fixtures (not yet required)
 sh tests/blocked-state.test.sh  # pr-checks' BLOCKED verdict predicate fixtures (lag, awaiting-approval, blocked) (not yet required)
 sh tests/blocked-state-block.test.sh  # pr-checks' blocked-state and pinned-app shell blocks vs a stub gh (not yet required)
 sh tests/prune-verdict.test.sh    # resume/archive-sprint prune: merged-tip-or-ancestor verdict fixtures (not yet required)

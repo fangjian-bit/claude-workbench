@@ -1,3 +1,4 @@
 scripts/loop/** text eol=lf
 tests/*.sh text eol=lf
 scripts/identity/** text eol=lf
+.devcontainer/** text eol=lf

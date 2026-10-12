@@ -1,0 +1,105 @@
+// From the 603-Identity/devcontainers template, with the changes WB-D24 (#393) needs, each
+// marked "claude-workbench:" below. Volume names derive from the checkout FOLDER name: no two
+// checkouts on one host may share one (the template README, "Consuming from another org").
+// Open a full clone that is NOT the one install-host-tools.ps1 installs from, and not the
+// host's review clone or a worktree of either: a container-writable source clone is host code
+// execution beside the App keys.
+{
+  "name": "${localWorkspaceFolderBasename}",
+  "build": { "dockerfile": "Dockerfile" },
+
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
+  "remoteUser": "app",
+
+  // The app user stays uid 1000 on every host. On Linux the CLI would otherwise rewrite it to
+  // the host user's uid and chown only /home/app, leaving the dependency volumes below owned by
+  // 1000 and unwritable. Cost: on a Linux host whose own uid is not 1000, files in the
+  // /workspace bind mount are not writable by the container (Docker Desktop on macOS and
+  // Windows is unaffected).
+  "updateRemoteUserUID": false,
+
+  // Least privilege. The app user needs no Linux capabilities, and no process in the
+  // container may gain privileges through setuid binaries.
+  //
+  // --read-only makes the image read-only at run time, so nothing can grow in the
+  // container's own filesystem: a write outside a mount below fails with EROFS, which
+  // names the next disk hog instead of hiding it. The only writable places are the
+  // mounts below and the tmpfs directories /var/tmp and /dev/shm (cleared on stop). /run is
+  // tmpfs as well, for root-run tooling: it is root-owned, so the app user cannot write it.
+  "runArgs": [
+    "--cap-drop=ALL", "--security-opt=no-new-privileges",
+    "--read-only", "--tmpfs=/run", "--tmpfs=/var/tmp"
+  ],
+
+  // A real init process (PID 1) reaps zombies. VS Code and Claude Code both spawn
+  // subprocesses, and without one the orphans pile up.
+  "init": true,
+
+  // claude-workbench: never prompt for a git password in a terminal. With dev-token's
+  // `quit=1`, a refused token ends the git call instead of falling through to a prompt or to
+  // a helper VS Code injected from the host.
+  "remoteEnv": { "GIT_TERMINAL_PROMPT": "0" },
+
+  "mounts": [
+    // HOST-WIDE git identity: the host's ~/.gitconfig.d (one <name>.gitconfig per GitHub
+    // account, each listing its orgs), read-only, in EVERY container. git-identity.sh
+    // picks the file that claims this repo's origin org and copies five identity keys
+    // from it at start. HOME is set on Linux, macOS and CI, USERPROFILE on Windows
+    // (and HOME too when VS Code was started from Git Bash: then the path doubles
+    // and `devcontainer up` fails with "bind source path does not exist". Start from
+    // PowerShell or cmd, or `unset HOME` first). The directory must exist. See the
+    // README's "Git identity" section.
+    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.gitconfig.d,target=/home/app/.gitconfig.d,type=bind,readonly",
+
+    // claude-workbench: the dev App's token, from the host broker. The DIRECTORY is mounted,
+    // read-only, not the file: a single-file bind mount keeps showing the file the broker
+    // replaced by atomic rename. The source names the GitHub repo, not the checkout folder (a
+    // clone folder named otherwise, e.g. claude-workbench-2, would mount nothing), and it must exist
+    // or `devcontainer up` fails: install-host-tools.ps1 creates it for each repo in
+    // broker.json. USERPROFILE is Windows-only on purpose; nothing else under the host's
+    // glunk-identity directory is mounted. /usr/local/bin/gh and git's credential helper read
+    // dev-token from here on every call (see Dockerfile).
+    "source=${localEnv:USERPROFILE}/.config/glunk-identity/tokens/claude-workbench,target=/run/glunk-identity/dev,type=bind,readonly",
+
+    // PER-REPO home directory: everything user-scoped lives on this ONE volume. That is
+    // Claude Code's login (run `claude /login` once in the container) and its sessions and
+    // memory (Claude keys projects by path and every repo mounts at /workspace, so sharing
+    // it would mix repos' histories), the editor server and its
+    // extensions, uv's interpreters and cache, and the pre-commit cache.
+    // Never shared between repos. Docker copies the image's /home/app in on first mount
+    // and never again, so image-owned configuration is not kept there. Wipe a repo's
+    // state with
+    //   docker volume rm <repo>-home <repo>-tmp
+    "source=${localWorkspaceFolderBasename}-home,target=/home/app,type=volume",
+
+    // PER-REPO scratch. /tmp is where session scratch and task output pile up. On a
+    // volume it stays out of the container's own filesystem, shows up in
+    // `docker system df -v`, and can be wiped with
+    // `docker volume rm <repo>-tmp` without touching anything else.
+    "source=${localWorkspaceFolderBasename}-tmp,target=/tmp,type=volume"
+  ],
+
+  // On every START, not just create: warn when another repo's checkout shares this volume
+  // (a folder-name collision; it detects, it cannot prevent), write ~/.gitconfig and rebuild
+  // the git identity from the host's identity files, and check that VS Code's forwarded GPG
+  // agent is answering in THIS session.
+  "postStartCommand": "sh /usr/local/share/devc/owner-check.sh; sh /usr/local/share/devc/git-identity.sh; sh /usr/local/share/devc/gpg-check.sh",
+  "postCreateCommand": "if [ -f .pre-commit-config.yaml ]; then pre-commit install; fi",
+
+  "customizations": {
+    "vscode": {
+      // claude-workbench: VS Code's own GitHub sign-in is the human's account. Keep the editor
+      // from answering git's credential requests with it.
+      "settings": { "github.gitAuthentication": false, "git.terminalAuthentication": false },
+      "extensions": [
+        "anthropic.claude-code",
+        // claude-workbench: the template's two GitHub extensions are left out. They sign in
+        // through VS Code's own GitHub account, which is the human's login, and this container
+        // must reach GitHub only as the dev App.
+        "editorconfig.editorconfig",
+        "redhat.vscode-yaml"
+      ]
+    }
+  }
+}

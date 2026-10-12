@@ -1,0 +1,94 @@
+#!/bin/sh
+# Print the dev-App installation token from the broker's token directory, fresh on every
+# call (WB-D24, #393). Fails closed: nothing on stdout and a non-zero exit for anything but a
+# live token, so a caller can never act with an empty one.
+#
+#   dev-token            print the token (line 1 of the file)
+#   dev-token git-credential get
+#                        git's credential-helper protocol for https://github.com. When the
+#                        token is refused it prints `quit=1` (and exits 0), which tells git to
+#                        consult no other helper and not to prompt: otherwise git would fall
+#                        through to a helper or askpass that VS Code forwards from the host,
+#                        and push as the human. Any other host gets no answer.
+#
+# The file is <dir>/dev-token, mounted read-only from the host: the token on line 1, its
+# expires_at (YYYY-MM-DDTHH:MM:SSZ) on line 2, LF only. The broker replaces it by atomic
+# rename about every 30 minutes, which is why this reads the file on EVERY call and why no
+# caller may keep the token in a long-lived variable. Refusing under 5 minutes left leaves
+# about 25 minutes of slack for a failed mint. The comparison is against this container's
+# clock.
+set -eu
+
+# Fixed, not overridable from the environment: a session could otherwise point the helper at
+# a missing directory on purpose. tests/dev-token.test.sh runs a sed-substituted copy.
+dir=/run/glunk-identity/dev
+file=$dir/dev-token
+margin=300
+
+mode=plain
+case ${1:-} in
+    "") ;;
+    git-credential)
+        [ "${2:-}" = get ] || exit 0
+        mode=git
+        # Read git's request first, so a refusal below can answer it.
+        host=
+        proto=
+        while IFS= read -r line; do
+            [ -n "$line" ] || break
+            case $line in
+                host=*) host=${line#host=} ;;
+                protocol=*) proto=${line#protocol=} ;;
+            esac
+        done
+        # Answer only for github.com over https; for any other host print nothing, so git
+        # moves on rather than sending this token elsewhere.
+        host=$(printf '%s' "$host" | tr 'A-Z' 'a-z')
+        [ "$proto" = https ] && [ "$host" = github.com ] || exit 0
+        ;;
+    *) printf 'dev-token: unknown argument\n' >&2; exit 2 ;;
+esac
+
+die() {
+    printf 'dev-token: %s\n' "$1" >&2
+    if [ "$mode" = git ]; then printf 'quit=1\n'; exit 0; fi
+    exit 2
+}
+
+[ -f "$file" ] && [ ! -L "$file" ] || die "no token file at $file (is the broker running on the host?)"
+[ -r "$file" ] || die "token file unreadable"
+
+# One open of the file for all three reads: the broker replaces it by rename, and two opens
+# could pair one token with another's expiry.
+{
+    tok=
+    exp=
+    IFS= read -r tok || :
+    IFS= read -r exp || :
+    if IFS= read -r _extra || [ -n "${_extra:-}" ]; then extra=1; else extra=; fi
+} <"$file" || die "token file unreadable"
+[ -z "$extra" ] || die "token file is not exactly two lines"
+
+case $tok in
+    ghs_*) ;;
+    *) die "line 1 is not an installation token" ;;
+esac
+# ghs_ then at least 36 characters of [A-Za-z0-9._-], nothing else.
+[ "${#tok}" -ge 40 ] || die "line 1 is too short for an installation token"
+case ${tok#ghs_} in
+    *[!A-Za-z0-9._-]*) die "line 1 holds characters a token cannot" ;;
+esac
+case $exp in
+    [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) ;;
+    *) die "line 2 is not an expires_at timestamp" ;;
+esac
+
+exp_s=$(date -u -d "$exp" +%s 2>/dev/null) || die "line 2 is not a valid time"
+now_s=$(date -u +%s)
+[ $((exp_s - now_s)) -ge "$margin" ] || die "token expires within $((margin / 60)) minutes or is expired"
+
+if [ "$mode" = git ]; then
+    printf 'username=x-access-token\npassword=%s\n' "$tok"
+else
+    printf '%s\n' "$tok"
+fi
