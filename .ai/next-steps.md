@@ -3,11 +3,12 @@
 **Now:** **Sprint 14** (cursor id `sprint-14`) on [milestone 17, *Identity M2: dual-mode plugin v0.18.0*](https://github.com/glunk-works/claude-workbench/milestone/17). Status: **implementing**.
 
 **Just done (2026-10-12):**
-- **#478 merged** (#523, `870ce0d`): `bin/app-push.sh` is the one place the App-mode pinned push is spelled; ship, handoff, archive-sprint and the schema interview call it, and `tests/app-push.test.sh` holds each pushing skill to it per push site. The script and its test joined `scripts/loop/protected-paths.txt` (driver-core's entry count updated).
-- Critic pass on #478: architect, security-critic and docs-consistency, 3 rounds, converged; all critics ran on their frontmatter defaults (no second-opinion round). The last fix, exact per-file push counts in the fixture, was confirmed by a deliberate mutation, not a fourth critic round. Subagent critics only; no fresh-session review gate is configured.
+- **#476 merged** (#528, `d189e93`): ship's App-mode preflight now reads the acting App through GraphQL `viewer { login databaseId }` and tests it with `gh-identity.sh pr-actor` before the dry-run and the first push; the post-PR PR-user check stays as the backstop. `viewer` was measured on the dev and reviewer Apps (not the loop App) against the scratch repo, because the Apps are not installed on this repo.
+- Critic pass on #476: architect, security-critic and docs-consistency, 2 rounds, converged; all critics ran on their frontmatter defaults (no second-opinion round). Subagent critics only; no fresh-session review gate is configured.
+- Follow-ups filed: #529 (architect-review proves the reviewer App via `viewer` before posting) and #530 (coupling-check misses hardcoded App logins).
 
-**Next:** task #476 — make ship check the acting App against `identities.dev_app` before the push, not after the PR (same push path #478 just put behind `bin/app-push.sh`); run the green gate, then `/way-of-working:critic-gate` (`architect`, `security-critic`), then `/way-of-working:ship`. Run on **sonnet** (coder). Build order step 24; its dependency #478 is merged.
+**Next:** task #479 — make archive-sprint read a null `backlog.repo` as the repo itself, stated once where it reads the config, and check the other skills that name `{backlog.repo}` in a call (resume, handoff beyond its derive line); add a fixture or a recorded run; run the green gate, then `/way-of-working:critic-gate` (`architect`, `security-critic`), then `/way-of-working:ship`. Run on **sonnet** (coder). Build order step 25; no dependency.
 
-**HITL Gate: NONE OPEN** — next gate: the human's merge of #476's PR.
+**HITL Gate: NONE OPEN** — next gate: the human's merge of #479's PR.
 
 **Pointers:** [docs/decisions.md](../docs/decisions.md) · [milestone 17](https://github.com/glunk-works/claude-workbench/milestone/17) · [.ai/parked/](parked/)
