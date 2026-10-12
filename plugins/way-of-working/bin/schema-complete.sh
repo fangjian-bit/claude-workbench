@@ -153,8 +153,9 @@ set -eu
 #   kind:  value | nullable | list | nelist | int | enum:<a>|<b>|...
 #          | cigate (review.ci_gate only) | orchmap (orchestration only)
 #          | identmap (identities only) | optnelist (rulesets only: optional, non-empty if present)
-#   shape: - | ownername | branch | ghlogin | rulename | pair   (consulted for value/nullable;
-#          `pair` is a {login, id} map, `identities.*_app` only)
+#   shape: - | ownername | branch | ghlogin | rulename | textname | pair   (consulted for
+#          value/nullable; `pair` is a {login, id} map, `identities.*_app` only; `textname`
+#          is a ruleset name a reader binds as a value, #451)
 MAIN_KEYS='
 repo value ownername
 pr_base value branch
@@ -193,7 +194,7 @@ RULESETS_KEYS='
 rulesets optnelist -
 '
 RULESET_KEYS='
-ruleset.name value -
+ruleset.name value textname
 ruleset.rule_types list -
 ruleset.required_checks list -
 '
@@ -402,13 +403,14 @@ is_branch_name() { # is_branch_name <value> -- safe charset, round-trips check-r
 # `kind`/`shape` are the table's own literals, echoed back so the loop below needs
 # no lookup. `present` is `has()` on the parent, guarded by `select(tag == "!!map")`
 # so a scalar parent (`planning: 5`) reads as absent, never as a failed call that
-# would take every other key down with it. `safe` is the [A-Za-z0-9._/-] charset
+# would take every other key down with it. `safe` is the [A-Za-z0-9._/-] charset (or, for
+# the `textname` shape, a no-control-character test)
 # test done INSIDE yq, against the parsed string, never against a shell-captured
 # `$(...)` value: `$(...)` strips every trailing newline, so `pr_base: "main\n"`
 # would read back as the harmless "main" and pass a check that never saw the
 # newline (a round-2 security-critic finding). `json` is `to_json(0)` -- compact,
 # one line, newlines escaped -- so a row can never be split by a value, and a
-# string that passed `safe` has no escapes to undo (see `unquote`). `@tsv` is not
+# string that passed the charset `safe` test has no escapes to undo (see `unquote`; a `textname` is never unquoted). `@tsv` is not
 # used: it csv-quotes fields containing `"`, which every JSON string does.
 TAB=$(printf '\t')
 
@@ -427,7 +429,15 @@ build_rows() { # build_rows <table> -- the yq expression, one row per key
     # `safe`: a string by charset; an INT by its RAW spelling (`to_string` keeps `0x10`,
     # `+2`, `1_0`, `02` as written, which `to_json` would normalize to a clean number a
     # later `yq` read would not return).
-    row="$row + \"\t\" + ((($v | select(tag == \"!!str\") | test(\"^[A-Za-z0-9._/-]+\$\")) // ($v | select(tag == \"!!int\") | to_string | test(\"^[1-9][0-9]{0,2}\$\")) // false) | to_string)"
+    # `textname` (a ruleset name, which a reader reads into a variable and binds with
+    # `jq --arg`, never splicing it into shell text, #451): any non-empty string with no control character
+    # (`\p{Cc}`, so no newline or tab). A `'`, a space or a `$` is a legal name; the binding,
+    # not the charset, is what keeps them inert.
+    case "$shape" in
+      textname) safe_test='test("^[^\\p{Cc}]+$")' ;;
+      *) safe_test='test("^[A-Za-z0-9._/-]+$")' ;;
+    esac
+    row="$row + \"\t\" + ((($v | select(tag == \"!!str\") | $safe_test) // ($v | select(tag == \"!!int\") | to_string | test(\"^[1-9][0-9]{0,2}\$\")) // false) | to_string)"
     row="$row + \"\t\" + (($v | to_json(0)) // \"null\")"
     if [ -z "$expr" ]; then expr="$row"; else expr="$expr, $row"; fi
   done <<EOF_ROWS
@@ -437,7 +447,7 @@ EOF_ROWS
 }
 
 unquote() { # unquote <json-string> -- "abc" -> abc. Only ever called on a string whose
-            # charset has no quote or backslash -- by the `safe` column, or (rulename, ghlogin) by a
+            # charset has no quote or backslash -- by the charset `safe` column (never `textname`'s), or (rulename, ghlogin) by a
             # check made right after -- so there are no JSON escapes to undo.
   v="${1#\"}"
   printf '%s' "${v%\"}"
@@ -481,6 +491,10 @@ check_value_shape() { # check_value_shape <shape> <tag> <safe> <json> -- exit 0 
       # cannot start with `-` (a flag) and carries no quote or escape (the JSON form
       # shows any control character as one). Spaces are legal in a ruleset name.
       [ "$tag" = '!!str' ] && is_rule_name "$(unquote "$json")"
+      ;;
+    textname)
+      # `safe` already holds "a string, non-empty, no control character" (build_rows).
+      [ "$tag" = '!!str' ] && [ "$safe" = true ]
       ;;
     ghlogin)
       # No `safe` test: its charset has no brackets, and the suffix needs them. The
@@ -618,11 +632,29 @@ EOF_ROWS
   [ -z "$want" ] || { echo unreadable; exit 0; }
 }
 
+# Each `rulesets` entry's `name` gets the same rule as `ruleset.name` (#451): a non-empty
+# string with no control character, so a reader that prints it in a report line cannot be
+# made to forge a second line. Only the names -- the rest of an entry's shape is #452's.
+# One yq call, one `<index> <ok> <compact-json>` row per entry; the index is yq's own
+# integer and the json is `to_json(0)`, so a value cannot forge a row.
+check_ruleset_names() {
+  expr='.rulesets | select(tag == "!!seq") | to_entries | .[] | (.key | to_string) + "	" + ((((.value | select(tag == "!!map") | .name | select(tag == "!!str") | test("^[^\p{Cc}]+$")) // false) | to_string)) + "	" + ((.value | select(tag == "!!map") | .name | to_json(0)) // "null")'
+  name_rows=$(yq eval "$expr" "$FILE" 2>/dev/null) || { echo unreadable; exit 0; }
+  [ -n "$name_rows" ] || return 0
+  while IFS="$TAB" read -r idx ok json; do
+    case "$idx" in '' | *[!0-9]*) echo unreadable; exit 0 ;; esac
+    [ "$ok" = true ] || invalid_finding "rulesets[$idx].name" "$json"
+  done <<EOF_NAMES
+$name_rows
+EOF_NAMES
+}
+
 cigate_is_map=0
 orch_is_map=0
 ident_is_map=0
 run_table "$MAIN_KEYS"
 run_table "$RULESETS_KEYS"
+check_ruleset_names
 run_table "$RULESET_KEYS"
 [ "$cigate_is_map" = 1 ] && run_table "$CIGATE_KEYS"
 [ "$orch_is_map" = 1 ] && run_table "$ORCH_KEYS"

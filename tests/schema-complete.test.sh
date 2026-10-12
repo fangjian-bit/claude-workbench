@@ -701,6 +701,50 @@ assert_eq "rulesets: null is invalid (absent is the old shape; null is not an an
   'incomplete
 invalid rulesets null' "$(run_check "$f")"
 
+echo "# check -- ruleset.name (#451): bound as a value, so only an empty or control-character name is rejected"
+
+# name_fixture <file> <yaml scalar> -- the base fixture with ruleset.name replaced. The scalar
+# travels through the environment: awk -v would turn a `\n` escape into a real newline.
+name_fixture() { V="$2" awk '/^ruleset:/ { in_rs=1; print; next } in_rs && /^  name:/ { print "  name: " ENVIRON["V"]; in_rs=0; next } { print }' "$base" >"$1"; }
+sq="'"
+for v in "\"it${sq}s a name\"" "${sq}say \"hi\"${sq}" '"Protected branches (main)"' '"a $(id) `x` ; | & b"' '"-leads-with-dash"' "${sq}back\slash${sq}"; do
+  name_fixture "$tmp/rn_ok.yml" "$v"
+  assert_eq "ruleset.name: $v is a legal name (bound as a value, not spliced)" "complete" "$(run_check "$tmp/rn_ok.yml")"
+done
+for v in '""' '"a\nb"' '"a\tb"' '"a\u0007b"' '"a\u0085b"' '"a\rb"'; do
+  name_fixture "$tmp/rn_bad.yml" "$v"
+  out=$(run_check "$tmp/rn_bad.yml")
+  assert_eq "ruleset.name: $v (empty or a control character) is invalid" \
+    "incomplete|invalid ruleset.name" "$(printf '%s\n' "$out" | sed -n '1p;2p' | cut -d' ' -f1,2 | paste -sd'|')"
+  assert_eq "ruleset.name: $v is the only finding" "2" "$(printf '%s\n' "$out" | wc -l | tr -d ' ')"
+done
+for v in true 5 '[a]' null; do
+  name_fixture "$tmp/rn_type.yml" "$v"
+  assert_eq "ruleset.name: $v (not a string) is not complete" "incomplete" "$(run_check "$tmp/rn_type.yml" | head -1)"
+done
+awk '/^ruleset:/ { print; print "  name: |-"; print "    first"; print "    second"; skip=1; next } skip && /^  name:/ { skip=0; next } { print }' "$base" >"$tmp/rn_block.yml"
+assert_eq "ruleset.name: a multi-line block scalar is invalid, and the only finding" \
+  'incomplete
+invalid ruleset.name "first\nsecond"' "$(run_check "$tmp/rn_block.yml")"
+
+# rulesets[].name gets the same rule (#451); the rest of an entry's shape is #452's
+rs_name_fixture() { { cat "$base"; printf 'rulesets:\n  - name: %s\n    source: repo\n    rule_types: [deletion]\n' "$1"; } >"$2"; }
+for v in "\"it${sq}s a name\"" '"a $(id) b"' "${sq}back\slash${sq}"; do
+  rs_name_fixture "$v" "$tmp/rsn_ok.yml"
+  assert_eq "rulesets[0].name: $v is a legal name" "complete" "$(run_check "$tmp/rsn_ok.yml")"
+done
+for v in '""' '"a\nb"' '"a\tb"' '"a\u001b[31mb"' '"a\u0085b"' 5 null; do
+  rs_name_fixture "$v" "$tmp/rsn_bad.yml"
+  out=$(run_check "$tmp/rsn_bad.yml")
+  assert_eq "rulesets[0].name: $v is invalid, and the only finding" \
+    "incomplete|invalid rulesets[0].name|2" \
+    "$(printf '%s\n' "$out" | sed -n '1p;2p' | cut -d' ' -f1,2 | paste -sd'|')|$(printf '%s\n' "$out" | wc -l | tr -d ' ')"
+done
+{ cat "$base"; printf 'rulesets:\n  - name: fine\n    source: repo\n    rule_types: [deletion]\n  - source: org\n    rule_types: [deletion]\n'; } >"$tmp/rsn_missing.yml"
+assert_eq "rulesets[1].name: an entry with no name is invalid at its own index" \
+  'incomplete
+invalid rulesets[1].name null' "$(run_check "$tmp/rsn_missing.yml")"
+
 echo "# check -- unreadable: no file, unparseable YAML, yq missing"
 
 assert_eq "a nonexistent file is unreadable" \

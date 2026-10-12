@@ -72,6 +72,21 @@ if [ -n "$auth_hits" ]; then
     "  gh api repos/{repo} --jq .permissions"
 fi
 
+# --- 2b. A config value is bound to jq, never spliced into its argument ------------
+#
+# `jq --arg n '{ruleset.name}'` fills a repo-controlled value into single-quoted shell text.
+# Once a name may legally contain `'` or `$` (#451), that form closes the quote (and a
+# double-quoted one runs `$(...)`), so both quote styles and the bare form are caught. A value is read into
+# a variable and passed as `--arg n "$VAR"`. Shipped wrong in resume's ruleset check.
+Q="'"
+splice_hits=$(grep -nE -- "--arg(json)? +[A-Za-z_]+ +[\"$Q]?[^\" $Q$]*\{[A-Za-z_.]+\}" "${SKILLS[@]}" || true)
+if [ -n "$splice_hits" ]; then
+  report "a config value is spliced into a jq --arg argument" \
+    "$splice_hits" \
+    "Read the value into a variable and bind it:" \
+    "  bind it as resume's ruleset check does: read it into a variable, then jq --arg n \"\$VAR\" ..."
+fi
+
 # --- 3. The reach check precedes the ruleset call in /resume ----------------------
 #
 # An identity that cannot see a ruleset gets 404, NOT 403 -- so the ruleset preflight

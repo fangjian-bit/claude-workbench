@@ -485,7 +485,7 @@ critics on a diff that does not build.
 `{pr_base}`; after a cutover that is more than one (the checks ruleset and the code-owner
 approval ruleset, one of them possibly an organization's). Each entry is:
 
-- **`name`** — the ruleset's name. A reader binds it as a value (`jq --arg`), never splices it.
+- **`name`** — the ruleset's name, here and in the legacy `ruleset.name`. A reader binds it as a value (read into a variable, then `jq --arg`), never splices it into shell text. The checker holds both to one rule: a non-empty string with no control character (no newline or tab); a space, a `'` or a `$` is a legal name, because the binding, not the charset, keeps it inert.
 - **`source`** — exactly `repo` (a repository ruleset) or `org` (an organization ruleset). It
   decides which API a reader asks: `repos/{repo}/rulesets` or `orgs/<owner>/rulesets`, with
   `<owner>` the owner of `{repo}`. A reader matches the two values **exactly** and treats
@@ -495,7 +495,7 @@ approval ruleset, one of them possibly an organization's). Each entry is:
   `required_status_checks`: every check that ruleset requires. Everything said below about
   `required_checks` applies to it, and a reader takes the **union** of every entry's list.
 
-The checker confirms the sequence, not its elements, as it does for `gates.green`. Like the
+The checker confirms the sequence, as it does for `gates.green`, and each entry's `name` (above), but not the rest of an entry. Like the
 rest of this file, read it from the **default branch's** copy before enforcing anything from it.
 
 **Who reads the list (`#384`).** `/way-of-working:resume` reads it when it is present: its

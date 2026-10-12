@@ -303,12 +303,15 @@ edited it. **Default to the full checklist whenever unsure.**
 
    Then the ruleset itself. `rules/branches/{branch}` carries each applying ruleset's **id**,
    never its name, so the first call is load-bearing — a name check without it would pass against
-   any ruleset. Bind `{ruleset.name}` with `jq --arg` on captured output (never interpolated into
-   a filter string; `gh api --jq` takes one plain string), and let `jq` itself pick the first
-   match — never `| head -1`, which would exit 0 even when `jq` fails:
+   any ruleset. Bind `{ruleset.name}` as a value, never as shell text: `yq` hands it to a
+   variable, and `jq --arg` takes it from there on captured output (never interpolated into a
+   quoted argument or a filter string — a name carrying `'` would close the quote; `gh api --jq`
+   takes one plain string). Let `jq` itself pick the first match — never `| head -1`, which would
+   exit 0 even when `jq` fails:
    ```bash
+   RSN=$(yq -o=json -I=0 '.ruleset.name' .ai/project.yml </dev/null | jq -er 'strings | select(test("^[^\\p{Cc}]+$"))') &&
    L=$(gh api --paginate repos/{repo}/rulesets) &&
-   RID=$(printf '%s' "$L" | jq -r --arg n '{ruleset.name}' \
+   RID=$(printf '%s' "$L" | jq -r --arg n "$RSN" \
      'first(.[] | select(.name==$n) | .id) // empty') &&
    { [ -z "$RID" ] || {
        B=$(gh api --paginate repos/{repo}/rules/branches/{pr_base}) &&
@@ -336,14 +339,26 @@ edited it. **Default to the full checklist whenever unsure.**
    repo that has not cut over still carries the admin bypass on purpose. Each entry's `source`
    decides the API (`repo` → `repos/{repo}/rulesets`, `org` → `orgs/<owner>/rulesets`, `<owner>`
    being the owner of `{repo}`); anything else is inconclusive, never read as `repo`. Names and
-   lists are bound as values (`jq --arg`), never spliced; the entries come out of one `yq` call:
+   lists are bound as values (`jq --arg`), never spliced. Each entry is read
+   whole, by index, as one JSON object and split with `jq` — never through a `@tsv` row, whose
+   CSV-quoting can split one entry across lines and pair a name with the wrong entry's fields.
+   Each value is read with `jq -e` and refused if it is not a string or carries a control
+   character, so a value `.ai/project.yml` wrote with a newline (or a missing name) reads
+   `inconclusive` instead of forging a report line or matching a ruleset called `null` — the
+   completeness check flags it too, but resume continues on an incomplete copy:
    ```bash
    R={repo} && OWNER=${R%%/*} &&
    B=$(gh api --paginate "repos/$R/rules/branches/{pr_base}") &&
    B=$(printf '%s' "$B" | jq -s 'add // []') &&
-   E=$(yq -r '.rulesets[] | [.name, .source, (.rule_types | join(",")), ((.required_checks // []) | join(","))] | @tsv' .ai/project.yml) &&
-   [ -n "$E" ] &&
-   printf '%s\n' "$E" | while IFS="$(printf '\t')" read -r NAME SRC TYPES CHECKS; do
+   N=$(yq '.rulesets | length' .ai/project.yml) &&
+   case "$N" in '' | 0 | *[!0-9]*) false ;; esac &&
+   I=-1 &&
+   while I=$((I + 1)); [ "$I" -lt "$N" ]; do
+     ENT=$(yq -o=json -I=0 ".rulesets[$I]" .ai/project.yml </dev/null) &&
+     NAME=$(printf '%s' "$ENT" | jq -er '.name | strings | select(test("^[^\\p{Cc}]+$"))') &&
+     SRC=$(printf '%s' "$ENT" | jq -r '.source | strings') &&
+     TYPES=$(printf '%s' "$ENT" | jq -er '.rule_types | join(",") | select(test("^[^\\p{Cc}]*$"))') &&
+     CHECKS=$(printf '%s' "$ENT" | jq -er '(.required_checks // []) | join(",") | select(test("^[^\\p{Cc}]*$"))') || { echo "ruleset #$I inconclusive"; continue; }
      case "$SRC" in repo) API="repos/$R/rulesets" ;; org) API="orgs/$OWNER/rulesets" ;; *) echo "ruleset $NAME inconclusive"; continue ;; esac
      L=$(gh api --paginate "$API" </dev/null) || { echo "ruleset $NAME inconclusive"; continue; }
      RID=$(printf '%s' "$L" | jq -r --arg n "$NAME" 'first(.[] | select(.name==$n) | .id) // empty') || { echo "ruleset $NAME inconclusive"; continue; }

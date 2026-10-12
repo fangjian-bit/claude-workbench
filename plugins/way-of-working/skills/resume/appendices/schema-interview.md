@@ -105,6 +105,8 @@ runs `git status --short` itself (the step it used to cite comes later).
    2. Insert each collected answer into the checkout's `.ai/project.yml` as a **quoted,
       minimal line edit** — never `yq -i`, which rewrites comments and flow-style maps and
       would turn this into a much larger, unreviewable diff than the human's own answers.
+      **A `ruleset.name` answer is written single-quoted with every `'` doubled** (`'it''s'`), so a
+      `'`, a `\` or a `$` in it survives as text and no escape sequence is read.
       **A `list`-kind answer is inserted as a flow sequence, never a bare quoted string** — a
       quoted scalar there is `!!str`, and the re-check below would reject it as `invalid`
       every time, silently making that key impossible to complete through this interview.
