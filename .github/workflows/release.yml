@@ -230,7 +230,10 @@ jobs:
             echo "git ls-remote --tags https://github.com/glunk-works/claude-workbench.git $TAG"
             echo '```'
             echo
-            echo "The shas must match. And if \`known_marketplaces.json\` shows **no \`ref\` key at all** for"
+            echo "The shas must match, and **every** record for your project must carry that sha — each"
+            echo "drive-letter casing on Windows. If one casing lacks it, mirror the record onto that casing"
+            echo "as [*Bumping a pinned plugin*](../blob/$TAG/plugins/way-of-working/reference/conventions.md) describes."
+            echo "And if \`known_marketplaces.json\` shows **no \`ref\` key at all** for"
             echo "\`claude-workbench\`, the pin has never taken effect on that machine and the repo has been"
             echo "tracking the default branch — check before assuming the previous tag was ever exercised."
             echo

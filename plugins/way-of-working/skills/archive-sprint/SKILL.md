@@ -720,7 +720,9 @@ If any precondition fails, STOP and report why — do not archive.
    works — re-add the marketplace at the new ref, uninstall and install at `--scope project`,
    restart or `/reload-plugins` (never `/clear`), then verify **by commit**, not by version
    string or `claude plugin list` — is *Bumping a pinned plugin* in
-   `reference/conventions.md`. Point the human at it; do not restate it here.
+   `reference/conventions.md`, which also carries the Windows drive-letter mirror step and
+   the check that every record for the project carries the new sha. Point the human at it;
+   do not restate it here.
 
 ## Guardrails
 - Compaction (the *Compact the deep record* step) may remove a line from `{roadmap}` or `{backlog}` **only when the identical bytes appear in an archive file staged, and then committed, in the same change** — verify before reporting, per that step's checks. That is the bright line, and it is checkable before the commit rather than a claim about intent: a move that cannot show its destination is a deletion, whatever it was meant to be. The single exception is a correction annotation, which by definition has no destination — so it is fenced instead by a narrower test (the annotation must name the action it gates, and that action must be confirmably closed **as completed**, not merely `CLOSED`) plus the requirement that every removal claiming it is enumerated with its evidence in the commit and PR body. Self-certification with nothing to grep for afterwards is exactly why that enumeration is not optional. Compaction never rewrites what it moves; under `{planning.kind}: files`, the
