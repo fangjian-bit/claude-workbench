@@ -3,11 +3,11 @@
 **Now:** **Sprint 14** (cursor id `sprint-14`) on [milestone 17, *Identity M2: dual-mode plugin v0.18.0*](https://github.com/glunk-works/claude-workbench/milestone/17). Status: **implementing**.
 
 **Just done (2026-10-12):**
-- **Backlog triaged** (`/way-of-working:plan-sprint`, recommendation accepted whole; #520). Milestone 17's build order gains steps 23–33 before the release (#391, now step 34); #515, #514 and #489/#488/#490 went to milestones 18, 19 and 23; #223 and #334 stay unmilestoned. Each placed issue carries a `[plan-sprint]` triage comment.
-- **Milestone 17 re-anchored** on the description this session wrote: the live description matched the write, and `plan-anchor.sh verify --plan` against the fresh baseline printed `match`. Anchor task: #478.
+- **#478 merged** (#523, `870ce0d`): `bin/app-push.sh` is the one place the App-mode pinned push is spelled; ship, handoff, archive-sprint and the schema interview call it, and `tests/app-push.test.sh` holds each pushing skill to it per push site. The script and its test joined `scripts/loop/protected-paths.txt` (driver-core's entry count updated).
+- Critic pass on #478: architect, security-critic and docs-consistency, 3 rounds, converged; all critics ran on their frontmatter defaults (no second-opinion round). The last fix, exact per-file push counts in the fixture, was confirmed by a deliberate mutation, not a fourth critic round. Subagent critics only; no fresh-session review gate is configured.
 
-**Next:** task #478 — make handoff's cursor-PR push and archive-sprint's roadmap and compaction pushes take ship's App-mode pinned push from one shared place, with a fixture that no skill pushes unpinned in App mode; run the green gate, then `/way-of-working:critic-gate` (`architect`, `security-critic`), then `/way-of-working:ship`. Run on **sonnet** (coder).
+**Next:** task #476 — make ship check the acting App against `identities.dev_app` before the push, not after the PR (same push path #478 just put behind `bin/app-push.sh`); run the green gate, then `/way-of-working:critic-gate` (`architect`, `security-critic`), then `/way-of-working:ship`. Run on **sonnet** (coder). Build order step 24; its dependency #478 is merged.
 
-**HITL Gate: NONE OPEN** — next gate: the human's merge of #478's PR.
+**HITL Gate: NONE OPEN** — next gate: the human's merge of #476's PR.
 
 **Pointers:** [docs/decisions.md](../docs/decisions.md) · [milestone 17](https://github.com/glunk-works/claude-workbench/milestone/17) · [.ai/parked/](parked/)
