@@ -229,7 +229,7 @@ guess a gate (`reference/project-schema.md`).
    *Review by execution, in an isolated sandbox* step specifies; the verdict; ranked
    findings with reproductions; what you independently verified. Post with
    `gh pr review <N> --comment --body-file <that path>`. **Never `--approve`, never
-   `--request-changes`, never merge**: the merge is the human's approval, and a
+   `--request-changes`, never merge**: the approval is the human's (a code-owner approval where the base requires one), and a
    Claude-issued approval would be a gate approving itself.
 
    **With `--pin`, re-read the head immediately before posting** — `gh pr view <N> --repo {repo} --json

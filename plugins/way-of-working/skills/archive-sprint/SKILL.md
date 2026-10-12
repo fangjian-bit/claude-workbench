@@ -364,8 +364,8 @@ If any precondition fails, STOP and report why — do not archive.
 
    Report `git show --stat HEAD` so the human sees what the close reclaimed, and hand them
    the PR link. **That PR is the human checkpoint for this step** — the sprint's own HITL
-   Gate approved the sprint, not this compaction. Do not merge it yourself; the human's
-   merge is the approval, as everywhere else.
+   Gate approved the sprint, not this compaction. Do not merge it yourself; a human
+   approval is the gate, as everywhere else (the human's merge where no code-owner approval is required).
 
    **Then `git checkout {pr_base}`** before going on. The remaining steps regenerate
    `.ai/next-steps.md`, and leaving HEAD on the compaction branch would land the cursor

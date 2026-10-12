@@ -80,7 +80,7 @@ OPUS (review)  /way-of-working:resume -> /way-of-working:architect-review <PR> -
    |           -> /way-of-working:handoff -> STOP                             |
    |                                                                          |
    v                                                                          |
-HUMAN          review the PR -> merge = approval -> /way-of-working:archive-sprint, plan next
+HUMAN          review the PR -> approval (code-owner where required) -> merge (auto-merge where armed) -> /way-of-working:archive-sprint, plan next
 ```
 
 Each box is its own **short, single-model session**. The expensive planning context
@@ -196,7 +196,7 @@ when their own definition says they apply.
 > - **Architect Review** — the fresh-session Opus review of a coding diff, posted onto the PR.
 >   Enforced by the `review.ci_gate.check` CI check, where a repo configures one. *Claude
 >   does this one.*
-> - **HITL Gate** — the human's approval. In practice: **the merge**. *Only the owner does this one.*
+> - **HITL Gate** — the human's approval. In practice: **the code-owner approval** (the human's merge where the base requires none). *Only the owner does this one.*
 >
 > An Architect Review going green does **not** pass the HITL Gate; it only unblocks it. The
 > older term "HITL review" meant the first of these and is retired — but note it survives,
@@ -258,7 +258,7 @@ what it does and does not close) and an untrusted
 one from the required checks' own witness alone, with no local execution at all, pastes the header and
 attestation out of `.ai/project.yml` (why those two strings are frozen and must never be
 retyped is stated once, in `reference/project-schema.md` § `review.ci_gate`), posts with
-`gh pr review --comment` (a pinned run: `POST …/reviews` with `event=COMMENT`) — never `--approve`: the merge is the human's approval, and a
+`gh pr review --comment` (a pinned run: `POST …/reviews` with `event=COMMENT`) — never `--approve`: the approval is the human's (a code-owner approval where the base requires one), and a
 Claude-issued approval would be a gate approving itself — then verifies the check went green
 on that SHA on **both** surfaces a gate can post to, and files the non-blocking findings as
 backlog items rather than into the cursor. The posted review is a timestamped, threadable

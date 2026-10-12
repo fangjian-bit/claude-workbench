@@ -485,7 +485,7 @@ github_milestones` — `{backlog.repo}`.
      reach preflight of its own and carries the same push-identity exposure as
      `/way-of-working:ship`'s *Preflight the branch* step — a 403 here is diagnosed the same way
      (`reference/conventions.md` § *Push identity*).
-   - **Never merge it.** The human's merge is the approval. Report the PR URL and stop. If it
+   - **Never merge it.** A human approval is the gate: the code-owner approval where the base requires one, else the human's merge. Report the PR URL and stop. If it
      is still open when the next session starts, `/way-of-working:resume`'s *Report a
      forgotten cursor-sync PR* step finds it — which is why the branch must keep the
      `docs/sync-cursor-` prefix and stay a local branch on this machine — and reports it

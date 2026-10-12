@@ -183,7 +183,7 @@ and `{models.second_opinion}`.
      `/way-of-working:resume` → `/way-of-working:architect-review <PR>`. This skill never
      posts that review.
    - If `{review.ci_gate}` is `null`, say explicitly that this pass is the only critic look
-     the diff has had and that the human's merge is the sole remaining gate.
+     the diff has had and that human approval is the sole remaining gate.
 
    Either way: never `--approve`, never merge.
 
