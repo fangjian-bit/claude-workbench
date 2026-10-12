@@ -7,8 +7,14 @@
 #                           org's config reads the same; "key" is a PEM filename in this directory
 #   admin.enc.pem          the admin App's private key, passphrase-encrypted (name by convention)
 #   review.pem             the reviewer App's private key, unencrypted (minted on request)
-#   tokens/<repo>/         the only directory a repo's container mounts, read-only: admin-token,
-#                          the token then its expires_at. Admin credentials only.
+#   tokens/<repo>/         the only directory of secrets a repo's container mounts, read-only: admin-token
+#                          (wow-admin) and dev-token (broker.ps1), each the token then its
+#                          expires_at. Admin and dev credentials only.
+#   dev.pem, broker.json   broker.ps1's config: the dev App's unencrypted key (name by convention), and {"repos": [...]},
+#                          the repos it keeps a dev token for. It also uses staging/<repo>/, a
+#                          broker.lock and broker.log, none mounted anywhere, and serves
+#                          req/<repo>/reviewer-token requests: req/<repo>/ is the one other
+#                          directory a container may mount, writable, and holds no secret.
 #   review-tokens/<repo>/  reviewer-token, in the same format. Never mounted into a dev
 #                          container: the reviewer is a different identity from the PR's author.
 # What these commands write: tokens/ and review-tokens/ directories, a per-repo .lock directory
