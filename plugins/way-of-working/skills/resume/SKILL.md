@@ -145,6 +145,34 @@ edited it. **Default to the full checklist whenever unsure.**
        rest, the task list. If issue-count plus PR-count disagrees with `open_issues`, the read
        failed — **unreadable, not an empty list**.
 
+       **Verify the anchor whenever the cursor carries one** (`#360`) — not only when about to
+       auto-start. **Unconditional under `github_milestones` whenever `pointers.plan_anchor` is
+       non-null** — the reach check, the two reads above and this run are never skipped by the
+       stop-early rule, whatever the gate or `sprint_status` says, because a session that
+       decides to wait early is exactly the one this exists for. Run `plan-anchor.sh verify`
+       with the flags and the default-branch reads the Auto-start rule's *plan verified*
+       condition and *The maintainer's reaction* paragraph specify — the fetch, the
+       `git show`, both flag decisions and `verify` in **one** Bash call, `<anchor>` bound as
+       `ANCHOR=$(jq -c .pointers.plan_anchor .ai/state.json)` and quoted, never pasted — and
+       keep the printed word for the pick-up summary, whether the session then auto-starts or
+       waits (on an open gate, say). A flag read that fails, or the reach check or either read above failing,
+       means `verify` did not run: report `Plan anchor: unreadable (<which read>)`, never a
+       missing flag and never an omitted line.
+
+       **Which mode:** full mode when the anchor's `task_issue` is non-null. When it is `null`
+       (which always waits — no task token can match; a `--plan` word never satisfies the
+       Auto-start rule's *plan verified* condition), full mode can only print `drift`
+       (`bin/plan-anchor.sh` says so itself); run `verify --plan` instead, same flags,
+       and report its word. Full mode also prints `drift` after any edit to `#N` (a new
+       comment moves its `updated_at`) and `unreacted` until a maintainer reacts: real results,
+       reported as such.
+
+       The word is informational and the auto-start input; `/way-of-working:handoff`'s baseline
+       does not depend on it (`#360`) — handoff runs its own `verify --plan`. Running it here changes nothing about what enters context: `verify` prints one word, and
+       the description stays unread by this session except in the display-only wait-branch
+       fetch below. A `plan_anchor` of `null` skips this and says nothing. The Auto-start rule
+       reuses this result; it does not run `verify` a second time.
+
        **Titles and the description, only on the wait branch.** Once the *State the pick-up
        point* step has concluded the session will **wait**, separate explicit calls — `gh api
        --paginate "repos/{backlog.repo}/issues?milestone=<number>&state=open" --jq '.[] |
@@ -588,7 +616,7 @@ edited it. **Default to the full checklist whenever unsure.**
 9. **State the pick-up point** in 3–6 lines (plus, under `{planning.kind}: github_milestones`
    and `sprint_status: planning`, the **Milestone close** line below when applicable): current
    phase/sprint, sprint_status, the single next action, any open HITL Gate, the ruleset check
-   result, the branch-prune result, the driver-lock line unless it was `absent`, the cursor-sync PR outcome unless it was `none`, and the derived review step (the *Derive the review step from GitHub* step) unless it was `none` — plus, when `.ai/parked/` is non-empty, **at most one
+   result, the branch-prune result, the driver-lock line unless it was `absent`, the cursor-sync PR outcome unless it was `none`, under `github_milestones` the plan-anchor word (`Plan anchor: match.` — omitted only when `plan_anchor` is `null`; `drift`, `untrusted`, `unreadable` and `unreacted` are impossible to miss, and the next handoff gates on its own `verify --plan` result (`drift`, `untrusted`, `unreadable`) or a missing baseline, not on this word; with `unreacted` the *Spec approval* line below may stand in for it), and the derived review step (the *Derive the review step from GitHub* step) unless it was `none` — plus, when `.ai/parked/` is non-empty, **at most one
    line** naming each parked sprint with its `parked_at` (the *Read the cursor* step), derived
    from the directory, which is the authority (`Parked: 41 (2026-09-02), 43 (2026-09-15) —
    restore with /way-of-working:unpark-sprint <id>.`). Omit the line when there are none.
@@ -643,7 +671,10 @@ edited it. **Default to the full checklist whenever unsure.**
    - the *Check reality vs. the cursor* step's `cursor-drift.sh` reported `clean` or
      `cursor-sync` (either is "no drift") **and** the tree is clean;
    - **under `{planning.kind}: github_milestones`, the plan verified** — the reach check
-     above passed, both the milestone and the open-issues reads succeeded,
+     above passed, both the milestone and the open-issues reads succeeded, and the *Verify the
+     anchor whenever the cursor carries one* run (already made in the *Read the cursor* step —
+     not repeated here, and full mode since a `null` `task_issue` never auto-starts), which ran
+     as
      ```bash
      plan-anchor.sh verify [--loop-identity <login>] [--maintainer-ids <id,id,...>] {backlog.repo} <pointers.sprint_plan> <anchor>
      ```

@@ -166,21 +166,35 @@ github_milestones` — `{backlog.repo}`.
 
    **Re-anchoring is never silent, and the check is mechanical — no judgment step:**
    - **Baseline** = the *previous* `.ai/state.json`'s `plan_anchor` — valid only when both (a)
-     this session's own `/way-of-working:resume` ran `plan-anchor.sh verify` on it and printed
-     `match`, **and** (b) its `milestone` number equals the milestone this handoff is about to
-     write. A milestone switch invalidates the baseline outright — treat it as **no baseline
+     it is non-null **and** (b) its `milestone` number equals the milestone this handoff is about to
+     write. It does not depend on what this session's `/way-of-working:resume` printed
+     (`#360`): the `verify --plan` run below is the check, it runs later than resume's and reads
+     the baseline as it stands at handoff, and resume's full-mode word also moves on a comment on the task or a
+     missing maintainer reaction, which say nothing about the description. Approval of the
+     spec, the task and the reaction is enforced at auto-start, not here. An anchor restored by
+     `/way-of-working:unpark-sprint` counts: an unchanged hash shows only that nothing moved since park time — whether
+     that hash was ever approved is the human's call at unpark's gate. A milestone switch invalidates the baseline outright — treat it as **no baseline
      at all** (below), never as a hash to compare against a different milestone's description;
      otherwise a switch would launder the new milestone's very first anchor through whatever
      verdict the *old* one happened to carry.
 
-     **If *this* session itself edited the milestone description** (a planning session), the
-     baseline is not the old anchor at all: run `plan-anchor.sh write {backlog.repo}
+     **If *this* session itself edited the milestone description** (an edit made outside
+     `/way-of-working:plan-sprint`, which refuses to edit an anchored description), the
+     baseline is not the old anchor at all — but **first**, when the previous anchor is
+     non-null and names this same milestone, run `plan-anchor.sh verify --plan
+     [--loop-identity <login>] {backlog.repo} <old pointer> <previous anchor>` **before the
+     edit**, with `<previous anchor>` captured then as `jq -c .pointers.plan_anchor
+     .ai/state.json` (compact, one line), and handle any word but `match` exactly as below
+     (ledger line and `hitl_gate`), so an outside edit that landed first is not absorbed
+     into the session's own re-baseline. A session that cannot show that pre-edit run treats
+     it as `unreadable`.
+     Then run `plan-anchor.sh write {backlog.repo}
      <milestone> - -` **immediately after** the edit, and use **that command's own stdout,
      verbatim, as `<baseline anchor>` below** — never hand-compute or recall a hash, never
      re-derive it from `.ai/state.json` (which still holds the *pre*-edit anchor at this
      point), and never treat "I just edited it, so of course it changed" as itself the check.
      `write`'s output is already the single-line, compact shape `verify` needs — no `jq -c`
-     step is needed for this case, only for the next one.
+     step is needed for that post-edit baseline, only for the previous anchor above and the next case.
    - **Otherwise** (this session did not itself edit the description), extract `<baseline
      anchor>` from the *previous* cursor: `jq -c .pointers.plan_anchor .ai/state.json` —
      **compact, on one line**, never pretty-printed `jq .`; `plan-anchor.sh`'s parser only
@@ -212,8 +226,7 @@ github_milestones` — `{backlog.repo}`.
        `hitl_gate`**. An unreadable baseline is not evidence the description is unchanged;
        silence here is exactly the laundering this rule exists to prevent.
      - **No baseline at all** — the sprint's first handoff (park/archive seeded a bare
-       `planning` cursor), a milestone switch (above), or a resume that printed
-       `drift`/`unreadable`/`untrusted` and was overridden by a human "go" — is itself loud: a ledger
+       `planning` cursor, so a `null` anchor) or a milestone switch (above) — is itself loud: a ledger
        line, *"first anchor for milestone M, description sha `<hash>`"* **and open
        `hitl_gate`**. One human gate per sprint start, where a human is already in the loop;
        skip it and the sprint's first handoff would silently launder whatever the description
