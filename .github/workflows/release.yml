@@ -218,7 +218,7 @@ jobs:
             echo "# 3. the uninstall is load-bearing: a plain install short-circuits on \"already installed\""
             echo "claude plugin uninstall way-of-working@claude-workbench --scope project"
             echo "claude plugin install   way-of-working@claude-workbench --scope project"
-            echo "# 4. restart the session — a running one keeps executing the copy it started with"
+            echo "# 4. restart the session or run /reload-plugins (not /clear) — a running one keeps executing the copy it started with"
             echo '```'
             echo
             echo "**Verify by commit, not by version string.** The version comes from \`plugin.json\` and can"

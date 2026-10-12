@@ -14,10 +14,15 @@ Editing `.claude/settings.json` changes what is *pinned*; it does not change wha
 ```bash
 # 1. edit the ref in .claude/settings.json, then:
 claude plugin update <plugin>@<marketplace>   # 2. fetch the newly pinned tag
-# 3. restart the session — `update` reports "restart required to apply", and a
-#    running session keeps executing the copy it started with
+# 3. restart the session, or run /reload-plugins — `update` reports "restart required to
+#    apply", and a running session keeps executing the copy it started with
 claude plugin list                            # verify: does it report the new version?
 ```
+
+`/clear` is neither: it does not reload plugins, and the stale session behaves normally. A
+skill's `Base directory` header naming the new version's cache directory shows which copy
+loaded; which commit is installed is checked per *Verify by commit* in
+`plugins/way-of-working/reference/conventions.md`.
 
 **Verify with `claude plugin list`, never by looking for a new cache directory.** The cache
 keeps one directory per version and does **not** remove the old one, so "a new directory

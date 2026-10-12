@@ -228,7 +228,7 @@ claude plugin marketplace add <owner>/<repo>@<ref> --scope project
 # the uninstall is load-bearing: a plain install short-circuits on "already installed"
 claude plugin uninstall <plugin>@<marketplace> --scope project
 claude plugin install   <plugin>@<marketplace> --scope project
-# then restart — a running session keeps executing the copy it started with
+# then restart or /reload-plugins (not /clear) — a running session keeps executing the copy it started with
 ```
 
 **Verify by commit, never by version string.** The version is read from the plugin's

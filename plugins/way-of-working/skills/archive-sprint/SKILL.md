@@ -703,10 +703,16 @@ If any precondition fails, STOP and report why — do not archive.
    ```bash
    # 1. edit the ref in .claude/settings.json, then:
    claude plugin update <plugin>@<marketplace>   # 2. fetch the newly pinned tag
-   # 3. restart the session — the CLI says "restart required to apply", and a
-   #    running session keeps executing the copy it started with
+   # 3. restart the session, or run /reload-plugins — the CLI says "restart required to
+   #    apply", and a running session keeps executing the copy it started with
    claude plugin list                            # verify: does it report the new version?
    ```
+
+   **`/clear` is neither.** It looks like a restart and is not one: the stale session behaves
+   normally, so a live smoke or a review can silently validate the wrong version. Only a real
+   restart or `/reload-plugins` swaps the loaded copy. After either, re-invoke a skill: its
+   `Base directory` header naming the new version's cache directory shows which copy loaded
+   (the commit check in `reference/conventions.md` still decides which code is installed).
 
    **Verify with `claude plugin list`, never by looking for a new cache directory.** The old
    version's directory is **not** removed — the cache holds one directory per version, so
