@@ -309,7 +309,7 @@ edited it. **Default to the full checklist whenever unsure.**
    takes one plain string). Let `jq` itself pick the first match — never `| head -1`, which would
    exit 0 even when `jq` fails:
    ```bash
-   RSN=$(yq -o=json -I=0 '.ruleset.name' .ai/project.yml </dev/null | jq -er 'strings | select(test("^[^\\p{Cc}]+$"))') &&
+   RSN=$(yq -o=json -I=0 '.ruleset.name' .ai/project.yml </dev/null | jq -er 'strings | select(test("^[^\\p{Cc}]+\\z"))') &&
    L=$(gh api --paginate repos/{repo}/rulesets) &&
    RID=$(printf '%s' "$L" | jq -r --arg n "$RSN" \
      'first(.[] | select(.name==$n) | .id) // empty') &&
@@ -343,7 +343,7 @@ edited it. **Default to the full checklist whenever unsure.**
    whole, by index, as one JSON object and split with `jq` — never through a `@tsv` row, whose
    CSV-quoting can split one entry across lines and pair a name with the wrong entry's fields.
    Each value is read with `jq -e` and refused if it is not a string or carries a control
-   character, so a value `.ai/project.yml` wrote with a newline (or a missing name) reads
+   character (`\z`, written `\\z` in the jq string, anchors the end of the text, where `$` also matches before a final newline), so a value `.ai/project.yml` wrote with a newline (or a missing name) reads
    `inconclusive` instead of forging a report line or matching a ruleset called `null` — the
    completeness check flags it too, but resume continues on an incomplete copy:
    ```bash
@@ -355,10 +355,10 @@ edited it. **Default to the full checklist whenever unsure.**
    I=-1 &&
    while I=$((I + 1)); [ "$I" -lt "$N" ]; do
      ENT=$(yq -o=json -I=0 ".rulesets[$I]" .ai/project.yml </dev/null) &&
-     NAME=$(printf '%s' "$ENT" | jq -er '.name | strings | select(test("^[^\\p{Cc}]+$"))') &&
+     NAME=$(printf '%s' "$ENT" | jq -er '.name | strings | select(test("^[^\\p{Cc}]+\\z"))') &&
      SRC=$(printf '%s' "$ENT" | jq -r '.source | strings') &&
-     TYPES=$(printf '%s' "$ENT" | jq -er '.rule_types | join(",") | select(test("^[^\\p{Cc}]*$"))') &&
-     CHECKS=$(printf '%s' "$ENT" | jq -er '(.required_checks // []) | join(",") | select(test("^[^\\p{Cc}]*$"))') || { echo "ruleset #$I inconclusive"; continue; }
+     TYPES=$(printf '%s' "$ENT" | jq -er '.rule_types | join(",") | select(test("^[^\\p{Cc}]*\\z"))') &&
+     CHECKS=$(printf '%s' "$ENT" | jq -er '(.required_checks // []) | join(",") | select(test("^[^\\p{Cc}]*\\z"))') || { echo "ruleset #$I inconclusive"; continue; }
      case "$SRC" in repo) API="repos/$R/rulesets" ;; org) API="orgs/$OWNER/rulesets" ;; *) echo "ruleset $NAME inconclusive"; continue ;; esac
      L=$(gh api --paginate "$API" </dev/null) || { echo "ruleset $NAME inconclusive"; continue; }
      RID=$(printf '%s' "$L" | jq -r --arg n "$NAME" 'first(.[] | select(.name==$n) | .id) // empty') || { echo "ruleset $NAME inconclusive"; continue; }

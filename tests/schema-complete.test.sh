@@ -844,7 +844,7 @@ for e in '{ name: a, rule_types: [x] }' '{ name: a, source: bogus, rule_types: [
     "incomplete|invalid rulesets[0].source|2" \
     "$(printf '%s\n' "$out" | sed -n '1p;2p' | cut -d' ' -f1,2 | paste -sd'|')|$(printf '%s\n' "$out" | wc -l | tr -d ' ')"
 done
-for e in '{ name: a, source: repo }' '{ name: a, source: repo, rule_types: deletion }' '{ name: a, source: repo, rule_types: null }' \
+for e in '{ name: a, source: repo }' '{ name: a, source: repo, rule_types: !!seq deletion }' '{ name: a, source: repo, rule_types: deletion }' '{ name: a, source: repo, rule_types: null }' \
          '{ name: a, source: repo, rule_types: { a: 1 } }'; do
   rs_entry "  - $e"
   out=$(run_check "$tmp/rse.yml")
@@ -864,6 +864,24 @@ assert_eq "a bad second entry is named by its own index, both fields" \
   'incomplete
 invalid rulesets[1].source "nope"
 invalid rulesets[1].rule_types "x"' "$(run_check "$tmp/rse.yml")"
+
+# rulesets[].required_checks (#527): absent, null or a list is fine; anything else is invalid
+for e in '{ name: a, source: repo, rule_types: [x] }' '{ name: a, source: repo, rule_types: [x], required_checks: [lint, test] }' \
+         '{ name: a, source: repo, rule_types: [x], required_checks: [] }' '{ name: a, source: repo, rule_types: [x], required_checks: null }' '{ name: a, source: repo, rule_types: [x], required_checks: ~ }'; do
+  rs_entry "  - $e"
+  assert_eq "rulesets[0]: $e has a legal required_checks" "complete" "$(run_check "$tmp/rse.yml")"
+done
+for e in 'lint' '5' 'true' 'false' '0' '{ a: 1 }' '""' '!!s lint' '!!se lint' '! lint' '!!seq lint'; do
+  rs_entry "  - { name: a, source: repo, rule_types: [x], required_checks: $e }"
+  out=$(run_check "$tmp/rse.yml")
+  assert_eq "rulesets[0].required_checks: $e is invalid, and the only finding" \
+    "incomplete|invalid rulesets[0].required_checks|2" \
+    "$(printf '%s\n' "$out" | sed -n '1p;2p' | cut -d' ' -f1,2 | paste -sd'|')|$(printf '%s\n' "$out" | wc -l | tr -d ' ')"
+done
+rs_entry '  - { name: ok, source: repo, rule_types: [x], required_checks: [a] }' '  - { name: bad, source: repo, rule_types: [x], required_checks: lint }'
+assert_eq "a bad required_checks is named by its own entry's index, with its value" \
+  'incomplete
+invalid rulesets[1].required_checks "lint"' "$(run_check "$tmp/rse.yml")"
 
 echo "# check -- unreadable: no file, unparseable YAML, yq missing"
 
