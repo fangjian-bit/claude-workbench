@@ -282,7 +282,11 @@ guess a gate (`reference/project-schema.md`).
        --jq '.repositories[].full_name' >"$T/inst.txt" &&
      git show "refs/remotes/origin/<default>:./.ai/project.yml" >"$T/def.yml" &&
      yq -e '.identities.reviewer_app | tag == "!!map"' "$T/def.yml" >/dev/null &&
-     token-check.sh verify any {repo} "$F" "$T/inst.txt" "$T/def.yml" >/dev/null &&
+     V=$(GH_TOKEN="$TOK" timeout 60 gh api --hostname github.com graphql \
+           -f query='{ viewer { login databaseId } }' \
+           --jq '[.data.viewer.login, .data.viewer.databaseId] | @tsv') &&
+     token-check.sh verify reviewer_app {repo} "$F" "$T/inst.txt" "$T/def.yml" \
+       "$(printf '%s' "$V" | cut -f1)" "$(printf '%s' "$V" | cut -f2)" >/dev/null &&
      R=$(GH_TOKEN="$TOK" timeout 60 gh api --hostname github.com -X POST "repos/{repo}/pulls/<N>/reviews" \
            -f commit_id=<sha> -f event=COMMENT -F body=@"<that path>" \
            --jq '.commit_id + " " + .state + " " + .user.login + " " + (.user.id | tostring)'); } || RC=$?
@@ -297,9 +301,11 @@ guess a gate (`reference/project-schema.md`).
    `token-check.sh` is the fail-closed gate: an empty, expired or user token stops before `gh`
    could fall back to a stored human login, and every call names `github.com` with
    `GH_HOST`/`GH_ENTERPRISE_TOKEN` unset so `GH_TOKEN` is the credential used. Which App holds an
-   installation token is provable only from a write response (`WB-D24`, `#380`), so the
-   declared-`reviewer_app` check runs after the post, on the response's `user` login and id, and
-   before the trap's `discard` (it needs the token file). Anything but `0 <sha> COMMENTED …` is a
+   installation token is proven before the post, from GraphQL `viewer { login databaseId }` made
+   with that same token (`#476`, `#529`): `token-check.sh verify reviewer_app` matches its login
+   and id against the declared `reviewer_app` through `gh-identity.sh role`, so a token of another
+   App, a maintainer or an undeclared account stops the chain with **nothing posted**. The post
+   response's `user` login and id are checked again as a backstop (`103`), before the trap's `discard` (it needs the token file). Anything but `0 <sha> COMMENTED …` is a
    stop to report, never worked around by `gh pr review` under another login. **`103` and `104`
    (chosen outside any exit status a tool in the chain returns) mean a review did post**: the actor
    not proven to be the declared reviewer, or the wrong commit or state (or an empty response from a `0` exit: posted or unknown, so never retried blind). Say so plainly for the

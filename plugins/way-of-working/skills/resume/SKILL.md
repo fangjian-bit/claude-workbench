@@ -537,7 +537,7 @@ edited it. **Default to the full checklist whenever unsure.**
    `review-step.sh login app` then exits 2: **nothing derives**, never a fall-back to a guessed
    or user login. A token that is not `reached` stops the chain at the probe: report `failed link`
    plus that section's `could not establish the actor` line. Which App holds the token is not
-   established (that section's *Name the mode* step), so `decide` is passed `mode=$MODE` and **App
+   proven here (that section's *Name the mode* step), so `decide` is passed `mode=$MODE` and **App
    mode never reaches `auto`**: a would-be `auto` reads `show <M> app-mode` and waits for the human's
    "go". The loop-identity guard compares the *declared* dev App with `$LOOPID`, so in App mode it
    does not see a loop-App token; the `auto` cap is what covers that.

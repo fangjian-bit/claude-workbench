@@ -852,8 +852,8 @@ Anything but `match` stops ship.
 **The review-step derivation reads `dev_app` too** (`#381`). Under an installation token, where
 `gh api user` is refused, `/way-of-working:resume` and `/way-of-working:handoff` read `dev_app`
 from the default branch's copy, confirm it with `gh-identity.sh role`, and pass its login to
-`review-step.sh login app`; a `null`, absent or malformed `dev_app` derives nothing. The App holding
-the token is unproven, so `review-step.sh decide` never lets App mode reach `auto` (`show <M> app-mode`).
+`review-step.sh login app`; a `null`, absent or malformed `dev_app` derives nothing. The
+derivation does not read the token's GraphQL `viewer` (`#476`) to prove which App holds it, so `review-step.sh decide` never lets App mode reach `auto` (`show <M> app-mode`).
 
 ---
 

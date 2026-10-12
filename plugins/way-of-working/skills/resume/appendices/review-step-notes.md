@@ -8,8 +8,8 @@ decide` printed `show`, or `none` with a `state.json` `review_pr`, and for the l
 ledger's **Next:** is behind by design and says so; `review-pr` — `state.json` votes for a
 different PR or none; `head-moved` — the PR's head moved since the pin, so a new no-op handoff
 from the fixed head re-pins it (also when the gate already reads green on a head the pin does not
-name: say so, it is not an unreviewed PR); `app-mode` — the session holds an installation token, whose App is
-unproven (`#381`), so the step is shown and waits for a human "go"; `token` — `next_action` is not `` review PR #M — ``
+name: say so, it is not an unreviewed PR); `app-mode` — the session holds an installation token, whose App this
+derivation does not prove (`#381`), so the step is shown and waits for a human "go"; `token` — `next_action` is not `` review PR #M — ``
 then the task token (**when it begins `` reviewed PR #M — ``, the review was already posted and the
 vote consumed — `/way-of-working:architect-review`'s *Compose and post* step, `#283` — so report that
 and do not offer the "go" below: a second review on the same pin is what the consumption prevents**);

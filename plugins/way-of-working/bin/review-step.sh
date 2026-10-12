@@ -70,7 +70,7 @@
 # installation token that reaches {repo} (`gh-identity.sh reach`). Under an installation token
 # `gh api user` is refused (403, measured in `#380`), so there is no login to read; the identity is
 # the one the repo DECLARES for the dev flow, `identities.dev_app.login` from the default branch's
-# copy. Which App holds the token is NOT established, so `decide` never lets App mode reach `auto`
+# copy. Which App holds the token is NOT proven here, so `decide` never lets App mode reach `auto`
 # (its `mode` key): a reviewer or loop App token would otherwise run as the dev App.
 #   user  -- prints <user-login>. <dev-app-login> is ignored (pass `-`).
 #   app   -- prints <dev-app-login>. <user-login> is ignored (pass `-`).
@@ -114,7 +114,7 @@
 #                before the resume (harness commands such as /clear and /model do not count)
 #   login        the acting login, the same `login`-mode output `derive` took
 #   mode         `user` | `app`: the mode `login` ran in. `app` never reaches `auto`: an installation
-#                token's App is unproven (conventions.md § *Acting identity and reach*, *Name the
+#                token's App is not proven by this derivation (conventions.md § *Acting identity and reach*, *Name the
 #                mode*), so a would-be `auto` reads `show <M> app-mode` and waits for a human "go"
 #   loop_identity  `orchestration.loop_identity` from the DEFAULT branch's copy, or `-` when it
 #                is null or the whole `orchestration` block is
@@ -164,7 +164,7 @@
 #   model       assigned_model equals {models.architect} from the default branch. Not merely
 #               "matches the running model": a state.json naming another model must not start
 #               the review on it. resume checks the running model separately.
-#   app-mode    `mode=app`: the session holds an installation token, whose App is unproven (the
+#   app-mode    `mode=app`: the session holds an installation token, whose App this derivation does not prove (the
 #               loop-identity guard sees only the declared dev App), so the step is shown and a
 #               human's "go" starts it. Never `auto` in App mode (`#381`).
 #   not-fresh   a /model switch inside the conversation that wrote the PR is not a fresh
