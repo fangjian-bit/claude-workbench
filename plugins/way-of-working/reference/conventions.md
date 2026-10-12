@@ -126,9 +126,11 @@ report itself into a second failure, and an all-`false` `.permissions` is not "n
    answers `user` or `app` from a login and numeric id. The *Name the actor* probe reads no login
    under an installation token, but the `user` object of a **write response** the token made (an
    issue or PR it created) does carry the App's `[bot]` login and id, and `classify` returns
-   `app` for it (measured, `#380`). That arrives only *after* a first write, so it can report who
-   acted but cannot gate that write: a decision that needs the dev App *proven* beforehand — not
-   merely an installation that lists the repo — cannot be made in App mode and stops.
+   `app` for it (measured, `#380`). That arrives only *after* a first write, so it cannot gate that
+   write. What precedes any write is GraphQL `{ viewer { login databaseId } }`, which an
+   installation token may call and which names the App (measured, `#476`: `<slug>[bot]` and the
+   App's bot user id). A decision that needs the dev App *proven* beforehand — not merely an
+   installation that lists the repo — reads it and passes both values to `gh-identity.sh pr-actor`.
 3. **Reach is asked of the repo, never of `gh auth status`** (token *scope* is not *reach*).
    `gh api repos/{repo} --jq .permissions` is the user-token probe. When it reads all `false`,
    run the *Name the actor* probe: `reached` is **read** reach only (the repo is listed for the installation;
@@ -139,10 +141,11 @@ report itself into a second failure, and an all-`false` `.permissions` is not "n
    repository not granted` with `contents: read`). It tests the credential `git` holds, not
    which App it is, so by itself it would pass any credential with write: a reviewer-style or
    loop App, or a human's stored login. `ship`'s *Push-reach preflight* therefore runs it in App
-   mode with `git` pinned to `gh`'s token (see *Push identity*), and pairs it with a check after
-   the first write that returns an actor (`#464`; the branch push precedes it): the opened PR's
-   `user` must be the declared `identities.dev_app` (`gh-identity.sh pr-actor`), else ship
-   stops and touches nothing further.
+   mode with `git` pinned to `gh`'s token (see *Push identity*), after proving through `viewer`
+   that the token is the declared `identities.dev_app` (`#476`), so a wrong-App token that can push
+   is refused before any branch exists. It keeps a check after the first write that returns an
+   actor as the backstop (`#464`): the opened PR's `user` must be the declared
+   `identities.dev_app` (`gh-identity.sh pr-actor`), else ship stops and touches nothing further.
 
 Every consumer of this procedure fails closed: a step that cannot be completed is a stop or the
 skill's own safe fallback (handoff opens the ledger PR), and its report names which step failed.

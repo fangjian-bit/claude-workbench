@@ -183,4 +183,16 @@ expect handoff/SKILL.md 1 2
 expect archive-sprint/SKILL.md 2 5
 expect resume/appendices/schema-interview.md 1 1
 
+# --- ship proves the acting App before its first push (#476) ----------------------------
+# The viewer read must feed gh-identity.sh pr-actor, and both come before the dry-run probe,
+# the first App-mode write-shaped call; the PR-user check stays as the backstop.
+ship="$skills_dir/ship/SKILL.md"
+viewer_at=$(grep -n 'gh api .*graphql .*viewer { login databaseId }' "$ship" | head -n 1 | cut -d: -f1)
+actor_at=$(grep -n 'gh-identity\.sh pr-actor "\$LOGIN" "\$ID"' "$ship" | head -n 1 | cut -d: -f1)
+dry_at=$(grep -n 'app-push\.sh --dry-run' "$ship" | head -n 1 | cut -d: -f1)
+ordered=no
+if [ -n "$viewer_at" ] && [ -n "$actor_at" ] && [ -n "$dry_at" ] && [ "$viewer_at" -lt "$actor_at" ] && [ "$actor_at" -lt "$dry_at" ]; then ordered=yes; fi
+assert_eq "ship reads viewer, then tests it with pr-actor, before the dry-run push probe" "yes" "$ordered"
+assert_eq "ship still checks the PR's user afterwards" "yes" "$(grep -c 'gh-identity\.sh pr-actor "\$LOGIN" "\$ID"' "$ship" | tr -d ' ' | grep -qx 2 && echo yes || echo no)"
+
 exit "$fail"

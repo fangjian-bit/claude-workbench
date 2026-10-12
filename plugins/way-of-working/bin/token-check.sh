@@ -58,9 +58,9 @@
 #                       GitHub response obtained with $TOK, never from `identities`, the mint
 #                       config or any other statement of intent: a value copied from the thing it
 #                       is compared with proves nothing. GET /user is refused to an installation
-#                       token; the measured source (#380) is the `user` object of a write response
-#                       the token made (an issue or PR it created), so `app` is reachable only
-#                       after a first write. They must match the declared
+#                       token; the measured sources are GraphQL `viewer { login databaseId }`
+#                       (#476), which needs no write, and the `user` object of a write response
+#                       the token made (an issue or PR it created, #380). They must match the declared
 #                       `identities.<role>` entry, via `gh-identity.sh role`: a token of another
 #                       App, a maintainer, or an account declared nowhere all fail. `identities`
 #                       null cannot declare an actor, so a supplied actor then fails too.

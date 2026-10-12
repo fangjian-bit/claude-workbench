@@ -833,11 +833,12 @@ caller, which reads them from the default branch's copy: `resume` passes them un
 omits the flag under `null`. `bin/token-check.sh verify` (`#436`) is the exception: a consumer of a minted token runs it before
 acting, and for a `dev_app`, `reviewer_app` or `loop_app` role it requires the token's actor and
 matches it against that declared entry through `gh-identity.sh role`; the actor must come from a GitHub
-response obtained with the token (measured in `#380`: the `user` of an issue or PR it created, so only after a first write). `/way-of-working:architect-review` acts as `reviewer_app` under a map (`#389`, `bin/review-token.sh`); nothing yet acts as `loop_app`, which is the same stated, temporary state as `orchestration`'s.
+response obtained with the token (measured in `#380`: the `user` of an issue or PR it created, so only after a first write; or, before any write, GraphQL `viewer { login databaseId }`, measured in `#476`). `/way-of-working:architect-review` acts as `reviewer_app` under a map (`#389`, `bin/review-token.sh`); nothing yet acts as `loop_app`, which is the same stated, temporary state as `orchestration`'s.
 
 **`ship` reads `dev_app` in App mode** (`#464`). Before pushing it requires the default branch's
-copy to declare a `dev_app` map; after `gh pr create` it passes the PR's `user` login and id to
-`gh-identity.sh pr-actor`, which prints `match` only for the declared `dev_app` and `mismatch` for
+copy to declare a `dev_app` map and passes the token's GraphQL `viewer` login and id (`#476`) to
+`gh-identity.sh pr-actor`; after `gh pr create` it passes the PR's `user` login and id the same
+way, as a backstop. `pr-actor` prints `match` only for the declared `dev_app` and `mismatch` for
 any other account it can read (a `null` `dev_app` included), and exits 2 when it cannot say.
 Anything but `match` stops ship.
 

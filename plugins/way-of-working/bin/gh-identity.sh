@@ -28,7 +28,10 @@
 # `user` object of a write response, MEASURED in #380: an issue or PR the dev App token created
 # reported its `user` as the App's `[bot]` login and numeric id, which `classify` returned as `app`);
 # classify is source-agnostic and only compares what it is given. That source arrives only AFTER a
-# write, so it cannot gate the first one. A GitHub App USER-to-server token is different: it may
+# write, so it cannot gate the first one. A source that precedes any write is GraphQL
+# `{ viewer { login databaseId } }`, which an installation token may call (measured, #476: it
+# read the dev App's `<slug>[bot]` login and the App's bot user id, the one apps.json calls
+# bot_user_id); ship feeds it to `pr-actor` before its first push. A GitHub App USER-to-server token is different: it may
 # call `GET /user` and returns the human it acts for, so it classifies as that human.
 #
 # `user` is a MODE, never a trust grant. With identities null it is printed for any plain
@@ -84,8 +87,9 @@
 # file or key, a non-map identities, an id declared twice or under another login). Unlike
 # classify it does NOT refuse an undeclared account, a reviewer or loop App, or a [bot] under null.
 #
-# pr-actor is the after-the-write check ship runs in App mode (#464): did the dev App open
-# the PR? The caller passes the `user` {login, id} of the PR response it just created. It
+# pr-actor is the check ship runs in App mode (#464, #476): is this the dev App? The caller passes
+# the `viewer` {login, databaseId} before the first push, and the `user` {login, id} of the PR
+# response after it (the backstop). It
 # prints exactly one word:
 #   match     -- the id and login are the declared `identities.dev_app`
 #   mismatch  -- anything else the lookup can read: another App (reviewer, loop), a maintainer's

@@ -134,7 +134,7 @@ else
   run role alice-dev abc "$tmp/full.yml"
   expect "role: bad id" "" 2
 
-  # pr-actor: did the declared dev App open the PR? (#464) Only `match` clears.
+  # pr-actor: is this the declared dev App (viewer before the push, PR user after)? (#464) Only `match` clears.
   run pr-actor 'acme-dev[bot]' 2001 "$tmp/full.yml"
   expect "pr-actor: the dev App" match 0
   run pr-actor 'ACME-DEV[bot]' 2001 "$tmp/full.yml"

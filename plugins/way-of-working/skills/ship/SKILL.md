@@ -183,10 +183,37 @@ here. The *Open the PR against `{pr_base}`* step also reads `pointers.sprint_pla
        2. **A dev App is declared.** Read the **default branch's** committed `.ai/project.yml`
           (the same read the *Open the PR* step's recipe makes; each step reads its own copy)
           and require `yq -r '.identities.dev_app | tag'` to print `!!map`. A `null`, absent
-          or non-map `dev_app` means the actor check below could only ever fail: stop now,
+          or non-map `dev_app` means the dev-App proof below could only ever fail: stop now,
           before a branch is pushed. (A map with a bad shape inside still reads `mismatch`
-          later.)
-       3. **Pin `git` to `gh`'s token for every push this skill makes** by making each one
+          in that proof.)
+       3. **Prove the token `gh` holds is the dev App, before any write** (`#476`). Ask GitHub who
+          the token is with GraphQL `viewer`, which an installation token may call where `GET /user`
+          is refused (measured on the dev and reviewer Apps: each token read its own `<slug>[bot]` login and bot user id). The answer is GitHub's about the token in use, not
+          anything the working tree controls. Compare it with `identities.dev_app` from the
+          **default branch's** committed `.ai/project.yml` (the same read the *Open the PR* step's
+          recipe makes, `origin` confirmed to be `{repo}` first), chained with `&&` and ended on
+          the comparison so the chain's status is the verdict. Never `gh auth status`: it reports
+          scope, not who is acting.
+          ```bash
+          TOPLEVEL=$(git rev-parse --show-toplevel) &&
+          U=$(git -C "$TOPLEVEL" remote get-url origin) &&
+          R=$(gh repo view "$U" --json nameWithOwner --jq .nameWithOwner) && [ "$R" = "{repo}" ] &&
+          D=$(gh repo view "$U" --json defaultBranchRef --jq '.defaultBranchRef.name // ""') &&
+          [ -n "$D" ] &&
+          git -C "$TOPLEVEL" fetch -q origin "+refs/heads/$D:refs/remotes/origin/$D" &&
+          DEF_YML_FILE=$(mktemp) &&
+          git -C "$TOPLEVEL" show "refs/remotes/origin/$D:./.ai/project.yml" >"$DEF_YML_FILE" &&
+          LU=$(gh api --hostname github.com graphql -f query='{ viewer { login databaseId } }' \
+                 --jq '[.data.viewer.login, .data.viewer.databaseId] | @tsv') &&
+          LOGIN=$(printf '%s' "$LU" | cut -f1) && ID=$(printf '%s' "$LU" | cut -f2) &&
+          A=$(gh-identity.sh pr-actor "$LOGIN" "$ID" "$DEF_YML_FILE") && [ "$A" = match ]
+          rc=$?; rm -f "$DEF_YML_FILE"; [ "$rc" -eq 0 ]
+          ```
+          Only a zero status continues. `mismatch` (another App, a human, an undeclared account),
+          exit 2 or a failed `gh` call **stops loudly before any branch exists**: report the actual
+          login (or that it could not be read) and the expected `identities.dev_app`. The *Open
+          the PR* step's check of the PR's `user` stays as the backstop.
+       4. **Pin `git` to `gh`'s token for every push this skill makes** by making each one
           through `app-push.sh` (bare name, same `bin/` `PATH` as `cursor-drift.sh`; the pin and
           why it matters are in its header and `reference/conventions.md` § *Push identity*),
           so a host-configured helper cannot push as another account, a human's included.
@@ -195,10 +222,9 @@ here. The *Open the PR against `{pr_base}`* step also reads `pointers.sprint_pla
           app-push.sh --dry-run origin <branch>      # the work branch
           ```
           A refusal (non-zero, e.g. `403 Write access to repository not granted`) stops ship.
-          A pass says the token `gh` holds can write; it does not say *which* App that is. The
-          *Open the PR* step's actor check does, and it can only run after the branch push,
-          so that push is the one write made before the dev App is proven — by the token
-          `gh` holds over HTTPS, not by whatever account `git`'s own helper stores.
+          A pass says the token `gh` holds can write; the previous check says which App it is,
+          and the pin makes the push use the token `gh` holds, not whatever account `git`'s own
+          helper stores.
 
 2. **Review the diff, then compose the commit.** `git status --short` + `git diff --staged`
    (stage with `git add` as needed). Write the message per `reference/conventions.md`
@@ -260,9 +286,8 @@ here. The *Open the PR against `{pr_base}`* step also reads `pointers.sprint_pla
    than opening quietly; that is a question for them, not a blocker this skill resolves.
 
    **App mode only: prove the dev App opened it, before anything else is written.** The
-   *Push-reach preflight* showed the token `gh` holds can write, not which App it is, and the
-   branch push already happened. This is the first check of identity: the PR is the first
-   write that returns an actor. Immediately after `gh pr create` returns the PR number `<N>`,
+   *Push-reach preflight* already refused any token that is not the dev App before the push;
+   this is the backstop, read from the PR itself. Immediately after `gh pr create` returns the PR number `<N>`,
    read the PR's `user` and test it against the declared `identities.dev_app` from the
    **default branch's** committed `.ai/project.yml` (never the working tree's: a PR under
    review can edit it — the same read `/way-of-working:resume`'s *Derive the review step from
