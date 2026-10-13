@@ -613,8 +613,8 @@ If any precondition fails, stop and report why — do not proceed.
    `plan-anchor.sh verify` reading `drift` the next time anything re-verifies that parked
    sprint's own anchor: the next `/way-of-working:resume` after it is restored reports `drift`
    (it verifies any non-null anchor), and the next `handoff` opens a gate on it. Unpark
-   restores `plan_anchor` as parked without re-verifying it, and its own gate covers only
-   the commits merged since. Say that, not that this warning is itself a gate.
+   restores `plan_anchor` as parked without re-verifying it, and its own gate does not
+   re-verify the restored anchor. Say that, not that this warning is itself a gate.
 
    **The staged-text fallback comment — where the proposed milestone text is posted when a
    write is staged rather than applied.** Location is the lowest-numbered issue the human

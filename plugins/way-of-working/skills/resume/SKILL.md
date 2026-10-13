@@ -685,8 +685,8 @@ edited it. **Default to the full checklist whenever unsure.**
      The closed form is `NONE OPEN` plus prose naming the next gate (`NONE OPEN — next gate: …`),
      so an exact-string match would not fire on a normal closed gate. No skill here appends
      an open gate after `NONE OPEN` (`plan-sprint` replaces it, `unpark-sprint` never writes
-     it), but a hand edit or a later change could: a parked gate (`; parked with gate open:
-     …`), a pending-close note or a staged item after that prose is an open gate even
+     it), but a hand edit or a later change could: a carried gate (`; parked with gate open:
+     …` or `; prior cursor … (done) …`), a pending-close note or a staged item after that prose is an open gate even
      though the value still begins `NONE OPEN`: **wait**. If you cannot tell the text after
      `NONE OPEN` is only the next-gate prose, that is a wait too;
    - `driver-lock.sh` printed `absent` — `present` and `unreadable` both wait (`#233`);

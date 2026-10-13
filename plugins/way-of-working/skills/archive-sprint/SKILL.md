@@ -541,8 +541,9 @@ If any precondition fails, STOP and report why — do not archive.
    sentence is how this reached neither the ledger nor the gate the first two times — a
    fixed, greppable line is what `bin/milestone-close-line.sh` and `/way-of-working:resume`
    check for).
-   **A pending close's `hitl_gate` must reach the new cursor** — see the note in the
-   *Advance `.ai/state.json`* step below; it is not automatic.
+   **A pending close's `hitl_gate` must reach the new cursor** — see the *Advance
+   `.ai/state.json`* step below: its blank-seed branch writes it, and on its parked-sprint
+   branch unpark carries it and that step's note confirms it arrived.
 
 4. **Advance `.ai/state.json`** to the next sprint. **Whatever the *Close the sprint's
    milestone* step above found must reach the durable, tracked `.ai/next-steps.md`** — not
@@ -559,7 +560,10 @@ If any precondition fails, STOP and report why — do not archive.
    never seed a blank cursor for
    a sprint that still has a snapshot. Then write `sprint_status: "done"` on the closed
    sprint's cursor (the state `/way-of-working:unpark-sprint`'s free-cursor precondition
-   reads) and run `/way-of-working:unpark-sprint <id>` in place of the rest of this step
+   reads), and set its `hitl_gate` the way the blank-seed branch below does: `NONE OPEN`
+   (the human passed this sprint's gate at precondition 1), or the *Close the sprint's
+   milestone* step's pending-close note, verbatim and alone, when there is one. Unpark
+   carries that value into the gate it writes. Then run `/way-of-working:unpark-sprint <id>` in place of the rest of this step
    and the *Seed a fresh `.ai/next-steps.md`* step — it restores the cursor and ledger
    behind its own gate and opens the cursor-sync PR. Unpark's closing "stop" ends *its*
    flow, not this one: come back here for the *Prune squash-merged local branches* through
@@ -568,10 +572,10 @@ If any precondition fails, STOP and report why — do not archive.
    cursor naming the same sprint.
 
    **Unpark's own commit does not carry the milestone outcome — add one more commit before
-   moving on.** Unpark's *Restore* step overwrites `.ai/state.json` wholesale (the
-   pending-close `hitl_gate` the Close step wrote is gone the instant that runs), and its
-   *Update the ledger* / *Commit* steps write and push `.ai/next-steps.md` with only
-   unpark's own re-verify gate — the milestone outcome was never in scope for that skill.
+   moving on.** Unpark's *Restore* step overwrites `.ai/state.json` and `.ai/next-steps.md`
+   wholesale. Its *Carry the done cursor's open gate too* paragraph carries the
+   pending-close `hitl_gate` written above into the new gate, but the milestone outcome line
+   was never in scope for that skill.
    So, still on unpark's docs branch, still before running the *Prune* step below: **write a
    fixed `**Milestone close:**` line to `.ai/next-steps.md`, at column 0, never as a list
    item, REPLACING any `**Milestone close:**` line already there** (the same shape the *Seed
@@ -584,9 +588,15 @@ If any precondition fails, STOP and report why — do not archive.
    handoff before it was parked) — that line names a *different* event than this one, and two
    lines would leave `/way-of-working:resume`'s "echo the ledger's line" with no way to know
    which is current, silently reintroducing #153's exact failure through a fourth path.
-   Then — for a **pending** close only — append the pending-close note to the **HITL Gate**
-   line, after unpark's own text, never replacing it (the HITL Gate line has no duplicate-line
-   risk — unpark writes exactly one, and this only ever adds to that one). `bin/milestone-close-line.sh`
+   Then — for a **pending** close only — confirm the **HITL Gate** line carries the
+   pending-close note, after unpark's `; prior cursor … (done) with gate open:` marker.
+   Unpark flattens what it carries (backticks and `*` dropped, line breaks made spaces), so
+   match on the outcome the note names (the case, or which of refusal, error or read-back
+   happened) and on the milestone number when the note names one, never the note's exact
+   text. When they
+   are there, do not append the note again. When they are not (whatever the cause: the
+   `hitl_gate` written above did not hold the note, or unpark could not read it), append
+   the note after unpark's own text, never replacing it. `bin/milestone-close-line.sh`
    does **not necessarily** check this branch's cursor — it gates on `sprint_status: planning`,
    and a restored parked sprint's status need not be that (a sprint is ordinarily parked while
    `implementing`); when it does happen to be `planning` (parked mid-planning), the script
@@ -594,17 +604,17 @@ If any precondition fails, STOP and report why — do not archive.
    which is correct, not coincidental. Either way this line is written for the same
    human-legibility reason. Commit that as a second commit on the same branch and push it (in App mode with `app-push.sh`), updating
    unpark's already-open PR rather than opening a second one — the delta is still
-   `.ai/next-steps.md` only, so `cursor-drift.sh` still classifies it `cursor-sync`. **Also
-   append the same pending-close note to `.ai/state.json`'s `hitl_gate`** (local, not
-   committed — `.ai/state.json` is git-ignored — but still the field `/way-of-working:resume`
-   and `/way-of-working:handoff` read first): unpark's *Restore* step already overwrote it
-   with unpark's own gate text, and a later handoff that only reads `state.json` before
+   `.ai/next-steps.md` only, so `cursor-drift.sh` still classifies it `cursor-sync`. **Check
+   `.ai/state.json`'s `hitl_gate` the same way** (local, not committed — `.ai/state.json` is
+   git-ignored — but still the field `/way-of-working:resume` and `/way-of-working:handoff`
+   read first). Unpark writes the same gate text there, so the note is normally present.
+   Match the same way, and append it only when it is missing: a later handoff that only reads `state.json` before
    regenerating `next-steps.md` would otherwise drop the pending note the moment the human
    closes unpark's re-verify gate. The *Report* step below now has this second commit to
    report, alongside unpark's `hitl_gate` and the PR link (correcting the general case
    below, where there is normally nothing left to commit after unpark hands back control).
 
-   Otherwise seed a blank next unit: set `current_sprint_id` / `current_phase` to the next unit from `{roadmap}`, `sprint_status: "planning"`, and `assigned_model` / `assigned_persona` to the planning role in `{models}` (the next step after completion is always planning/review). Set `pointers.review_pr` to `null` (`WB-D22`: no review is pinned on a blank cursor). Update `last_commit`, and set `next_action` to "plan <next sprint/phase>" — under `{planning.kind}: github_milestones` with no milestone picked yet, mention `/way-of-working:plan-sprint` as a tool that can help triage the backlog into milestones, **as a suggestion, never as a determined next action it forces** (`plan-sprint` never sets `pointers.sprint_plan` itself — picking which milestone becomes the next sprint stays a separate human decision, made via `/way-of-working:handoff`, whether or not `plan-sprint` ran first). Point `pointers.sprint_plan` at the next `{sprints_dir}/*/sprint_plan.md` (or note it does not exist yet) — **under `{planning.kind}: github_milestones`, instead ask the human which milestone number is the next sprint (never scan — a scan cannot tell a new sprint from a parked one) and write `https://github.com/{backlog.repo}/milestone/<number>`, or `null` with `pointers.plan_anchor: null` if none is picked yet**, the legal "no milestone picked yet" state `reference/project-schema.md` § `planning` names. **Set `hitl_gate` too** — this branch is the one place in this step that actually writes it: `NONE OPEN` normally, or the *Close the sprint's milestone* step's pending-close note (verbatim, this step never opened one of its own here) when there is one. The *Seed a fresh `.ai/next-steps.md`* step below carries both the outcome line and this gate into the ledger it writes.
+   Otherwise seed a blank next unit: set `current_sprint_id` / `current_phase` to the next unit from `{roadmap}`, `sprint_status: "planning"`, and `assigned_model` / `assigned_persona` to the planning role in `{models}` (the next step after completion is always planning/review). Set `pointers.review_pr` to `null` (`WB-D22`: no review is pinned on a blank cursor). Update `last_commit`, and set `next_action` to "plan <next sprint/phase>" — under `{planning.kind}: github_milestones` with no milestone picked yet, mention `/way-of-working:plan-sprint` as a tool that can help triage the backlog into milestones, **as a suggestion, never as a determined next action it forces** (`plan-sprint` never sets `pointers.sprint_plan` itself — picking which milestone becomes the next sprint stays a separate human decision, made via `/way-of-working:handoff`, whether or not `plan-sprint` ran first). Point `pointers.sprint_plan` at the next `{sprints_dir}/*/sprint_plan.md` (or note it does not exist yet) — **under `{planning.kind}: github_milestones`, instead ask the human which milestone number is the next sprint (never scan — a scan cannot tell a new sprint from a parked one) and write `https://github.com/{backlog.repo}/milestone/<number>`, or `null` with `pointers.plan_anchor: null` if none is picked yet**, the legal "no milestone picked yet" state `reference/project-schema.md` § `planning` names. **Set `hitl_gate` too** — this branch writes it for the next sprint (the parked-sprint branch above writes it only on the closed sprint's cursor, for unpark to carry): `NONE OPEN` normally, or the *Close the sprint's milestone* step's pending-close note (verbatim, this step never opened one of its own here) when there is one. The *Seed a fresh `.ai/next-steps.md`* step below carries both the outcome line and this gate into the ledger it writes.
 
 5. **Seed a fresh `.ai/next-steps.md`** for the next unit: **Now** = next phase/sprint in
    `planning`; **Just done** = one line noting the prior sprint archived + its commit;
