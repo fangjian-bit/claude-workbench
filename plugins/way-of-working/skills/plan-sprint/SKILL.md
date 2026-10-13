@@ -611,8 +611,10 @@ If any precondition fails, stop and report why — do not proceed.
    Also scan `.ai/parked/*-state.json` for the same milestone number; if found, **warn** in
    the report, naming the parked sprint — what actually catches a changed description there is
    `plan-anchor.sh verify` reading `drift` the next time anything re-verifies that parked
-   sprint's own anchor (at unpark, or at its own next `handoff`), so say that, not that this
-   warning is itself a gate.
+   sprint's own anchor: the next `/way-of-working:resume` after it is restored reports `drift`
+   (it verifies any non-null anchor), and the next `handoff` opens a gate on it. Unpark
+   restores `plan_anchor` as parked without re-verifying it, and its own gate covers only
+   the commits merged since. Say that, not that this warning is itself a gate.
 
    **The staged-text fallback comment — where the proposed milestone text is posted when a
    write is staged rather than applied.** Location is the lowest-numbered issue the human
@@ -731,8 +733,9 @@ If any precondition fails, stop and report why — do not proceed.
    staged/refused items; otherwise (a real pending note from `archive-sprint`, or a prior
    plan-sprint run) **append**, preserving the existing text verbatim — never silently drop a
    pending milestone-close note this skill didn't create. Same rule in both `.ai/state.json`
-   and the `.ai/next-steps.md` ledger line (`**HITL Gate: NONE OPEN**`, value inside the bold —
-   the prefix check applies to that inner value, not the bold markers). **This reconciliation
+   and the `.ai/next-steps.md` ledger **HITL Gate** line (`**HITL Gate: NONE OPEN** — next gate: …`, only the status
+   word is bold — the prefix check and the replace-or-append apply to the whole line's text
+   after `HITL Gate:`, bold markers ignored). **This reconciliation
    is what keeps `hitl_gate` accurate across runs *within this sitting* — not any mechanism
    inside `/way-of-working:handoff` itself**, which rebuilds `hitl_gate` from what its own
    session did and has no way today to read back whether a previously staged plan-sprint item

@@ -634,8 +634,9 @@ If any precondition fails, STOP and report why — do not archive.
    ever preserves this line, never generates or alters it) are the other producers or
    preservers of a `planning` cursor the same check applies to (see each skill's own note).
    **Next** = "plan <next unit>" + the planning
-   model + any open HITL Gate (the *Advance `.ai/state.json`* step's blank-seed branch is
-   what sets it); **Pointers** = `{roadmap}` + the next sprint_plan (or "to be written"),
+   model; **HITL Gate** = the `hitl_gate` the *Advance `.ai/state.json`* step's blank-seed
+   branch set, as the line `/way-of-working:handoff`'s *Regenerate `.ai/next-steps.md`* step
+   defines (`**HITL Gate: NONE OPEN** — …`); **Pointers** = `{roadmap}` + the next sprint_plan (or "to be written"),
    plus `.ai/parked/` while it is non-empty, per `/way-of-working:handoff`'s *Regenerate
    `.ai/next-steps.md`* step. **This step runs only on the blank-seed branch** — the
    parked-sprint branch replaces it with `/way-of-working:unpark-sprint` plus the

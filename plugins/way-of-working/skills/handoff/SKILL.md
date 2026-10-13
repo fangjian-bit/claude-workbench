@@ -217,7 +217,7 @@ names `{backlog.repo}` takes `{repo}` then (the derive line below passes `-` ins
        session that edited the description but is now seeing a *further* change past its own
        fresh baseline) → add a named ledger line — *"milestone description edited since last
        anchor"* — **and open `hitl_gate`** naming it. Gates are routinely open at handoff
-       already, and the ledger's **Next:** line carries them, so this fits the existing flow
+       already, and the ledger's **HITL Gate** line carries them, so this fits the existing flow
        without a new surface.
      - **`untrusted`** (the milestone was created by the loop's own login) → never re-anchor
        over it: a named ledger line — *"milestone created by the loop identity"* — **and open
@@ -375,10 +375,17 @@ names `{backlog.repo}` takes `{repo}` then (the derive line below passes `-` ins
    is in the work PR's body. Otherwise keep it to ~20–40 lines, in this shape:
    - **Now:** current phase/sprint + status (one line).
    - **Just done:** 2–5 bullets of what this session accomplished (+ commit hashes).
-   - **Next:** the imperative next action + which model should do it + any open HITL Gate.
+   - **Next:** the imperative next action + which model should do it; the gate itself lives on the **HITL Gate** line below.
      Under `{planning.kind}: github_milestones` this line begins with the same leading token
      as `next_action` (the *Determine the new cursor* step) — `/way-of-working:resume`'s
      cross-check reads this line for it.
+   - **HITL Gate:** the **HITL Gate** line, written `**HITL Gate: <status>** — <rest>`
+     (only the status word bold; `NONE OPEN` or `OPEN`) and carrying the same text as
+     `hitl_gate`, bold markers aside. It may wrap onto several lines; it ends at the next
+     blank line. `/way-of-working:unpark-sprint` and `/way-of-working:plan-sprint` read and
+     rewrite it by this name, ignoring bold markers and taking the whole text after
+     `HITL Gate:`, and `/way-of-working:archive-sprint` seeds it. A reader that finds no
+     such line treats the gate as missing, which fails closed.
    - **Pointers:** `{roadmap}` + the active sprint plan — `<active sprint_plan.md>` under
      `files`, or the milestone URL (`pointers.sprint_plan`) under `github_milestones` —
      (do not copy their content — link to them), plus `.ai/parked/` while that directory is

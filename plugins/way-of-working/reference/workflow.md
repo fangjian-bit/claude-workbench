@@ -280,7 +280,7 @@ description and cannot be mistaken for the human's approval.
   `project-schema.md` § `planning`) + roadmap NEXT ACTION, states the exact
   pick-up point, and adopts the assigned persona/model.
   **It may then start the `next_action` unattended** — but only on a clean, unambiguous
-  cursor: `hitl_gate` reading `NONE OPEN`, `sprint_status` `implementing`, the model
+  cursor: `hitl_gate` beginning `NONE OPEN` with nothing open after it, `sprint_status` `implementing`, the model
   matching `assigned_model`, no cursor/HEAD drift, no open cursor-sync PR and no unmerged
   sync branch under HEAD, and —
   under `github_milestones` — the plan anchor verified and the task issue's author trusted

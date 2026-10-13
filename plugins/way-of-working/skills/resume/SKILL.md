@@ -4,7 +4,7 @@ description: >-
   Rehydrate a fresh dev session from .ai/ externalized state — read the cursor, adopt the
   assigned persona/model, and state the exact pick-up point. Reports a forgotten
   handoff cursor-sync PR (it never merges one). Then start the next_action
-  unattended IF the cursor is clean and unambiguous (hitl_gate NONE OPEN, sprint_status
+  unattended IF the cursor is clean and unambiguous (hitl_gate begins NONE OPEN with nothing open after it, sprint_status
   implementing, model matches, no drift, no orchestrator-driver lock, no open cursor-sync PR and no unmerged sync branch
   under HEAD — an unreadable check counts as one — and — under planning.kind: github_milestones — the
   plan anchor verifies and the task issue's author is trusted); otherwise state the pick-up
@@ -681,7 +681,14 @@ edited it. **Default to the full checklist whenever unsure.**
      printed `complete` — `incomplete` or `unreadable` both wait, the same fail-closed
      reading as an unreadable `hitl_gate` (`WB-D17`, `#142`);
    - the *Report a forgotten cursor-sync PR* step found `none` — every other outcome waits;
-   - `hitl_gate` is present and reads `NONE OPEN`;
+   - `hitl_gate` is present and **begins** `NONE OPEN` **and carries nothing open after it**.
+     The closed form is `NONE OPEN` plus prose naming the next gate (`NONE OPEN — next gate: …`),
+     so an exact-string match would not fire on a normal closed gate. No skill here appends
+     an open gate after `NONE OPEN` (`plan-sprint` replaces it, `unpark-sprint` never writes
+     it), but a hand edit or a later change could: a parked gate (`; parked with gate open:
+     …`), a pending-close note or a staged item after that prose is an open gate even
+     though the value still begins `NONE OPEN`: **wait**. If you cannot tell the text after
+     `NONE OPEN` is only the next-gate prose, that is a wait too;
    - `driver-lock.sh` printed `absent` — `present` and `unreadable` both wait (`#233`);
    - `sprint_status` is `implementing`;
    - the running model matches `assigned_model` (the *Adopt the assigned persona/model* step);
