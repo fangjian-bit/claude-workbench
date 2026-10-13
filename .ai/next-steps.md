@@ -3,13 +3,13 @@
 **Now:** **Sprint 14** (cursor id `sprint-14`) on [milestone 17, *Identity M2: dual-mode plugin v0.18.0*](https://github.com/glunk-works/claude-workbench/milestone/17). Status: **implementing**.
 
 **Just done (2026-10-13):**
-- Human picks recorded as comments: **Carry** on #540, **option B** on #496.
-- **#540 merged** (#559, `c48dd7f`): `unpark-sprint` carries a `done` live cursor's open gate into the gate it writes (`; prior cursor <sprint> (done) …`), never reads an unreadable state gate as closed, and both carry paragraphs use resume's `NONE OPEN` test; `archive-sprint`'s parked-sprint path writes the closed sprint's `hitl_gate` before unparking and only confirms the carried pending-close note.
-- Critic pass on #559: `architect` and `docs-consistency`, initial pass plus 2 fix-and-re-run rounds, converged (round 3 tightenings only, also applied); critics on their frontmatter defaults, no second-opinion round. Subagent critics only; no fresh-session review gate is configured.
-- Milestone 17's description was edited since the last anchor: the build order now ends #557 (step 41, after #540) then #391. Re-anchored with task #496 and its pick comment as the spec comment.
+- **#496 merged** (#561, `082e3f0`): under an `identities` map the builder (`resume`, the `coder` agent) takes only the anchored spec comment as the spec and `#N`'s body never enters its context; no spec comment, no other issue's body, and a mode mismatch with the spawner all stop; `identities: null` unchanged. `handoff`, `plan-sprint` and `project-schema.md` carry the matching text.
+- Critic pass on #561: `architect`, `security-critic` and `docs-consistency`, initial pass plus 4 fix-and-re-run rounds, then 2 delta rounds on `security-critic` alone at the human's call (past the cap). Critics on their frontmatter defaults, no second-opinion round. The last round's fixes were not re-read by a critic. Subagent critics only; no review CI gate is configured.
+- Not in #561, left as follow-ups: `architect-review` step 5 still loads `#N`'s body under a map (it first needs a way to verify the anchored comment; `project-schema.md` says so), and the comment at `bin/plan-anchor.sh:451` ("the issue body is the whole spec") is stale under a map. Neither is filed as an issue yet.
+- Re-anchored on task #557 with no spec comment (the issue has none); milestone 17's description is unchanged from the text confirmed this session.
 
-**Next:** task #496 — build option B per [the pick comment](https://github.com/glunk-works/claude-workbench/issues/496#issuecomment-6135229860): under an identities map, the builder treats only the anchored spec comment as the spec and never reads the task issue body to act on it; legacy (`identities: null`) unchanged. On **sonnet** (coder); critic gate `architect` and `security-critic`; ship as its own PR. Then #557, then #391 (the v0.18.0 release).
+**Next:** task #557 — one tested predicate decides whether `hitl_gate` is closed: pin `NONE OPEN — next gate: <prose>` in `handoff`, add a `bin/` predicate with `tests/` fixtures, have `resume`, `unpark-sprint` and `plan-sprint` call it, and pin the three call sites in `scripts/invariants-check.sh`. On **sonnet** (coder); critic gate `architect`, `security-critic` and `docs-consistency`; ship as its own PR. Then #391 (the v0.18.0 release).
 
-**HITL Gate: OPEN** — milestone 17 description edited since last anchor (new description sha `a333ea30d44e…`, build order now adds #557 at step 41); the human confirms the new text, then the human merges the #496 PR.
+**HITL Gate: OPEN** — first anchor for milestone 17 (the handing-off session had no verified baseline); description sha `a333ea30d44e…` is the text the human confirmed, and merging this cursor-sync PR is the confirmation. Then the human merges the #557 PR.
 
 **Pointers:** [docs/decisions.md](../docs/decisions.md) · [milestone 17](https://github.com/glunk-works/claude-workbench/milestone/17) · [.ai/parked/](parked/)
