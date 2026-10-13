@@ -90,5 +90,10 @@ orchestration:
   loop_identity: "glunk-loop[bot]"
 
 # ── declared identities ──────────────────────────────────────────────────────
-# WB-D24 (#378): null until this repo's cutover (M2+); it trusts by author_association today.
-identities: null
+# WB-D24 (#378): declared at this repo's cutover; trust is by numeric id, never author_association.
+identities:
+  maintainer:
+    - { login: Seuss27, id: 22668449 }
+  dev_app: { login: "glunk-dev[bot]", id: 339840170 }
+  reviewer_app: { login: "glunk-review[bot]", id: 339841158 }
+  loop_app: { login: "glunk-loop[bot]", id: 338193635 }
