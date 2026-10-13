@@ -41,6 +41,15 @@
   // a helper VS Code injected from the host.
   "remoteEnv": { "GIT_TERMINAL_PROMPT": "0" },
 
+  // claude-workbench: container commits and tags are unsigned (WB-D25, #574). The env pair
+  // overrides the identity file's `gpgsign = true`, which git-identity.sh copies in from the
+  // host. containerEnv, not remoteEnv, so `docker exec` sees it too. Needs git 2.31+.
+  "containerEnv": {
+    "GIT_CONFIG_COUNT": "2",
+    "GIT_CONFIG_KEY_0": "commit.gpgsign", "GIT_CONFIG_VALUE_0": "false",
+    "GIT_CONFIG_KEY_1": "tag.gpgsign", "GIT_CONFIG_VALUE_1": "false"
+  },
+
   "mounts": [
     // HOST-WIDE git identity: the host's ~/.gitconfig.d (one <name>.gitconfig per GitHub
     // account, each listing its orgs), read-only, in EVERY container. git-identity.sh
@@ -82,9 +91,9 @@
 
   // On every START, not just create: warn when another repo's checkout shares this volume
   // (a folder-name collision; it detects, it cannot prevent), write ~/.gitconfig and rebuild
-  // the git identity from the host's identity files, and check that VS Code's forwarded GPG
-  // agent is answering in THIS session.
-  "postStartCommand": "sh /usr/local/share/devc/owner-check.sh; sh /usr/local/share/devc/git-identity.sh; sh /usr/local/share/devc/gpg-check.sh",
+  // the git identity from the host's identity files. claude-workbench: the template's
+  // gpg-check.sh is dropped, since container commits are unsigned (WB-D25, #574).
+  "postStartCommand": "sh /usr/local/share/devc/owner-check.sh; sh /usr/local/share/devc/git-identity.sh",
   "postCreateCommand": "if [ -f .pre-commit-config.yaml ]; then pre-commit install; fi",
 
   "customizations": {

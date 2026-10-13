@@ -1686,7 +1686,9 @@ take effect. Full reasoning and the task breakdown that implements them:
       and the loop already commits unsigned.
   - **The rule.**
     - Inside a dev container, `commit.gpgsign` and `tag.gpgsign` are forced off, and the GPG
-      tools are removed from the image, so the capability is gone rather than unused.
+      tools are removed from the image. That removes the programs only. The capability is gone
+      only if VS Code then forwards no agent socket, which the live check on #574 must show
+      (see Residual).
     - Commits made on the host stay signed. `main` stays signed because every merge is a
       squash merge, which GitHub signs.
     - `reference/conventions.md`'s "Sign commits." is reworded to say this, since it ships to
@@ -1715,8 +1717,8 @@ take effect. Full reasoning and the task breakdown that implements them:
   - **Cost.** PR-branch commits show no signature, or "Unverified" if vigilant mode is on for
     the human's account.
   - **Residual, pending the live check.** Removing the GPG tools is not yet shown to stop VS
-    Code's agent forwarding. If the socket cannot be closed, the follow-up records it here as an
-    accepted residual.
+    Code's agent forwarding. The follow-up (#574) makes the changes; its live container checks
+    settle this bullet. If the socket cannot be closed, record it here as an accepted residual.
 
 ## Status
 

@@ -37,6 +37,11 @@ FROM ghcr.io/603-identity/devcontainer-base:4.499@sha256:17089403374228a67bbe9cc
 # Both live in /usr/local, which the read-only root filesystem keeps out of the app user's
 # reach. ~/.local/bin leads PATH, so a user can still shadow `gh` there; that is the
 # container's own session, which can read the same token anyway.
+#
+# Commit signing. Container commits are unsigned (WB-D25, #574), so the GPG tools the base
+# image installs with gnupg are deleted here. That does not by itself close a forwarded agent
+# socket (WB-D25 residual); the live container check confirms whether one is forwarded.
+# devcontainer.json forces commit.gpgsign and tag.gpgsign off as well.
 USER 0
 COPY --chmod=0755 dev-token /usr/local/libexec/dev-token
 COPY --chmod=0755 gh /usr/local/libexec/gh-shim
@@ -48,4 +53,8 @@ RUN mv /usr/local/bin/gh /usr/local/libexec/gh-real \
     && git config --system url."https://github.com/".insteadOf "git@github.com:" \
     && git config --system --add url."https://github.com/".insteadOf "ssh://git@github.com/" \
     && /usr/local/libexec/gh-real --version
+RUN for t in gpg gpg-agent gpgconf gpg-connect-agent gpgsm; do \
+      p=$(command -v "$t") && rm -f "$p"; \
+      if command -v "$t" >/dev/null; then exit 1; fi; \
+    done
 USER 1000:1000

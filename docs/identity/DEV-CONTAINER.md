@@ -48,17 +48,39 @@ template. A session in it reaches GitHub only as the dev App, provided the host 
   container (`env | grep REMOTE_CONTAINERS_IPC`).
 - **A forwarded host ssh-agent** is not blocked: git's SSH remotes are rewritten to https, but
   `ssh git@github.com` would authenticate with a GitHub key loaded in the host agent. Keep no
-  GitHub key in the agent that VS Code forwards.
+  GitHub key in the agent that VS Code forwards, and no key that is registered on GitHub as a
+  signing key: `git -c gpg.format=ssh -c user.signingkey=... commit -S` (or `tag -s`) would sign as the human through
+  it, and the commit would show Verified.
+- **A forwarded GPG agent socket** may remain after the GPG tools are deleted; see "What it
+  still carries from the template" for the check that settles it (`WB-D25`, #574).
 - **A reused home volume** can hold a human `gh auth login` PAT from an earlier container; the
   shim overrides it, but `/usr/local/libexec/gh-real` does not. `docker volume rm <checkout folder>-home`
   before first use.
 
 ## What it still carries from the template
 
-Commit signing. The template forwards VS Code's GPG agent and mounts the host's `~/.gitconfig.d`
-read-only, so commits are signed as the human and pushed by the App. This is signing, not
-GitHub access, and it is kept; it is the one human-held capability in the container, beyond
-WB-D24's "no GPG" wording for item 4, so say so if the owner wants it dropped.
+The host's `~/.gitconfig.d` is mounted read-only, and `git-identity.sh` copies the author name
+and email from it, so commits carry the human's author identity and are pushed by the App.
+
+It carries **no commit signing** (`WB-D25`, #574). Container commits and tags are unsigned:
+`devcontainer.json` forces `commit.gpgsign` and `tag.gpgsign` off through `containerEnv`
+(above the identity file's `gpgsign = true`), the Dockerfile deletes `gpg`, `gpg-agent`,
+`gpgconf`, `gpg-connect-agent` and `gpgsm`, and the template's `gpg-check.sh` no longer runs at start.
+`main` stays signed because every merge is a squash merge, which GitHub signs.
+
+Deleting the tools does not by itself prove VS Code stops forwarding the agent socket, and if an
+agent is still forwarded, any process in the container can sign as the human by talking to the
+socket directly. Until the live check on #574 comes back empty, treat a forwarded socket as a
+hazard that may remain. Run it from a VS Code-attached terminal after attach (forwarding happens
+at attach, so `docker exec` beforehand proves nothing):
+
+```sh
+find /home/app /tmp /run /var/tmp /dev/shm -type s -name 'S.gpg-agent*'
+```
+
+Those are the writable mounts where an agent socket can land, which `find -xdev` from `/`
+would skip. Output means a socket is forwarded; no output is the pass. A "Permission denied"
+line is not a pass: rerun it with `docker exec -u root` after the attach.
 
 ## Claude login
 
