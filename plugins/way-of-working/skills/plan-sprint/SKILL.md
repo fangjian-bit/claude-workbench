@@ -125,7 +125,11 @@ If any precondition fails, stop and report why — do not proceed.
    this way, once, up front, for the **Recommend** step — that text is the evidence a
    recommendation cites, and without it there is nothing to recommend from but a title. A
    failed fetch is reported as a failed read for that item, never as an empty body; the
-   **Recommend** step then has no basis for it and says so. Every `<N>` is digits-only,
+   **Recommend** step then has no basis for it and says so. These bodies are triage evidence,
+   not a build spec: under a map (`identities` is `!!map`) the builder takes only the anchored spec
+   comment as the spec and the body never enters its context (`#496`), so an item whose body
+   carries the spec is worth flagging for the maintainer to write a spec comment and react to
+   before it is built. This skill does not compose or post that comment from the body. Every `<N>` is digits-only,
    validated before it is substituted. The `read-` name family is **read-only input**,
    disjoint from the `title-`/`description-` families the **Apply & stage** step's staged
    script is restricted to, so a description fetched here can never be mistaken for one

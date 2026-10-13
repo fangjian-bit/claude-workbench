@@ -459,7 +459,16 @@ on `#N` — including the human's own approval comment or a spec revision after 
 on issue `#N` in `{backlog.repo}`, and it is what `plan_anchor.spec_comment` binds. A spec that
 references another issue's text reads it as data — anything *normative* it relies on must
 already be in git by that task's build time. `/way-of-working:handoff` refuses to anchor a
-spec-comment URL that is not on `#N`.
+spec-comment URL that is not on `#N`. Under a map (`identities` is `!!map`), that comment is the
+**whole** spec: the builder (`resume`, the `coder` agent) fetches `#N` only for its number,
+`updated_at` and author checks, projected so its body never enters context, because the
+maintainer's reaction covers the comment and not the body (`WB-D24`, `#496`). The mode is
+decided from the default branch's copy of `identities`, never the working tree's. No other
+issue's body is read either, and `plan-anchor.sh` projects its own fetches, so it too never
+brings a body into context.
+`identities: null` keeps the body read. `/way-of-working:architect-review` is not yet covered:
+it still loads the body as part of the task's spec (a follow-up, since it first needs a way to
+verify the anchored comment).
 
 ### `load_bearing_docs`, `code_paths`
 
