@@ -245,6 +245,14 @@ claude plugin install   <plugin>@<marketplace> --scope project
 # then restart or /reload-plugins (not /clear) — a running session keeps executing the copy it started with
 ```
 
+**Then clear a phantom `.claude/settings.json` change.** The commands rewrite that file with
+LF endings. On a Windows checkout with `core.autocrlf=true`, `git status --short` then shows
+` M .claude/settings.json` while `git diff` is empty, and `git update-index --refresh` does
+not clear it. If so, run `git checkout -- .claude/settings.json` to restore the checked-out
+copy: a tree that reads dirty fails resume's clean-tree condition for auto-start,
+`archive-sprint`'s precondition and `handoff`'s checks over a change that is not one. If
+`git diff` shows a real change, it is yours; leave it.
+
 **Verify by commit, never by version string.** The version is read from the plugin's
 `plugin.json`, so it reports whatever that file said at the commit installed — which is
 exactly right when the wrong commit is installed, and therefore proves nothing:
