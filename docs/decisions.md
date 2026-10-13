@@ -1597,7 +1597,8 @@ take effect. Full reasoning and the task breakdown that implements them:
     4. **Claude runs in per-repo dev containers.** They hold no human credential (no
        keyring, browser profile, GPG or `gh` login) and no cloud credential. There is no
        Docker socket. AWS work from a container goes through CI's read-only plan roles;
-       applies run in CI behind an Environment, or by the maintainer on the host.
+       applies run in CI behind an Environment, or by the maintainer on the host. "No GPG"
+       includes a forwarded GPG agent: container commits are unsigned (`WB-D25`).
     5. **Admin mode is explicit and time-boxed.** On the host, the maintainer mints a
        one-hour admin-App token scoped to one repo and a subset of permissions, behind a
        passphrase. It reaches one container, and revoking it kills it server-side. While
@@ -1664,6 +1665,58 @@ take effect. Full reasoning and the task breakdown that implements them:
       (amendment above).
     - New schema keys (`identities`, a `rulesets` list) and a dual-mode plugin release
       before any repo cuts over.
+
+- **WB-D25 (`#522`) — commits made in a dev container are unsigned; what lands on `main` is
+  signed by GitHub's squash merge.** Decided by the maintainer on 2026-10-13. It clarifies
+  `WB-D24` item 4 and reverses the template's GPG-agent forwarding that #393 (PR #519) kept
+  and recorded as a residual in `docs/identity/DEV-CONTAINER.md`.
+  - **Why.**
+    - **A forwarded agent is a signing oracle for the human.** While the passphrase is cached
+      (the host's TTL is 4h, sliding), any process in the container signs commits, tags and
+      detached signatures as the human with no prompt. Sessions read untrusted issue and PR
+      text, so prompt injection reaches it. One agent holds both orgs' keys, so a glunk-works
+      container could sign as JaredGroves-603. The pinentry prompt names the key, not what is
+      signed, so it is not a presence check.
+    - **The signature says the wrong thing.** A session-written commit shows Verified as the
+      human (PR #519's own commit did). `WB-D20` already rejected a signature as evidence of
+      authorship, and approval rules key on the pusher and the PR author, not the signer.
+    - **Nothing here needs signed branch commits.** This repo is squash-only, no ruleset
+      carries `required_signatures`, and the 12 most recent `main` commits were all verified,
+      signed by GitHub on merge. No script, workflow or test reads a branch commit's signature,
+      and the loop already commits unsigned.
+  - **The rule.**
+    - Inside a dev container, `commit.gpgsign` and `tag.gpgsign` are forced off, and the GPG
+      tools are removed from the image, so the capability is gone rather than unused.
+    - Commits made on the host stay signed. `main` stays signed because every merge is a
+      squash merge, which GitHub signs.
+    - `reference/conventions.md`'s "Sign commits." is reworded to say this, since it ships to
+      consumers.
+    - The changes to `.devcontainer/` (a human-only path), `docs/identity/DEV-CONTAINER.md`
+      and `conventions.md` land in a follow-up PR, after a live container confirms the agent
+      socket is closed and the `GIT_CONFIG_COUNT` override wins over the identity file's
+      `gpgsign = true`.
+  - **Terraform repos (603-Identity).** No change until each repo's `WB-D24` cutover; until
+    then they keep the template's forwarding and signed branch commits. At cutover, `main` is
+    signed by rule, not habit: each repo is set to squash-merge only (terraform-cloudflare-dns
+    allows merge and rebase commits today, which would put unsigned branch commits on `main`),
+    and its ruleset gains `required_signatures` on `main` only, so unsigned container commits
+    on PR branches still pass. Whether a GitHub squash merge satisfies that rule is inferred,
+    not tested; the follow-up checks it on `identity-ruleset-scratch` first.
+  - **Rejected.**
+    - **Forwarding the GPG agent, with a longer cache.** The signing oracle above.
+    - **A signing SSH key held in the container.** It is a long-lived human credential in the
+      container, which `WB-D24` item 4 rules out, and an App cannot register a signing key.
+  - **Deferred.**
+    - **Commits created through the App API**, which GitHub signs as the bot.
+    - **Authoring container commits as the dev App's `[bot]` noreply identity** instead of the
+      human's `user.name`/`email`. They stay the human's, with the Co-Authored-By trailer.
+    - **Signed branch commits on the terraform repos after cutover.** The only route is a
+      forwarded agent, with the exposure above.
+  - **Cost.** PR-branch commits show no signature, or "Unverified" if vigilant mode is on for
+    the human's account.
+  - **Residual, pending the live check.** Removing the GPG tools is not yet shown to stop VS
+    Code's agent forwarding. If the socket cannot be closed, the follow-up records it here as an
+    accepted residual.
 
 ## Status
 
