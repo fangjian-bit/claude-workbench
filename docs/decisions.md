@@ -1807,3 +1807,21 @@ and 2 (#376, PR #434), session 3 (#435, PR #438), session 4, immutable releases 
 edge cases (#439, PR #441), and session 5, the 603 org-ruleset proof (#377, PR #445). Host App
 entries are keyed by role, not org (PR #444). Sprint 13 closed at `40fd3f8` (PR #445), not at a
 release tag.
+
+Sprint 14 (milestone 17, *Identity M2: dual-mode plugin v0.18.0*, all its issues closed) is
+released as `v0.18.0` (PR #565) and adds one required `.ai/project.yml` key, `identities`
+(`null` keeps the pre-cutover model), plus the optional `rulesets` list (#378). Every skill
+now works under the maintainer's token or an App token and the agent-run `--admin` cursor-sync
+merge is gone: `bin/gh-identity.sh` classifies the acting identity (#379), trust is by declared
+identity and a maintainer's reaction on the spec comment (#382, #383, #548, #561), `pr-checks`
+judges rulesets as a set and reports the code-owner approval gate (#384), `resume` no longer
+merges (#385), `ship` arms auto-merge where an approval is required (#386), `architect-review`
+posts every run through the REST reviews call, as a reviewer token under a map (#389, #502), and
+`bin/hitl-gate-closed.sh` is the single predicate for a closed `hitl_gate` (#557, PR #563). The
+`CHANGELOG.md` `[0.18.0]` entry carries the Migration line.
+
+Hermetically verified; live checks deferred and tracked: the REST reviews post and the reviewer
+flow have not yet posted on a gated repo, and are verified at claude-workbench's own cutover
+(#458, #398); the host broker under its scheduled task is #515. Live today: `v0.18.0` is tagged,
+installs at project scope and `/way-of-working:resume` runs under it in this repo. Sprint 14
+closed at `cfc92be` (PR #568), the pin bump after the `v0.18.0` tag.
