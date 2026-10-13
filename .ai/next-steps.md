@@ -2,13 +2,13 @@
 
 **Now:** **Sprint 14** (cursor id `sprint-14`) on [milestone 17, *Identity M2: dual-mode plugin v0.18.0*](https://github.com/glunk-works/claude-workbench/milestone/17). Status: **implementing**.
 
-**Just done (2026-10-12):**
-- **#539 merged** (#554, `758fcaf`): `unpark-sprint` step 1 reads `parked_from_commit` and `parked_at` with `jq -r` before the move deletes the snapshot, keeps only a lowercase-hex commit id and a plain `YYYY-MM-DD` date, and prints one `PFC/PA/ANC` line that step 2 builds the gate from. No printed line stops the skill before the move. `invariants-check.sh` check 13 pins the read and the guard and fails when the skill file is missing; `tests/invariants-unpark-pfc.test.sh` has five fixtures.
-- Critic pass on #539: `security-critic`, `architect` and `docs-consistency`, initial pass plus 3 fix-and-re-run rounds, converged (round 3 architect only); critics on their frontmatter defaults. No second-opinion round was offered. Subagent critics only; no fresh-session review gate is configured.
-- Not covered, said in the PR: a hex id that is also a ref name resolves to that ref's commit (resume does the same); an ISO datetime `parked_at` falls back to the "unreadable date" gate text. The fixtures ran under Git Bash only. The fixture takes about two minutes there.
+**Just done (2026-10-13):**
+- **#541, #542, #543 merged** as one prose PR (#556, `88ac6b1`): `resume`'s auto-start test needs `hitl_gate` to begin `NONE OPEN` with nothing open after it; `plan-sprint` no longer says a parked sprint's drift is caught at unpark (the next `resume` reports it, the next `handoff` opens the gate); `handoff` defines the ledger's **HITL Gate** line once and `archive-sprint`'s blank seed, `unpark-sprint` and `plan-sprint` use that name and shape.
+- Critic pass on #556: `docs-consistency` and `architect`, initial pass plus 1 fix-and-re-run round, converged (round 2 tightenings only); critics on their frontmatter defaults. The `fable` second-opinion round was offered and declined. Subagent critics only; no fresh-session review gate is configured.
+- Filed #557 (not in the milestone): pin one closed form for `hitl_gate` and share a predicate. Cut from the architect's pass; not part of #556.
 
-**Next:** task #541 — `resume`'s auto-start gate test says `hitl_gate` must begin `NONE OPEN`, with #542 (`plan-sprint` stops saying drift is caught at unpark) and #543 (`handoff`, `archive-sprint` and `unpark-sprint` agree on the HITL Gate line and its name) as one prose PR; then the green gate, `/way-of-working:critic-gate` (`docs-consistency`, `architect`), then `/way-of-working:ship`. Run on **sonnet** (coder). Build order steps 38–40; no dependency. #540 (step 37) and #496 (step 33) need the human to pick their option first, so each ships as its own PR after.
+**Next:** no task builds until the human picks an option on #540 (`unpark-sprint` over a done cursor drops its open gate; build order step 37) and on #496 (`resume` covers #N's body with the maintainer reaction; step 33) — comment the pick on each issue. Then build the picked one as its own PR on **sonnet** (coder), #540 first. #391 (the v0.18.0 release) follows the rest of the milestone.
 
-**HITL Gate: NONE OPEN** — next gate: the human's merge of #541's PR.
+**HITL Gate: OPEN** — the human picks an option on #540 and on #496 before either is built; then the human's merge of each PR.
 
 **Pointers:** [docs/decisions.md](../docs/decisions.md) · [milestone 17](https://github.com/glunk-works/claude-workbench/milestone/17) · [.ai/parked/](parked/)
