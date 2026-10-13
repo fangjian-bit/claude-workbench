@@ -27,10 +27,28 @@ re-verifies it before `/way-of-working:resume` may run it unattended.
 
 ## Steps
 
-1. **Restore.** Move `.ai/parked/<id>-state.json` over `.ai/state.json` and
+1. **Restore** — after reading and validating the snapshot's two fields. First, **before** the move
+   below deletes the snapshot and in **one** Bash call (each call is a fresh shell), read
+   `parked_at` and `parked_from_commit` with `jq -r` and validate them. Both are snapshot
+   data a branch can edit: a `parked_from_commit` starting `-` is an option to `git log`, and
+   shell text typed into a command line runs. So the values are read from the file, never
+   typed in, and only a lowercase-hex id that resolves to a commit (or a plain `YYYY-MM-DD`
+   date) survives:
+   ```bash
+   S=".ai/parked/<id>-state.json" &&
+   PFC=$(jq -r '.parked_from_commit // ""' "$S") && PA=$(jq -r '.parked_at // ""' "$S") &&
+   case "$PFC" in ''|*[!0-9a-f]*) PFC= ;; *) PFC=$(git rev-parse --verify -q "$PFC^{commit}" 2>/dev/null) || PFC= ;; esac &&
+   case "$PA" in [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;; *) PA= ;; esac &&
+   ANC=no && { [ -z "$PFC" ] || ! git merge-base --is-ancestor "$PFC" HEAD || ANC=yes; } &&
+   printf 'PFC=%s PA=%s ANC=%s\n' "${PFC:--}" "${PA:--}" "$ANC"
+   ```
+   The printed line is the only form of those two fields the *Re-point and gate* step uses: a
+   full commit id or `-`, a date or `-`, and whether the commit is an ancestor of `HEAD`.
+   **If nothing printed** (`jq` missing, or the snapshot is not a JSON object), **stop here,
+   before the move** — it deletes the only snapshot — and report the read failure.
+   Then move `.ai/parked/<id>-state.json` over `.ai/state.json` and
    `.ai/parked/<id>-next-steps.md` over `.ai/next-steps.md`, deleting the parked copies —
-   one copy of a cursor, ever. Read `parked_at` and `parked_from_commit` off the snapshot,
-   then drop the three `parked_*` fields from the live cursor. Under `{planning.kind}:
+   one copy of a cursor, ever — and drop the three `parked_*` fields from the live cursor. Under `{planning.kind}:
    github_milestones`, this restores `pointers.plan_anchor` **as it was at park time** — it
    is not re-verified here, and may already be stale against whatever moved on GitHub since.
    It sets `pointers.review_pr` to `null` on the restored cursor, whatever the snapshot held
@@ -38,14 +56,18 @@ re-verifies it before `/way-of-working:resume` may run it unattended.
    a stale vote for a review step must not survive the restore.
    That is safe only because this skill never leaves `hitl_gate` reading `NONE OPEN` (the
    *Re-point and gate* step) — the human re-verifies before anything auto-starts against it.
-2. **Re-point and gate.** Set `last_commit` to `git rev-parse --short HEAD`. Before
-   overwriting `hitl_gate`, read the snapshot's own open gate (the *Carry* paragraph
-   below). Write `hitl_gate` as: `parked <parked_at> at <parked_from_commit>; re-verify next_action
-   against what merged since: git log <parked_from_commit>..HEAD --oneline`. That range
-   means what it looks like only while `git merge-base --is-ancestor <parked_from_commit>
-   HEAD` holds — park records the commit on `{pr_base}`, so it normally does. If it does
-   not, or the commit is unreadable, write `git log --since=<parked_at> --oneline` into
-   the gate instead and say why. Only the human closes this gate.
+2. **Re-point and gate.** Set `last_commit` to `git rev-parse --short HEAD`.
+
+   Before overwriting `hitl_gate`, read the snapshot's own open gate (the *Carry* paragraph
+   below). Write `hitl_gate` from the validated line the *Restore* step printed,
+   never from the snapshot's raw text (when `PA` is `-`, write `parked at an unreadable date at <PFC>`
+   for its `parked <PA> at <PFC>`): `parked <PA> at <PFC>; re-verify next_action
+   against what merged since: git log <PFC>..HEAD --oneline`. That range
+   means what it looks like only while `ANC=yes` — park records the commit on `{pr_base}`,
+   so it normally does. If `ANC=no`, or `PFC` is `-` (unreadable or not a commit), write
+   `parked <PA>; re-verify next_action against what merged since: git log --since=<PA> --oneline`
+   into the gate instead and say why. If `PA` is `-` too, write `parked at an unreadable date`
+   and name no `--since` form. Only the human closes this gate.
 
    **Carry the snapshot's own open gate.** The restored cursor's `hitl_gate` still holds the
    snapshot's value until this step overwrites it. Also read the value of the restored

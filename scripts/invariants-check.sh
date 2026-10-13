@@ -587,6 +587,32 @@ if [ -n "$nullrepo_hits" ]; then
     "State it on a line that names the key: a \`null\` {backlog.repo} means \`{repo}\`."
 fi
 
+# --- 13. unpark-sprint validates parked_from_commit before git sees it (#539) ------
+#
+# Step 2 passed the snapshot's `parked_from_commit` to `git log` and `git merge-base` as read.
+# It comes from a file a branch can edit, so a value starting `-` is an option and a revision
+# expression is looked up by git. resume validates `last_commit` in its review-step block the
+# same way. Two things are the invariant: the hex-only case pattern on a line that names the
+# variable, and the value being READ from the snapshot with `jq -r` (typing it into a shell
+# assignment is the same injection by another door; step 1 deletes the snapshot, so the read
+# must come first). The skill may reword around both, but dropping either means updating this
+# check deliberately. A tree with no unpark-sprint skill at all fails: a check that cannot
+# look must not pass (#243's stance).
+unparkpfc_hits=""
+unparkpfc_seen=0
+for f in plugins/*/skills/unpark-sprint/SKILL.md; do
+  [ -f "$f" ] || continue
+  unparkpfc_seen=1
+  { grep -F '[!0-9a-f]' "$f" | grep -Fq 'PFC'; } &&
+    grep -Fq "jq -r '.parked_from_commit" "$f" || unparkpfc_hits+="$f"$'\n'
+done
+[ "$unparkpfc_seen" -eq 1 ] || unparkpfc_hits+="(no plugins/*/skills/unpark-sprint/SKILL.md found)"$'\n'
+if [ -n "$unparkpfc_hits" ]; then
+  report "unpark-sprint no longer validates parked_from_commit as hex before git uses it (#539)" \
+    "$unparkpfc_hits" \
+    "Keep the jq -r read of parked_from_commit and the case \"\$PFC\" in ''|*[!0-9a-f]*) guard ahead of git log / git merge-base."
+fi
+
 if [ "$fail" -ne 0 ]; then
   cat >&2 <<'EOF'
 
