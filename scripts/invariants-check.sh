@@ -613,6 +613,48 @@ if [ -n "$unparkpfc_hits" ]; then
     "Keep the jq -r read of parked_from_commit and the case \"\$PFC\" in ''|*[!0-9a-f]*) guard ahead of git log / git merge-base."
 fi
 
+# --- 14. The three hitl_gate readers call one predicate (#557) ---------------------
+#
+# resume, unpark-sprint and plan-sprint each tested "closed" in their own words (a bare
+# `NONE OPEN` prefix in two, a model judgment about the text after it in the third), so two
+# readers could answer differently on one cursor. bin/hitl-gate-closed.sh is the single
+# definition; each of the three must name it, and none may bring back the prose restatement
+# ("nothing open after it"). A tree with no such skill, or no such script, fails: a check
+# that cannot look must not pass (#243's stance).
+gate_hits=""
+for s in resume unpark-sprint plan-sprint; do
+  seen=0
+  for f in plugins/*/skills/"$s"/SKILL.md; do
+    [ -f "$f" ] || continue
+    seen=1
+    # The call line itself, not any mention: the frontmatter and prose also name the script.
+    case "$s" in resume) lit='hitl-gate-closed.sh "$GATE"' ;; *) lit='hitl-gate-closed.sh "$G1"' ;; esac
+    grep -Fq -- "$lit" "$f" || gate_hits+="$f (no call line: $lit)"$'\n'
+    # The ledger-line read and unpark's before-the-move read are call lines too.
+    case "$s" in
+      unpark-sprint) lits='hitl-gate-closed.sh "$G2"|hitl-gate-closed.sh "$KG"' ;;
+      plan-sprint) lits='hitl-gate-closed.sh "$G2"' ;;
+      *) lits= ;;
+    esac
+    old_ifs=$IFS; IFS='|'
+    for lit in $lits; do
+      grep -Fq -- "$lit" "$f" || gate_hits+="$f (no call line: $lit)"$'\n'
+    done
+    IFS=$old_ifs
+  done
+  [ "$seen" -eq 1 ] || gate_hits+="(no plugins/*/skills/$s/SKILL.md found)"$'\n'
+done
+for f in plugins/*/skills/*/SKILL.md plugins/*/skills/*/appendices/*.md plugins/*/reference/*.md; do
+  [ -f "$f" ] || continue
+  if grep -Eqi 'nothing open after|starts with`? `NONE OPEN' "$f"; then gate_hits+="$f (restates the closed-gate test in prose)"$'\n'; fi
+done
+ls plugins/*/bin/hitl-gate-closed.sh >/dev/null 2>&1 || gate_hits+="(no plugins/*/bin/hitl-gate-closed.sh found)"$'\n'
+if [ -n "$gate_hits" ]; then
+  report "a hitl_gate reader no longer calls the shared closed-gate predicate (#557)" \
+    "$gate_hits" \
+    "resume, unpark-sprint and plan-sprint must call bin/hitl-gate-closed.sh, not restate the test."
+fi
+
 if [ "$fail" -ne 0 ]; then
   cat >&2 <<'EOF'
 

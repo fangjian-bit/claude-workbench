@@ -725,20 +725,31 @@ If any precondition fails, stop and report why — do not proceed.
    milestone-creation outcomes above applies to any dependent, staged placement.
 
    **`hitl_gate` — appended to only when it is already open; replaced when it currently
-   STARTS WITH `NONE OPEN`.** `/way-of-working:handoff` writes the closed form as `NONE OPEN`
-   followed by prose naming what's next (e.g. `NONE OPEN — next gate: …`), never the bare
-   four-character string alone — so the test must be a **prefix** match, never an exact-string
-   match, or a normal closed gate would wrongly read as "already has pending content" and get
-   appended onto instead of replaced, which still starts with `NONE OPEN` and so still reads
-   as closed to every downstream reader, including `/way-of-working:resume`'s own auto-start
-   check — silently hiding the very item just staged, the exact failure this rule exists to
-   avoid. So: read the existing text (already required by the **Resume-safety preamble**); if
-   it **starts with** `NONE OPEN`, **replace it wholesale** with this session's own
-   staged/refused items; otherwise (a real pending note from `archive-sprint`, or a prior
-   plan-sprint run) **append**, preserving the existing text verbatim — never silently drop a
+   reads closed.** "Closed" is `hitl-gate-closed.sh`'s answer (`#557`), the one predicate
+   `/way-of-working:resume` and `/way-of-working:unpark-sprint` apply too: the value read into a
+   variable and passed only as that quoted variable, never typed into a command line
+   (`G1=$(jq -r '.hitl_gate // ""' .ai/state.json) && hitl-gate-closed.sh "$G1"`; for the
+   ledger line, `G2=$(awk '{sub(/\r$/,"")} /^\*\*HITL Gate:/{f=1} f&&/^$/{exit} f{printf "%s ", $0}'
+   .ai/next-steps.md | sed 's/^\*\*HITL Gate:[[:space:]]*//') && hitl-gate-closed.sh "$G2"`),
+   `closed` meaning the canonical
+   `NONE OPEN — next gate: <prose>` `/way-of-working:handoff` writes. A normal closed gate
+   must be replaced, never appended onto: the predicate reads a value of the shape
+   `NONE OPEN — next gate: …` with no `;` as closed unless the prose says "open" or leaves printable ASCII, so an
+   appended note could leave the cursor reading closed and hide the very item just staged —
+   the failure this rule exists to avoid. Whatever this step writes in place of a closed gate
+   must therefore **not begin `NONE OPEN`**. So: read the existing text (already
+   required by the **Resume-safety preamble**); if the predicate prints `closed`,
+   **replace it wholesale** with this session's own staged/refused items; otherwise
+   (`open`, a failed run, or a real pending note from `archive-sprint` or a prior
+   plan-sprint run) **append**, joined by `; ` — the predicate always reads a `;` as open —
+   preserving the existing text verbatim. An exact bare `NONE OPEN` carries nothing, so it is
+   replaced, not appended to. When the existing text begins `NONE OPEN` in any other shape
+   (an older cursor), keep it verbatim before the `; ` join, except that its leading `NONE OPEN` becomes
+   `OPEN` in both `.ai/state.json` and the ledger, so neither shows a `NONE OPEN` on an open gate.
+   Never silently drop a
    pending milestone-close note this skill didn't create. Same rule in both `.ai/state.json`
    and the `.ai/next-steps.md` ledger **HITL Gate** line (`**HITL Gate: NONE OPEN** — next gate: …`, only the status
-   word is bold — the prefix check and the replace-or-append apply to the whole line's text
+   word is bold — the predicate and the replace-or-append apply to the whole line's text
    after `HITL Gate:`, bold markers ignored). **This reconciliation
    is what keeps `hitl_gate` accurate across runs *within this sitting* — not any mechanism
    inside `/way-of-working:handoff` itself**, which rebuilds `hitl_gate` from what its own

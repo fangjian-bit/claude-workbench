@@ -122,8 +122,15 @@ names `{backlog.repo}` takes `{repo}` then (the derive line below passes `-` ins
      `task_issue: null` in the anchor below — that fails the resume-side plan check and the
      next session waits for a human "go", which is correct: never invent a "next open issue in
      the milestone" form here.
-   - `hitl_gate` — **always write this field**, even when nothing is open (`"NONE OPEN"` +
-     what the next gate will be). It is load-bearing: `/way-of-working:resume` reads it to decide whether
+   - `hitl_gate` — **always write this field**, even when nothing is open. The closed form
+     is exactly `NONE OPEN — next gate: <prose>` (em dash, one line, `<prose>` plain printable ASCII naming what the
+     next gate will be, no `;` and never the letters "open"), never a bare `NONE OPEN` and never a `;` clause after
+     the prose; `bin/hitl-gate-closed.sh` is the one definition every reader applies (`#557`),
+     and a cursor not in this form simply waits until a handoff rewrites it. **Check the value
+     with the predicate once the *Write `.ai/state.json`* step has written it** (nothing is written at this step) — a
+     curly quote, an ellipsis character or a word like "reopen" would otherwise cost the next
+     session its auto-start with no reason given. A gate that needs the human's approval is
+     never written as a closed form with extra prose: it is `OPEN — …`. It is load-bearing: `/way-of-working:resume` reads it to decide whether
      it may start the next action unattended, and treats a missing or unparseable value as
      an open gate. Dropping it doesn't fail loudly — it silently costs the next session its
      auto-start. **Under `{planning.kind}: github_milestones`, the mechanical re-anchor rule
@@ -333,8 +340,8 @@ names `{backlog.repo}` takes `{repo}` then (the derive line below passes `-` ins
       - `sprint_status` stays `implementing`, not `awaiting_review`, which auto-start does
         not accept. `last_commit` is the work branch's HEAD, as always — it equals the pin, and it
         is what `/way-of-working:resume`'s `last-commit` check compares on the base
-        (`cursor-drift.sh` reads `drift` there by construction and is not consulted). `hitl_gate` is `NONE OPEN` plus the
-        next gate (the human's merge).
+        (`cursor-drift.sh` reads `drift` there by construction and is not consulted). `hitl_gate` is `NONE OPEN — next gate: ` plus
+        the next gate (the human's merge).
       - **With `{review.ci_gate}` set, `assigned_model` and `assigned_persona` become the
         architect's** (`{models.architect}`): the review runs on the architect model, and
         resume's model match must pass. That is part of the no-op, not the "model switch"
@@ -372,6 +379,12 @@ names `{backlog.repo}` takes `{repo}` then (the derive line below passes `-` ins
    the cursor has been overwritten.)
    Write it (this file is git-ignored — it's a local convenience mirror). Keep `schema_version: 1`. Overwrite it wholesale with the new cursor — "wholesale" means every field above, `hitl_gate` included; an overwrite that drops a field is how a cursor loses one. **Every handoff other than the no-op shape above writes `pointers.review_pr: null`**: a value left behind by an earlier no-op handoff still has to match an open PR at its pinned head, so it would fail closed, but an explicit `null` keeps a stale vote out of the cursor. A missing field reads as `null`.
 
+   **Then check the written `hitl_gate`** when it is meant to be closed: read it back into a
+   variable and pass only the variable, never typing it into a command line, because the
+   prose can carry copied issue or PR titles —
+   `G=$(jq -r '.hitl_gate // ""' .ai/state.json) && hitl-gate-closed.sh "$G"` — and rewrite
+   the prose, then re-check, until it prints `closed`, before the ledger below is built.
+
 4. **Regenerate `.ai/next-steps.md`** (git-tracked — this is the durable human ledger).
    **Skipped, with the *Commit `.ai/next-steps.md` as its own docs-only PR* step, on a no-op handoff** (the *no-op handoff* block in the *Determine
    the new cursor* step): the cursor's fields are in `.ai/state.json`, and the critic record
@@ -383,7 +396,7 @@ names `{backlog.repo}` takes `{repo}` then (the derive line below passes `-` ins
      as `next_action` (the *Determine the new cursor* step) — `/way-of-working:resume`'s
      cross-check reads this line for it.
    - **HITL Gate:** the **HITL Gate** line, written `**HITL Gate: <status>** — <rest>`
-     (only the status word bold; `NONE OPEN` or `OPEN`) and carrying the same text as
+     (only the status word bold; `NONE OPEN` or `OPEN`; a closed gate reads `**HITL Gate: NONE OPEN** — next gate: …`) and carrying the same text as
      `hitl_gate`, bold markers aside. It may wrap onto several lines; it ends at the next
      blank line. `/way-of-working:unpark-sprint` and `/way-of-working:plan-sprint` read and
      rewrite it by this name, ignoring bold markers and taking the whole text after

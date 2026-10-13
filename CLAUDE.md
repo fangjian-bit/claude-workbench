@@ -47,6 +47,8 @@ sh tests/plan-depends.test.sh   # plan-sprint's depends_on marker read-back fixt
 sh tests/invariants-reach-order.test.sh  # invariants-check.sh check 3 (reach precedes ruleset) fixtures (not yet required)
 sh tests/invariants-null-repo.test.sh  # invariants-check.sh check 12 (null backlog.repo means {repo}) fixtures (not yet required)
 sh tests/invariants-unpark-pfc.test.sh  # invariants-check.sh check 13 (unpark-sprint validates parked_from_commit) fixtures (not yet required)
+sh tests/invariants-gate-reader.test.sh  # invariants-check.sh check 14 (three hitl_gate readers call the shared predicate) fixtures (not yet required)
+sh tests/hitl-gate-closed.test.sh  # hitl-gate-closed.sh canonical closed form vs bare, OPEN, parked, appended clause, empty fixtures (not yet required)
 sh tests/invariants-gh-pipe.test.sh  # invariants-check.sh check 11 (no gh output piped into a bin/ predicate) fixtures (not yet required)
 sh tests/cursor-sync-pr.test.sh # resume's cursor-sync PR report predicate fixtures (not yet required)
 sh tests/driver-lock.test.sh    # resume's driver-lock predicate fixtures (not yet required)
