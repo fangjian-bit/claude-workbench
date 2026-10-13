@@ -19,6 +19,93 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 `v0.5.0` are summarized from their tags; the full record is `docs/decisions.md` (`WB-D*`) and
 the GitHub release notes.
 
+## [0.18.0] — 2026-10-13
+
+**⚠️ Migration required** — one new required `.ai/project.yml` key, `identities`. Answer
+`identities: null` to keep the pre-`WB-D24` model; a repo that pins this release reads
+`incomplete` (and `/way-of-working:resume` will not auto-start) until it answers. Everything
+else is opt-in through that key or the repo's own rulesets, apart from the changes marked "every repo" under *Changed*. This is
+the dual-mode release of the identity rollout (`WB-D24`, milestone 17): under `identities: null` the skills keep their
+pre-cutover trust model, and a repo that declares a map moves to human code-owner
+approval, with agents acting as Apps instead of the maintainer's login. Behaviour changes that
+reach **every** repo, cut over or not, are marked there. `/way-of-working:ship` arms auto-merge from the
+base's rulesets, not the key, so a repo that has not declared a map but whose base already requires
+a code-owner approval will see it armed.
+
+### Added
+
+- **`identities` and an optional `rulesets` list in the project schema** (#378, `WB-D24`).
+  `identities` is a nullable map like `orchestration`: `null` means no cutover; a map requires
+  `maintainer` (a non-empty list of `{login, id}` pairs) and `dev_app`, `reviewer_app`,
+  `loop_app` (each a `{login, id}` pair or `null`). Trust is by the numeric `id`, never the
+  login alone. `rulesets` is a non-empty list of every ruleset that applies to `pr_base`
+  (repo- or org-level), each with `name`, `source`, `rule_types` and, for an entry carrying `required_status_checks`, an optional `required_checks`; it is
+  silent when absent, and the legacy `ruleset.*` keys stay required beside it. `bin/schema-complete.sh`
+  checks both down to each element, with fixtures.
+
+  **⚠️ Migration:** add `identities: null` to `.ai/project.yml`. `rulesets` needs no answer.
+
+- **`bin/gh-identity.sh`** (#379) classifies the acting identity (`user`, `app` or `unknown`) and,
+  with `author`, answers whether an issue, comment or PR author is `trusted`, `untrusted` or
+  `legacy` (`identities: null`). **`bin/token-check.sh`** (#436) verifies a minted token's actor
+  and App before use and fails closed; **`bin/app-push.sh`** (#523) is the one pinned App-mode
+  push; **`bin/review-token.sh`** requests and discards the reviewer token; **`bin/auto-merge-arm.sh`**
+  and **`bin/stall-merge.sh`** decide arming and a stalled auto-merge; **`bin/hitl-gate-closed.sh`**
+  (#557) is the single predicate for a closed `hitl_gate`. Each has fixtures.
+- **Trust by declared identity** (#382, #383, #495). Under an `identities` map, `resume`'s author
+  check, `review-sandbox.sh trust`, `plan-sprint` and the loop's dispatch preflight read
+  `identities` instead of `author_association`, and `resume` requires a maintainer's reaction on
+  the spec comment before an unattended start. The spec comment is the only body read under a
+  map (#561), and `plan-anchor.sh verify` checks its author (#548).
+- **`/way-of-working:resume` and `/way-of-working:pr-checks` name the acting identity and reach**
+  under an App token (#465, #469, #472), and the SessionStart banner shows the identity and
+  `ADMIN MODE` (#504).
+- **`/way-of-working:ship` arms auto-merge** (#485, #386) with `gh pr merge --auto --squash
+  --match-head-commit` after opening the PR, only where a code-owner approval is required and the
+  PR is waiting; it proves the dev App before the first push (#471, #528). `pr-checks` reports an
+  approved PR whose auto-merge stalled (#491).
+- **The host token broker and dev container** (#373, #426, #509, #519): the App installation-token
+  mint script, `wow-admin` and `wow-review-mint` host commands, the scheduled token broker, and
+  the claude-workbench dev container. Host tooling, not shipped to adopters' repos.
+
+### Changed
+
+- **`/way-of-working:resume` no longer merges a cursor-sync PR** (#483, #385). **Behaviour change, every
+  repo:** the agent-run
+  `--admin` merge is gone: resume reports an open sync PR and the human's merge (a code-owner
+  approval under a map) is the approval. No other merge in this plugin carries `--admin`.
+- **`pr-checks` judges rulesets as a set** and reports a PR *awaiting code-owner approval* instead
+  of a generic BLOCKED (#384, #481). **Behaviour change, every repo:** it no longer gives an
+  admin-merge verdict, so a green PR under an `update` rule reads COULD NOT TELL until the repo
+  cuts over. Merge-approval prose across the skills now reads as code-owner approval (#387, #493).
+- **`/way-of-working:architect-review` posts every run through `POST …/pulls/<N>/reviews`
+  with `commit_id`** (#502), in place of `gh pr review`. **Behaviour change, every repo:** a
+  harness that refuses that `gh api` write now stops the run, and the REST form has not yet posted
+  on a gated repo, so an adopter's first run is its live check. Under an `identities` map the post
+  is made as `reviewer_app` with a token requested after the sandbox is destroyed (#389, #500),
+  after proving the App through `viewer` (#550). **⚠️ Migration:** a repo with a review CI gate that
+  declares an `identities` map must make `reviewer_app` a map (a `null` one is a stop); under
+  `identities: null` nothing changes but the REST post.
+- **The loop's dispatch preflight accepts the code-owner approval rule** (#388, #462).
+- **A closed `hitl_gate` is exactly `NONE OPEN — next gate: <prose>`** (#557, #563): the value is
+  one line with no `;`, and `<prose>` is non-empty printable ASCII that never contains "open" in any
+  case. `resume`, `unpark-sprint`, `plan-sprint` and `handoff` read it through
+  `hitl-gate-closed.sh`; `handoff` and `archive-sprint` write that form.
+  **Behaviour change, every repo:** a cursor in another shape now waits until a handoff rewrites it.
+- **A null `backlog.repo` reads as the repo itself** in the skills that did not already (#533).
+
+### Fixed
+
+- **`parked_from_commit` is validated on unpark** (#554), and a parked or done cursor's open gate
+  is carried through `unpark-sprint` (#535, #559).
+- **`resume` verifies the plan anchor on a waiting resume** (#507), binds ruleset names as values
+  and constrains their shape (#525), and has its HITL Gate wording fixed (#556).
+- **`coupling-check.sh` catches hardcoded App logins** (#552); the schema checker requires
+  `required_checks` to be a list and validates every `identities` and `rulesets` entry
+  (#526, #532).
+- **Pin-bump prose points at one procedure** in `conventions.md` and names `/reload-plugins`
+  (#511, #537, #544).
+
 ## [0.17.0] — 2026-10-06
 
 **⚠️ Migration required** — one new required `.ai/project.yml` key, `orchestration` (see the
