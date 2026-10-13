@@ -1,18 +1,14 @@
 # Cursor — claude-workbench
 
-**Now:** **Sprint 15** (cursor id `sprint-15`) on [milestone 18, *Identity M3: host broker and dev container*](https://github.com/glunk-works/claude-workbench/milestone/18). Status: **planning**.
+**Now:** **Sprint 15** (cursor id `sprint-15`) on [milestone 18, *Identity M3: host broker and dev container*](https://github.com/glunk-works/claude-workbench/milestone/18). Status: **implementing**.
 
 **Just done (2026-10-13):**
-- **v0.18.0 released** (#391, PR #565; tag `8486e4f`); this repo's pin bumped (#568) and the plugin reinstalled at project scope; the sprint 14 roadmap entry landed in `docs/decisions.md` (#569).
-- **Sprint 14 archived** (milestone 17 closed, `verify --plan` match); snapshot in `.ai/archive/sprint-14-next-steps.md`. This was the recorded run of archive-sprint's milestone steps with `backlog.repo: null`, so #479 is closed.
-- **Retro:** one finding filed, #570 (the pin-bump procedure leaves a phantom `.claude/settings.json` diff on Windows).
-- **plan-sprint:** #566 and #567 placed in milestone 19, #570 in milestone 18; #334 and #223 left unmilestoned (their earlier triage stands).
-- Critic pass on #565: `docs-consistency` only, 2 rounds, converged (round 1 found 4 problems, round 2 two framing ones; all fixed). Critics on their frontmatter defaults; no second-opinion round.
+- Cursor-sync PR #571 merged (`e35762d`), confirming milestone 18's first anchor (description sha `dda71079f0aa…`); `verify --plan` still reads `match`.
+- Sprint 15 planned: build order confirmed by the human as #522 → #570 → #515. #515 needs the human present for the live broker check under its scheduled task.
+- Planning session only; no code diff, so no critic pass.
 
-**Milestone close:** closed milestone 17, *Identity M2: dual-mode plugin v0.18.0* (0 open issues, `verify --plan` match, read-back `closed`).
+**Next:** task #522 — decide commit signing in dev containers and keep terraform main signed: read the issue, propose the decision for the human to confirm, record it in `docs/decisions.md` and ship it as its own PR via `/way-of-working:ship`. On **opus** (architect).
 
-**Next:** plan sprint 15 on **opus** (architect), milestone 18's remaining items: #515 (live broker verification under its scheduled task, needs the human), #522 (commit-signing decision for the dev container) and #570 (docs fix, buildable now on sonnet). Confirm the order and pick the first task.
-
-**HITL Gate: OPEN** — first anchor for milestone 18 (no verified baseline); description sha `dda71079f0aa…` is what this session read, and the human merging this cursor-sync PR confirms it. Then confirm the build order and pick the first task.
+**HITL Gate: NONE OPEN** — next gate: the human confirms the commit-signing decision, then merges the #522 PR
 
 **Pointers:** [docs/decisions.md](../docs/decisions.md) · [milestone 18](https://github.com/glunk-works/claude-workbench/milestone/18) · [.ai/parked/](parked/)
