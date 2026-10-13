@@ -1,16 +1,18 @@
 # Cursor — claude-workbench
 
-**Now:** **Sprint 14** (cursor id `sprint-14`) on [milestone 17, *Identity M2: dual-mode plugin v0.18.0*](https://github.com/glunk-works/claude-workbench/milestone/17). Status: **implementing**.
+**Now:** **Sprint 15** (cursor id `sprint-15`) on [milestone 18, *Identity M3: host broker and dev container*](https://github.com/glunk-works/claude-workbench/milestone/18). Status: **planning**.
 
 **Just done (2026-10-13):**
-- **#557 merged** (#563, `0295161`): `bin/hitl-gate-closed.sh` is the one predicate for a closed `hitl_gate` — exactly `NONE OPEN — next gate: <prose>`, one line, printable ASCII, no `;`, never "open". `resume`, `unpark-sprint` and `plan-sprint` call it with the value read into a variable; `handoff` and `archive-sprint` write the canonical form; `invariants-check.sh` check 14 pins the call lines. Cursors in another shape now wait until a handoff rewrites them.
-- Critic pass on #563: `architect`, `security-critic` and `docs-consistency`, initial pass plus 3 fix-and-re-run rounds, converged (the last round tightenings-only). Critics on their frontmatter defaults; the human skipped the `fable` second-opinion round. Subagent critics only; no review CI gate is configured.
-- The plugin pin is still `0.17.0`, so the predicate is not live in this checkout's skills until the release below.
-- Still unfiled follow-ups from #561: `architect-review` step 5 loads `#N`'s body under an `identities` map, and the comment at `bin/plan-anchor.sh:451` ("the issue body is the whole spec") is stale under a map.
-- Re-anchored on task #391 with no spec comment; milestone 17's description is unchanged from the text confirmed last handoff.
+- **v0.18.0 released** (#391, PR #565; tag `8486e4f`); this repo's pin bumped (#568) and the plugin reinstalled at project scope; the sprint 14 roadmap entry landed in `docs/decisions.md` (#569).
+- **Sprint 14 archived** (milestone 17 closed, `verify --plan` match); snapshot in `.ai/archive/sprint-14-next-steps.md`. This was the recorded run of archive-sprint's milestone steps with `backlog.repo: null`, so #479 is closed.
+- **Retro:** one finding filed, #570 (the pin-bump procedure leaves a phantom `.claude/settings.json` diff on Windows).
+- **plan-sprint:** #566 and #567 placed in milestone 19, #570 in milestone 18; #334 and #223 left unmilestoned (their earlier triage stands).
+- Critic pass on #565: `docs-consistency` only, 2 rounds, converged (round 1 found 4 problems, round 2 two framing ones; all fixed). Critics on their frontmatter defaults; no second-opinion round.
 
-**Next:** task #391 — release way-of-working v0.18.0: CHANGELOG entry with a Migration line (identities, rulesets list, CODEOWNERS, auto-merge), bump `plugin.json`, ship as its own PR via `/way-of-working:ship`; the maintainer dispatches the release. First confirm the issue's dependencies (#378–#390) are closed. On **sonnet** (coder); critic gate on the diff.
+**Milestone close:** closed milestone 17, *Identity M2: dual-mode plugin v0.18.0* (0 open issues, `verify --plan` match, read-back `closed`).
 
-**HITL Gate: OPEN** — first anchor for milestone 17 (no verified baseline in this session); description sha `a333ea30d44e…` is the same text the human confirmed last handoff, and merging this cursor-sync PR is the confirmation. Then the human merges the #391 PR and dispatches the release.
+**Next:** plan sprint 15 on **opus** (architect), milestone 18's remaining items: #515 (live broker verification under its scheduled task, needs the human), #522 (commit-signing decision for the dev container) and #570 (docs fix, buildable now on sonnet). Confirm the order and pick the first task.
 
-**Pointers:** [docs/decisions.md](../docs/decisions.md) · [milestone 17](https://github.com/glunk-works/claude-workbench/milestone/17) · [.ai/parked/](parked/)
+**HITL Gate: OPEN** — first anchor for milestone 18 (no verified baseline); description sha `dda71079f0aa…` is what this session read, and the human merging this cursor-sync PR confirms it. Then confirm the build order and pick the first task.
+
+**Pointers:** [docs/decisions.md](../docs/decisions.md) · [milestone 18](https://github.com/glunk-works/claude-workbench/milestone/18) · [.ai/parked/](parked/)
