@@ -81,6 +81,9 @@ find /home/app /tmp /run /var/tmp /dev/shm -type s -name 'S.gpg-agent*'
 Those are the writable mounts where an agent socket can land, which `find -xdev` from `/`
 would skip. Output means a socket is forwarded; no output is the pass. A "Permission denied"
 line is not a pass: rerun it with `docker exec -u root` after the attach.
+A socket file that predates the container's start and refuses a connection is a dead file left on the
+home volume by an earlier container, not a forwarded socket (python `socket.connect` shows `ConnectionRefusedError`);
+`docker volume rm <checkout folder>-home` clears it.
 
 ## Claude login
 

@@ -1702,8 +1702,13 @@ take effect. Full reasoning and the task breakdown that implements them:
     signed by rule, not habit: each repo is set to squash-merge only (terraform-cloudflare-dns
     allows merge and rebase commits today, which would put unsigned branch commits on `main`),
     and its ruleset gains `required_signatures` on `main` only, so unsigned container commits
-    on PR branches still pass. Whether a GitHub squash merge satisfies that rule is inferred,
-    not tested; the follow-up checks it on `identity-ruleset-scratch` first.
+    on PR branches still pass. Tested 2026-10-13 on `identity-ruleset-scratch` with an active
+    `required_signatures` rule on its default branch: a squash merge of a PR whose branch
+    commit was unsigned succeeded through the REST merge endpoint, and the resulting commit is
+    committed by GitHub, has one parent and is `verified` (`valid`). A rebase merge was refused
+    ("Rebase merges cannot be automatically signed by GitHub"). A merge-commit merge was refused
+    with "Commits must have verified signatures" among its violations. `gh pr merge` was a poor
+    instrument there: it refused on its own stale `BLOCKED` read before calling the API.
   - **Rejected.**
     - **Forwarding the GPG agent, with a longer cache.** The signing oracle above.
     - **A signing SSH key held in the container.** It is a long-lived human credential in the
@@ -1716,9 +1721,17 @@ take effect. Full reasoning and the task breakdown that implements them:
       forwarded agent, with the exposure above.
   - **Cost.** PR-branch commits show no signature, or "Unverified" if vigilant mode is on for
     the human's account.
-  - **Residual, pending the live check.** Removing the GPG tools is not yet shown to stop VS
-    Code's agent forwarding. The follow-up (#574) makes the changes; its live container checks
-    settle this bullet. If the socket cannot be closed, record it here as an accepted residual.
+  - **Residual, live check run 2026-10-13 (`#574`).** On the rebuilt container (image built
+    from `7d1b677`), a VS Code-attached terminal showed: none of `gpg`, `gpg-agent`, `gpgconf`,
+    `gpg-connect-agent`, `gpgsm` on PATH; `git` 2.53.0; `GIT_CONFIG_COUNT=2` forcing
+    `commit.gpgsign` and `tag.gpgsign` to `false` over the identity file's `commit.gpgsign=true`;
+    and a test commit carried no `gpgsig`. The `find` for `S.gpg-agent*` was **not empty**:
+    `/home/app/.gnupg/S.gpg-agent` and `S.keyboxd` exist, but they predate the container's start,
+    and a connect to either is refused. They are dead files left on the per-checkout home volume
+    by the previous container, not a forwarded socket. Read the `find` result with that in mind:
+    a socket that refuses a connection and is older than the container is stale; wipe the home
+    volume to get a clean no-output pass. Still open on `#574`: vigilant mode, and the terraform
+    repos' cutover.
 
 ## Status
 
