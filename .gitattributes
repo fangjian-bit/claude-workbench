@@ -1,4 +1,3 @@
-scripts/loop/** text eol=lf
-tests/*.sh text eol=lf
-scripts/identity/** text eol=lf
-.devcontainer/** text eol=lf
+# One line-ending rule for the whole repo, so a Windows checkout (core.autocrlf=true) and the
+# Linux dev container, which share one working tree through a bind mount, agree byte for byte.
+* text=auto eol=lf
