@@ -1714,9 +1714,19 @@ take effect. Full reasoning and the task breakdown that implements them:
     (`required_signatures` on the default branch, no bypass actors) beside each repo's existing
     rulesets, which are unchanged. Each repo then squash-merged an unsigned-branch PR through
     the REST endpoint (`terraform-cloudflare-dns` #72, `terraform-microsoft365-entra` #50): the
-    merge commit is committed by GitHub, one parent, `verified` (`valid`). Neither repo was
-    checked for a workflow that pushes to `main` directly, which `required_signatures` would
-    now refuse. Each test added a `sigtest.txt` to `main`, to be removed.
+    merge commit is committed by GitHub, one parent, `verified` (`valid`). **Those merges went
+    through the REST endpoint because the normal route refused them:** with `required_signatures`
+    active, GitHub's merge box, `gh pr merge` and an armed auto-merge all block a PR whose branch
+    commits are unsigned ("Commits must have verified signatures"), and the squash does not
+    exempt it. The cleanup PR `terraform-cloudflare-dns` #73 showed it: blocked with an unsigned
+    branch commit, then merged by its armed auto-merge once the maintainer re-pushed the commit
+    signed with their host key, merge commit committed by GitHub and `verified`. So on a repo
+    carrying `required_signatures`, an unsigned container commit cannot merge by the normal
+    route: the rule above ("container commits are unsigned") and `required_signatures` on the
+    same repo do not fit together. How container commits are signed or merged there is open;
+    host-signed commits are unaffected. The workflows of `terraform-cloudflare-dns` hold no
+    `git push` to `main`; the entra repo's were not read. Each test added a `sigtest.txt` to
+    `main`; the cloudflare one is gone (#73), the entra one is reported removed.
   - **Rejected.**
     - **Forwarding the GPG agent, with a longer cache.** The signing oracle above.
     - **A signing SSH key held in the container.** It is a long-lived human credential in the
