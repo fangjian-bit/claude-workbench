@@ -1724,9 +1724,12 @@ take effect. Full reasoning and the task breakdown that implements them:
     carrying `required_signatures`, an unsigned container commit cannot merge by the normal
     route: the rule above ("container commits are unsigned") and `required_signatures` on the
     same repo do not fit together. How container commits are signed or merged there is open;
-    host-signed commits are unaffected. The workflows of `terraform-cloudflare-dns` hold no
-    `git push` to `main`; the entra repo's were not read. Each test added a `sigtest.txt` to
-    `main`; the cloudflare one is gone (#73), the entra one is reported removed.
+    host-signed commits are unaffected. The workflows of neither repo hold a `git push` to
+    `main`: in `terraform-microsoft365-entra` the two that run on a push to `main` are
+    `contents: read`, and the only `contents: write` is the review gate's arming of squash
+    auto-merge, which takes the normal route above. Each test added a `sigtest.txt` to `main`;
+    both are gone (`terraform-cloudflare-dns` #73, `terraform-microsoft365-entra` #52), and the
+    leftover `chore/remove-sigtest` branches were deleted 2026-10-14.
   - **Rejected.**
     - **Forwarding the GPG agent, with a longer cache.** The signing oracle above.
     - **A signing SSH key held in the container.** It is a long-lived human credential in the
