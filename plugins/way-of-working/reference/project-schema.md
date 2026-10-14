@@ -466,9 +466,9 @@ maintainer's reaction covers the comment and not the body (`WB-D24`, `#496`). Th
 decided from the default branch's copy of `identities`, never the working tree's. No other
 issue's body is read either, and `plan-anchor.sh` projects its own fetches, so it too never
 brings a body into context.
-`identities: null` keeps the body read. `/way-of-working:architect-review` is not yet covered:
-it still loads the body as part of the task's spec (a follow-up, since it first needs a way to
-verify the anchored comment).
+`identities: null` keeps the body read. `/way-of-working:architect-review` follows the same
+rule: under a map it loads the anchored spec comment only, after checking its `updated_at` and
+author and issue, and states in the review when no spec could be verified.
 
 ### `load_bearing_docs`, `code_paths`
 

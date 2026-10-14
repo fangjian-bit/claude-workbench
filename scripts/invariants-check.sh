@@ -655,6 +655,38 @@ if [ -n "$gate_hits" ]; then
     "resume, unpark-sprint and plan-sprint must call bin/hitl-gate-closed.sh, not restate the test."
 fi
 
+# --- 15. architect-review never loads the task issue's body under an identities map (#566) --
+#
+# resume and the coder's builder rule read only the anchored spec comment under a map, because
+# the maintainer's reaction covers the comment and an agent with issue write can edit the body
+# afterwards (#496). architect-review's step 5 still loaded "its body and, when one exists, its
+# anchored spec comment" for every repo, and the schema doc recorded that as "not yet covered".
+# Two things are the invariant: the skill carries the map-mode rule ("the body is never
+# loaded") and no longer carries the unconditional body-and-comment phrasing; and the schema
+# doc does not say the skill is uncovered again. A tree with no architect-review skill or no
+# schema doc fails: a check that cannot look must not pass (#243's stance).
+specbody_hits=""
+specbody_seen=0
+for f in plugins/*/skills/architect-review/SKILL.md; do
+  [ -f "$f" ] || continue
+  specbody_seen=1
+  grep -Fq 'the body is never loaded' "$f" || specbody_hits+="$f (no map-mode rule: the body is never loaded)"$'\n'
+  if grep -Fq 'when `null`; its body and' "$f"; then specbody_hits+="$f (names the issue body as loaded without the map rule)"$'\n'; fi
+done
+[ "$specbody_seen" -eq 1 ] || specbody_hits+="(no plugins/*/skills/architect-review/SKILL.md found)"$'\n'
+schema_seen=0
+for f in plugins/*/reference/project-schema.md; do
+  [ -f "$f" ] || continue
+  schema_seen=1
+  if grep -Fq 'architect-review` is not yet covered' "$f"; then specbody_hits+="$f (says architect-review is not yet covered)"$'\n'; fi
+done
+[ "$schema_seen" -eq 1 ] || specbody_hits+="(no plugins/*/reference/project-schema.md found)"$'\n'
+if [ -n "$specbody_hits" ]; then
+  report "architect-review may load the task issue's body under an identities map (#566)" \
+    "$specbody_hits" \
+    "Under a map step 5 loads the anchored spec comment only; keep that rule and the schema text saying it is covered."
+fi
+
 if [ "$fail" -ne 0 ]; then
   cat >&2 <<'EOF'
 
