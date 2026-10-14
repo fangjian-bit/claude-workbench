@@ -448,8 +448,9 @@ if [ "$a_comment" != null ]; then
     if [ "$reacted" -ne 1 ]; then echo unreacted; exit 0; fi
   fi
 else
-  # No spec comment anchored: the issue body is the whole spec, and editing it leaves
-  # its author unchanged -- with the reaction rule on, that is never an approval.
+  # No spec comment anchored. With --maintainer-ids (identities map) there is no approved
+  # spec -- the body's author can edit it with no maintainer reaction -- so: unreacted.
+  # Without ids (identities: null, legacy) the body stays the task's spec: match.
   if [ "$have_ids" -eq 1 ]; then echo unreacted; exit 0; fi
 fi
 
