@@ -1915,3 +1915,18 @@ flow have not yet posted on a gated repo, and are verified at claude-workbench's
 (#458, #398); the host broker under its scheduled task is #515. Live today: `v0.18.0` is tagged,
 installs at project scope and `/way-of-working:resume` runs under it in this repo. Sprint 14
 closed at `cfc92be` (PR #568), the pin bump after the `v0.18.0` tag.
+
+Sprint 15 (milestone 18, *Identity M3: host broker and dev container*, all its issues closed)
+adds no `.ai/project.yml` key and is unreleased; this repo now declares its own `identities` map
+(PR #583). The host token broker and its scheduled task (#392, PRs #509, #513), the
+claude-workbench dev container (#393, PR #519) and `archive-sprint` reading a null
+`backlog.repo` as the repo itself (#479, PR #533) shipped in `v0.18.0`. The broker was verified
+live under its scheduled task against the real dev App (#515), and its registration no longer
+throws when `sh` is not on PATH (#578, PR #595). `WB-D25` (#522, PR #573) makes dev-container
+commits unsigned, with `main` signed by GitHub's squash merge: the container drops GPG (#574,
+PR #581), and the live checks and the terraform repos' signing rules are recorded (PRs #584,
+#585, #587). One repo-wide `eol=lf` rule makes the container and a Windows checkout agree (#579,
+PR #598), and the conventions clear the phantom `settings.json` diff after a pin bump (#570,
+PR #576). The signing spike (#588) recommends REST git-data commits through the dev App; the
+`bin/api-commit.sh` build is #601, in milestone 19. Sprint 15 closed at `41e8eb7` (PR #602), not
+at a release tag.
