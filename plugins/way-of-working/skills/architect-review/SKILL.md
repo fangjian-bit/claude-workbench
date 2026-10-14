@@ -152,17 +152,40 @@ guess a gate (`reference/project-schema.md`).
      "$LOGIN" "$ID" "$DEF_YML_FILE"` prints `trusted`. Then fetch exactly that comment once,
      **into a temp file** (`gh api repos/{backlog.repo}/issues/comments/<id> >"$T/c.json"`),
      never to the transcript; a non-zero exit is a failure. From that file, with `jq` into
-     variables, check that `updated_at` equals `plan_anchor.spec_comment.updated_at`, that
+     variables (`updated_at` into `C_UPDATED`), check that it equals `plan_anchor.spec_comment.updated_at`, that
      `.issue_url` equals `https://api.github.com/repos/{backlog.repo}/issues/I`, and that
      `gh-identity.sh author "$LOGIN" "$ID" "$DEF_YML_FILE"` (the comment's `.user.login` and
      `.user.id`) prints `trusted`. Only when all pass is `.body` printed and loaded; on a
      failure the body is never printed. The checks establish that a declared maintainer wrote
-     this comment on `#I` and that its text has not moved since the anchor. They do not re-read
-     the maintainer's reaction: that is `/way-of-working:resume`'s auto-start check, so a
-     hand-started review may be loading a spec nobody reacted to. Name the issue the spec came
-     from, and say "maintainer-authored spec, approval not re-verified", in the review body.
+     this comment on `#I` and that its text has not moved since the anchor.
+
+     **Re-read the maintainer's reaction (`#613`)** — after those checks pass and **before
+     `.body` is printed**, in the same Bash call, so the label is settled before any spec text
+     enters context. Read the ids from `$DEF_YML_FILE`, never the working tree: `yq -r
+     '[.identities.maintainer | explode(.) | .[].id | tag] | unique | join(",")' "$DEF_YML_FILE"` must print
+     exactly `!!int` (a string or missing `id`, or an empty list, is "ids unreadable"), then
+     `IDS=$(yq -r '.identities.maintainer | explode(.) | map(.id) | join(",")' "$DEF_YML_FILE")`.
+     Fetch the reactions **into a file**, never into a pipe, and keep the exit status:
+     `gh api "repos/{backlog.repo}/issues/comments/<id>/reactions" --paginate --jq '.[] |
+     [(.user.id|tostring), .content, .created_at] | @tsv' >"$T/reactions.tsv" ||
+     LABEL="${LABEL:-not re-verified (reactions fetch failed)}"`. Then re-fetch the comment's `updated_at`
+     (`gh api repos/{backlog.repo}/issues/comments/<id> --jq .updated_at`) and require it to still
+     equal `$C_UPDATED`: a reaction read after an edit would otherwise approve text this session
+     did not load. A mismatch is "not re-verified (comment moved)"; a failed read is "not
+     re-verified (comment re-check failed)". The first label set stands. Run `spec-reaction.sh
+     "$C_UPDATED" "$IDS" <"$T/reactions.tsv"` only when the ids, the reactions fetch and the
+     re-check all succeeded (`$C_UPDATED` is the comment's `updated_at`, already checked against
+     the anchor). Write the label it settles in the review body, naming the issue the spec came
+     from:
+     - `approved` — "maintainer-approved spec (reaction after its last edit)".
+     - `unreacted` — "maintainer-authored spec, **no maintainer reaction after its last edit**".
+     - the ids unreadable, the reactions fetch failed, the comment moved or could not be re-checked, or the predicate exited 2 —
+       "maintainer-authored spec, approval not re-verified (<reason>)".
+
+     In every case the spec is still loaded: its author and text checks already passed. This is
+     a stated limit, never a STOP — the code owner's approval remains the merge gate.
    - **When anything is missing or fails** (no `state.json`, no anchor, a `task_issue` or
-     `review_pr` mismatch, a `null` `spec_comment`, a failed fetch, an `updated_at` mismatch, a
+     `review_pr` mismatch, a `null` `spec_comment`, a failed issue or comment fetch, an `updated_at` mismatch, a
      comment not on `#I`, an untrusted author, an unreadable mode): load no task spec, still run
      the review, and write in the body: *"No maintainer-authored spec was loaded (<reason>); the
      scope verdict is judged against the PR alone."* A stated limit, not a STOP — the code

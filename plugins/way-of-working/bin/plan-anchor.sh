@@ -55,7 +55,7 @@
 # cut over (`identities: null`) omits the flag and keeps today's behavior. With the flag and
 # NO spec comment anchored the verdict is `unreacted`: the issue body alone is editable text
 # whose author stays the maintainer, so it is never an approval. `--plan` mode validates
-# the list but otherwise ignores it, as it ignores the spec comment. A failed reactions read is `unreadable`.
+# the list but otherwise ignores it, as it ignores the spec comment. A failed reactions read is `unreadable`. The rule itself is bin/spec-reaction.sh (an exit 2 from it, or a missing or slash-less sibling path, is `unreadable`), and the comment's updated_at is re-read after the reactions: a change prints `drift`.
 #
 # `verify` (full) checks: the milestone is open, its number equals the anchor's
 # and the pointer's; `#N` is open, a true issue (no `pull_request` key), its
@@ -432,20 +432,25 @@ if [ "$a_comment" != null ]; then
     gh api "repos/$repo/issues/comments/$c_id/reactions" --paginate --jq \
       '.[] | [(.user.id|tostring), .content, .created_at] | @tsv' \
       >"$tmp/reactions" 2>/dev/null || { echo unreadable; exit 0; }
-    reacted=0
-    tab="$(printf '\t')"
-    while IFS="$tab" read -r r_uid r_content r_created || [ -n "$r_uid" ]; do
-      case ",$maint_ids," in *",$r_uid,"*) : ;; *) continue ;; esac
-      case "$r_content" in '+1' | heart | hooray | rocket) : ;; *) continue ;; esac
-      case "$r_created" in
-        [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) : ;;
-        *) continue ;;
-      esac
-      [ "$r_created" != "$c_updated" ] || continue
-      latest="$(printf '%s\n%s\n' "$c_updated" "$r_created" | sort | tail -n 1)"
-      if [ "$latest" = "$r_created" ]; then reacted=1; break; fi
-    done <"$tmp/reactions"
-    if [ "$reacted" -ne 1 ]; then echo unreacted; exit 0; fi
+    # Re-read the comment's updated_at AFTER the reactions: an edit between the first read and
+    # this one, then a maintainer's reaction to the new text, would otherwise approve text the
+    # anchor never covered. The same check /way-of-working:architect-review's recipe makes.
+    cm_after="$(gh api "repos/$repo/issues/comments/$c_id" --jq .updated_at 2>/dev/null)" \
+      && [ -n "$cm_after" ] || { echo unreadable; exit 0; }
+    [ "$cm_after" = "$c_updated" ] || { echo drift; exit 0; }
+    # The one reaction rule lives in spec-reaction.sh (#613), shared with /way-of-working:architect-review.
+    # Exit 2 (a bad argument) or any word but `approved` is never a match.
+    # The sibling copy, and only the sibling (as review-sandbox.sh does for gh-identity.sh): a
+    # slash-less `$0` (`sh plan-anchor.sh`) would resolve `dirname` to the current directory,
+    # where a branch under review could supply a spec-reaction.sh that prints `approved`.
+    case "$0" in
+      */*) sr="$(dirname "$0")/spec-reaction.sh" ;;
+      *) echo unreadable; exit 0 ;;
+    esac
+    [ -f "$sr" ] || { echo unreadable; exit 0; }
+    verdict="$(sh "$sr" "$c_updated" "$maint_ids" <"$tmp/reactions")" \
+      || { echo unreadable; exit 0; }
+    if [ "$verdict" != approved ]; then echo unreacted; exit 0; fi
   fi
 else
   # No spec comment anchored. With --maintainer-ids (identities map) there is no approved

@@ -468,7 +468,7 @@ issue's body is read either, and `plan-anchor.sh` projects its own fetches, so i
 brings a body into context.
 `identities: null` keeps the body read. `/way-of-working:architect-review` follows the same
 rule: under a map it loads the anchored spec comment only, after checking its `updated_at` and
-author and issue, and states in the review when no spec could be verified.
+author and issue, re-reads the maintainer's reaction through `bin/spec-reaction.sh` (`#613`) to label the spec approved, unreacted or not re-verified, and states in the review when no spec could be verified.
 
 ### `load_bearing_docs`, `code_paths`
 
@@ -844,7 +844,7 @@ id `bin/plan-gather.sh` prints) and `scripts/loop/preflight.sh github-dispatch`
 (`--identities`, the one reader that is its own implementation of the rule rather than a call
 to `gh-identity.sh`). Outside `token-check.sh` (below) and `architect-review` (which requires `reviewer_app` to be a map, `#389`), `reviewer_app` and `loop_app` are read only to
 refuse them (as authors, and by `classify` as the acting identity) and to catch a duplicate id.
-`plan-anchor.sh verify --maintainer-ids` (`#383`, `#497`) takes the maintainers' numeric ids, for the reaction and the spec comment's author, from the
+`plan-anchor.sh verify --maintainer-ids` (`#383`, `#497`; `architect-review` reads the same ids for `bin/spec-reaction.sh`, `#613`) takes the maintainers' numeric ids, for the reaction and the spec comment's author, from the
 caller, which reads them from the default branch's copy: `resume` passes them under a map and
 omits the flag under `null`. `bin/token-check.sh verify` (`#436`) is the exception: a consumer of a minted token runs it before
 acting, and for a `dev_app`, `reviewer_app` or `loop_app` role it requires the token's actor and

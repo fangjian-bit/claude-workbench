@@ -68,7 +68,8 @@ case "$path" in
         [ "${FAKE_COMMENT_AUTHOR_FAIL:-0}" = 1 ] && exit 1
         printf '%s\n' "${FAKE_COMMENT_AUTHOR-maintainer}" ;;
       *'@tsv'*) printf '%s\t%s\t%s\n' "${FAKE_COMMENT_UPDATED:-2026-01-01T00:00:00Z}" "${FAKE_COMMENT_ISSUE_URL:-}" "${FAKE_COMMENT_AUTHOR_ID-1001}" ;;
-      *) printf '%s\n' "${FAKE_COMMENT_UPDATED:-2026-01-01T00:00:00Z}" ;;
+      *) [ "${FAKE_COMMENT_RECHECK_FAIL:-0}" = 1 ] && exit 1
+         printf '%s\n' "${FAKE_COMMENT_RECHECK_UPDATED:-${FAKE_COMMENT_UPDATED:-2026-01-01T00:00:00Z}}" ;;
     esac
     ;;
   repos/*/issues/*)
@@ -477,6 +478,15 @@ assert_eq "verify --maintainer-ids: a malformed reaction timestamp never counts"
 
 out="$(FAKE_REACTIONS_FAIL=1 lrun verify --maintainer-ids "$M" "$REPO" "$POINTER" "$spec_anchor")"
 assert_eq "verify --maintainer-ids: a failed reactions read is unreadable, never a pass" "unreadable" "$out"
+
+out="$(FAKE_REACTIONS="$(rx 1001 +1 2026-09-21T09:00:01Z)\n" FAKE_COMMENT_RECHECK_UPDATED=2026-09-21T09:00:00Z lrun verify --maintainer-ids "$M" "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --maintainer-ids: a fresh reaction and an unchanged re-check match" "match" "$out"
+
+out="$(FAKE_REACTIONS="$(rx 1001 +1 2026-09-21T09:00:01Z)\n" FAKE_COMMENT_RECHECK_UPDATED=2026-09-21T09:00:02Z lrun verify --maintainer-ids "$M" "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --maintainer-ids: a comment edited after the reactions read is drift, never a pass" "drift" "$out"
+
+out="$(FAKE_REACTIONS="$(rx 1001 +1 2026-09-21T09:00:01Z)\n" FAKE_COMMENT_RECHECK_FAIL=1 lrun verify --maintainer-ids "$M" "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --maintainer-ids: a failed re-check read is unreadable, never a pass" "unreadable" "$out"
 
 out="$(FAKE_REACTIONS= lrun verify --maintainer-ids "$M" "$REPO" "$POINTER" "$good_anchor")"
 assert_eq "verify --maintainer-ids: no spec comment anchored is never an approval -- waits" "unreacted" "$out"

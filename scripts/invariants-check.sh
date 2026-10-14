@@ -687,6 +687,43 @@ if [ -n "$specbody_hits" ]; then
     "Under a map step 5 loads the anchored spec comment only; keep that rule and the schema text saying it is covered."
 fi
 
+# --- 16. One spec-reaction rule, one implementation (#613) --------------------------------
+#
+# Whether a declared maintainer reacted to a spec comment after its last edit is asked by
+# plan-anchor.sh (resume's auto-start) and by architect-review's Map branch. Two
+# implementations would let the approval rule drift between the gate that starts work and the
+# review that labels it. Three things are the invariant: plan-anchor.sh and architect-review's
+# SKILL.md call spec-reaction.sh, and no other file under plugins/*/bin/ matches an approving reaction
+# content itself (the `heart | hooray` case pattern, or a `== "hooray"` comparison).
+# A tree with no spec-reaction.sh, plan-anchor.sh or architect-review skill fails: a check
+# that cannot look must not pass (#243's stance).
+reaction_hits=""
+ls plugins/*/bin/spec-reaction.sh >/dev/null 2>&1 || reaction_hits+="(no plugins/*/bin/spec-reaction.sh found)"$'\n'
+ls plugins/*/bin/plan-anchor.sh >/dev/null 2>&1 || reaction_hits+="(no plugins/*/bin/plan-anchor.sh found)"$'\n'
+for f in plugins/*/bin/plan-anchor.sh; do
+  [ -f "$f" ] || continue
+  grep -Fq 'sh "$sr" "$c_updated"' "$f" || reaction_hits+="$f (does not call spec-reaction.sh)"$'\n'
+done
+reaction_seen=0
+for f in plugins/*/skills/architect-review/SKILL.md; do
+  [ -f "$f" ] || continue
+  reaction_seen=1
+  grep -Fq 'spec-reaction.sh' "$f" || reaction_hits+="$f (does not call spec-reaction.sh)"$'\n'
+done
+[ "$reaction_seen" -eq 1 ] || reaction_hits+="(no plugins/*/skills/architect-review/SKILL.md found)"$'\n'
+for f in plugins/*/bin/*; do
+  [ -f "$f" ] || continue
+  case "$f" in */spec-reaction.sh) continue ;; esac
+  if grep -Eq 'heart[[:space:]]*\|[[:space:]]*hooray|==[[:space:]]*"hooray"' "$f"; then
+    reaction_hits+="$f (matches an approving reaction itself)"$'\n'
+  fi
+done
+if [ -n "$reaction_hits" ]; then
+  report "a second spec-reaction implementation, or a caller no longer calls it (#613)" \
+    "$reaction_hits" \
+    "plan-anchor.sh and architect-review's SKILL.md must both call bin/spec-reaction.sh, not restate the rule."
+fi
+
 if [ "$fail" -ne 0 ]; then
   cat >&2 <<'EOF'
 
