@@ -1,16 +1,15 @@
 # Cursor — claude-workbench
 
-**Now:** **Sprint 16** (cursor id `sprint-16`) on [milestone 19, *Identity M4: claude-workbench cutover*](https://github.com/glunk-works/claude-workbench/milestone/19). Status: **implementing**.
+**Now:** **Sprint 16** (cursor id `sprint-16`) on [milestone 19, *Identity M4: claude-workbench cutover*](https://github.com/glunk-works/claude-workbench/milestone/19). Status: **planning**.
 
 **Just done (2026-10-14):**
-- Task #613 shipped: PR #617 (`bc3a539`) adds `bin/spec-reaction.sh`, which `plan-anchor.sh` and architect-review's Map branch both call.
-  - Critic pass on #617, carried from its PR body: architect, security-critic and docs-consistency ran for 3 rounds (the initial pass plus 2 fix-and-re-run rounds, under the cap of 4), converged: round 3 returned no false statements, contradictions or fail-open paths, only a wording fix that was applied afterwards. Every round ran on the critics' own frontmatter models; no second-opinion round was run. The last small edits (a usage string, header comments, one recipe default) were not re-run through the critics.
-- Posted #614's spec comment ([issuecomment-6176369440](https://github.com/glunk-works/claude-workbench/issues/614#issuecomment-6176369440)). It adds a shared `bin/spec-comment.sh` that resume, coder and architect-review call to check the anchored spec comment before printing it, plus invariants check 17. The maintainer reacted to it.
-- Anchored task #614 with that spec comment. `verify --plan` read `match` against the prior anchor.
-- Planning session only, no code diff, so no critic pass.
+- Task #614 shipped: PR #619 (`3837acc`) adds `bin/spec-comment.sh`, which resume, the coder and architect-review call to check the anchored spec comment before printing it, plus invariants check 17.
+  - Critic pass on #619, carried from its PR body: architect, security-critic and docs-consistency ran for 2 rounds (the initial pass plus 1 fix-and-re-run round, under the cap of 4), converged: round 2 returned tightenings only from all three. Every round ran on the critics' own frontmatter models; no second-opinion round was run. Check 17's allow-list was tightened after round 2 (with new fixtures) and that last edit was not re-run through the critics.
+  - Left open on purpose: `<backlog-repo>` is a caller argument, not read from the default-branch yml (pre-existing, legacy mode only).
+- The no-op handoff did not apply (the review-step derive answered `none`, and #619 had already merged), so this is the ordinary ledger PR.
 
-**Next:** task #614 — build it per its anchored spec comment https://github.com/glunk-works/claude-workbench/issues/614#issuecomment-6176369440 (the comment is the whole spec; the issue body is not read), run the local green gate, then `/way-of-working:critic-gate` and `/way-of-working:ship`. On **sonnet** (coder), in a fresh session: this planning session read #614's issue body.
+**Next:** plan the next task of milestone 19 with the maintainer: pick one open issue, post its spec comment for the maintainer to react to, then `/way-of-working:handoff` to anchor it. On **opus** (architect), in a fresh session.
 
-**HITL Gate: NONE OPEN** — next gate: code-owner approval of the #614 build PR
+**HITL Gate: NONE OPEN** — next gate: maintainer reaction to the next task's spec comment
 
 **Pointers:** [docs/decisions.md](../docs/decisions.md) · [milestone 19](https://github.com/glunk-works/claude-workbench/milestone/19) · [.ai/parked/](parked/)
