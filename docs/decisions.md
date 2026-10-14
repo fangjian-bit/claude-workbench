@@ -1709,6 +1709,14 @@ take effect. Full reasoning and the task breakdown that implements them:
     ("Rebase merges cannot be automatically signed by GitHub"). A merge-commit merge was refused
     with "Commits must have verified signatures" among its violations. `gh pr merge` was a poor
     instrument there: it refused on its own stale `BLOCKED` read before calling the API.
+    Applied 2026-10-14, ahead of the `WB-D24` cutover, to `terraform-cloudflare-dns` and
+    `terraform-microsoft365-entra`: squash-merge only, and a separate `wb-signatures` ruleset
+    (`required_signatures` on the default branch, no bypass actors) beside each repo's existing
+    rulesets, which are unchanged. Each repo then squash-merged an unsigned-branch PR through
+    the REST endpoint (`terraform-cloudflare-dns` #72, `terraform-microsoft365-entra` #50): the
+    merge commit is committed by GitHub, one parent, `verified` (`valid`). Neither repo was
+    checked for a workflow that pushes to `main` directly, which `required_signatures` would
+    now refuse. Each test added a `sigtest.txt` to `main`, to be removed.
   - **Rejected.**
     - **Forwarding the GPG agent, with a longer cache.** The signing oracle above.
     - **A signing SSH key held in the container.** It is a long-lived human credential in the
@@ -1730,8 +1738,9 @@ take effect. Full reasoning and the task breakdown that implements them:
     and a connect to either is refused. They are dead files left on the per-checkout home volume
     by the previous container, not a forwarded socket. Read the `find` result with that in mind:
     a socket that refuses a connection and is older than the container is stale; wipe the home
-    volume to get a clean no-output pass. Still open on `#574`: vigilant mode, and the terraform
-    repos' cutover.
+    volume to get a clean no-output pass. Vigilant mode is on for the maintainer account
+    `Seuss27` and `JaredGroves-603`, the account that opens the terraform repos' PRs (the
+    maintainer's report, 2026-10-14; it is a per-account setting the dev App cannot read).
 
 ## Status
 
