@@ -1921,8 +1921,9 @@ adds no `.ai/project.yml` key and is unreleased; this repo now declares its own 
 (PR #583). The host token broker and its scheduled task (#392, PRs #509, #513), the
 claude-workbench dev container (#393, PR #519) and `archive-sprint` reading a null
 `backlog.repo` as the repo itself (#479, PR #533) shipped in `v0.18.0`. The broker was verified
-live under its scheduled task against the real dev App (#515), and its registration no longer
-throws when `sh` is not on PATH (#578, PR #595). `WB-D25` (#522, PR #573) makes dev-container
+live under its scheduled task against the real dev App (#515). Its registration no longer
+throwing when `sh` is not on PATH (#578, PR #595) is hermetically verified; the live re-run is
+deferred to #604. `WB-D25` (#522, PR #573) makes dev-container
 commits unsigned, with `main` signed by GitHub's squash merge: the container drops GPG (#574,
 PR #581), and the live checks and the terraform repos' signing rules are recorded (PRs #584,
 #585, #587). One repo-wide `eol=lf` rule makes the container and a Windows checkout agree (#579,
