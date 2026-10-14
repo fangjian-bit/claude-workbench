@@ -47,7 +47,10 @@ if ($Unregister) {
   return
 }
 
-if (-not $Sh) { $Sh = (Get-Command sh -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source }
+if (-not $Sh) {
+  $found = Get-Command sh -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($found) { $Sh = $found.Source }
+}
 if (-not $Sh -or -not (Test-Path -LiteralPath $Sh -PathType Leaf)) { throw 'no POSIX sh found: pass -Sh (Git for Windows sh.exe)' }
 if ($WowHome.StartsWith('/')) {
   $conv = (& $Sh -c 'cygpath -w "$1"' sh $WowHome 2>$null)

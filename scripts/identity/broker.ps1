@@ -216,7 +216,11 @@ function Stop-Setup([string]$msg) {
   Write-Error $msg -ErrorAction Continue
   exit 2
 }
-$script:ShPath = if ($Sh) { $Sh } else { (Get-Command sh -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source }
+$script:ShPath = $Sh
+if (-not $script:ShPath) {
+  $found = Get-Command sh -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($found) { $script:ShPath = $found.Source }
+}
 if ($script:ShPath -and $WowHome.StartsWith('/') -and (Test-Path -LiteralPath $script:ShPath -PathType Leaf)) {
   $conv = (& $script:ShPath -c 'cygpath -w "$1"' sh $WowHome 2>$null)
   if ($conv) { $WowHome = ("$conv").Trim() }

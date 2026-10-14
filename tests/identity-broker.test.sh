@@ -18,6 +18,9 @@
 #   install      install-host-tools.ps1 exports committed files only into bin with a MANIFEST (commit, hashes),
 #                refuses an uncommitted change or a HEAD not on origin/main, and creates tokens/<repo>;
 #                register-broker-task.ps1 -WhatIf points the task at bin and installs nothing
+#   no tool on PATH  with PATH holding only an empty directory and no -Sh, register-broker-task, broker
+#                and install-host-tools each reach their own "no POSIX sh found" / "git not found" message,
+#                never a null .Source error; broker never calls mint.sh and install creates no bin
 #   config       a bad repo name (or a trailing dot) or a missing broker.json exits 2 before anything
 #                is minted
 #
@@ -236,6 +239,34 @@ case "$reg" in
 esac
 case "$reg" in *WindowsApps\\Microsoft.PowerShell_*) bad "register: version-pinned Store pwsh path recorded" ;; *) ok "register: no version-pinned Store pwsh path" ;; esac
 check "register: -WhatIf installs nothing" test ! -e "$home/bin"
+
+# --- no tool on PATH -------------------------------------------------------------------------
+# PATH holds only an empty directory, pwsh is run by the absolute path resolved before that, and no -Sh is
+# given: each script's own "not found" message must be reached, not a null .Source lookup.
+pwsh_abs=$(command -v pwsh)
+emptydir="$tmp/empty"; mkdir "$emptydir"
+no_source_err() { ! cat "$tmp/out" "$home/broker.log" 2>/dev/null | grep -q "'Source' cannot be found"; }
+broker_says_no_sh() { cat "$tmp/out" "$home/broker.log" 2>/dev/null | grep -q 'no POSIX sh found'; }
+reset; rm -rf "$home/bin"; rc=0
+PATH="$emptydir" "$pwsh_abs" -NoProfile -NonInteractive -File "$(wp "$root_dir/scripts/identity/register-broker-task.ps1")" \
+  -WowHome "$(wp "$home")" -SourceRepo "$(wp "$src")" -TaskName "wow-broker-test-nopath-$$" -WhatIf >"$tmp/out" 2>&1 || rc=$?
+check "no tool: register exits non-zero" test "$rc" -ne 0
+check "no tool: register reports the missing sh" grep -q 'no POSIX sh found: pass -Sh' "$tmp/out"
+check "no tool: register has no null .Source error" no_source_err
+reset; rc=0
+PATH="$emptydir" "$pwsh_abs" -NoProfile -NonInteractive -File "$(wp "$root_dir/scripts/identity/broker.ps1")" \
+  -WowHome "$(wp "$home")" -ScriptsDir "$(wp "$scripts")" -Once >"$tmp/out" 2>&1 || rc=$?
+check "no tool: broker exits 2" test "$rc" -eq 2
+check "no tool: broker reports the missing sh" broker_says_no_sh
+check "no tool: broker has no null .Source error" no_source_err
+check "no tool: broker never calls mint.sh" test "$(calls mint-calls)" -eq 0
+reset; rm -rf "$home/bin"; rc=0
+PATH="$emptydir" "$pwsh_abs" -NoProfile -NonInteractive -File "$(wp "$root_dir/scripts/identity/install-host-tools.ps1")" \
+  -WowHome "$(wp "$home")" -SourceRepo "$(wp "$src")" >"$tmp/out" 2>&1 || rc=$?
+check "no tool: install exits non-zero" test "$rc" -ne 0
+check "no tool: install reports the missing git" grep -q 'git not found on PATH' "$tmp/out"
+check "no tool: install has no null .Source error" no_source_err
+check "no tool: install creates no bin" test ! -e "$home/bin"
 
 # --- config ----------------------------------------------------------------------------------
 reset

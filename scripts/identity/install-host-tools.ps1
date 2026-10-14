@@ -58,7 +58,8 @@ $files = 'broker.ps1', 'mint.sh', 'wow-common.sh', 'wow-review-mint', 'wow-admin
 $srcDir = 'scripts/identity'
 
 # One git, resolved once, as an application: an alias or function named git in a profile cannot shadow it.
-$gitExe = (Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+$found = Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+$gitExe = if ($found) { $found.Source }
 if (-not $gitExe) { throw 'git not found on PATH' }
 
 # Invoke-Git <args...>: stdout as text (trailing newline trimmed); stderr is kept apart, used only in the error.
