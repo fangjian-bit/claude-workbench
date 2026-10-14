@@ -724,6 +724,39 @@ if [ -n "$reaction_hits" ]; then
     "plan-anchor.sh and architect-review's SKILL.md must both call bin/spec-reaction.sh, not restate the rule."
 fi
 
+# --- 17. The anchored spec comment is printed only after its checks pass (#614) ----------------
+#
+# resume's builder rule and the coder's fetch step told the reader to fetch the anchored spec
+# comment and check it "in that same response", so the unchecked text had already entered
+# context by the time a check could fail; architect-review carried its own inline copy of the
+# checks. bin/spec-comment.sh is the one implementation: the fetch goes to a file and the body
+# is printed only after the checks pass. Two things are the invariant, per file: it names
+# spec-comment.sh, and every spec-comment fetch (the path `issues/comments/<id>`) is one of
+# three allowed forms: followed by `/` (the reactions fetch), by ` >"$T/` (redirected into the
+# temp directory) or by ` --jq .updated_at` ending there (the re-check). Anything else after the
+# id, a line end included, is flagged -- an allow-list, so `--jq .body`, `--jq .updated_at,.body`
+# and `|jq` cannot slip through. It sees only the literal `<id>` placeholder those files use; a
+# fetch spelled another way is outside it. A missing file or script fails: a check that cannot
+# look must not pass (#243's stance).
+speccomment_hits=""
+ls plugins/*/bin/spec-comment.sh >/dev/null 2>&1 || speccomment_hits+="(no plugins/*/bin/spec-comment.sh found)"$'\n'
+for pat in 'skills/resume/SKILL.md' 'skills/architect-review/SKILL.md' 'agents/coder.md'; do
+  speccomment_seen=0
+  for f in plugins/*/$pat; do
+    [ -f "$f" ] || continue
+    speccomment_seen=1
+    grep -Fq 'spec-comment.sh' "$f" || speccomment_hits+="$f (does not call spec-comment.sh)"$'\n'
+    bare=$(grep -oE 'issues/comments/<id>.{0,24}' "$f" | grep -Ev '^issues/comments/<id>(/| >"\$T/| --jq \.updated_at([^,._A-Za-z]|$))' || true)
+    [ -z "$bare" ] || speccomment_hits+="$f (a spec-comment fetch neither redirected to a file nor projected: $(printf '%s' "$bare" | head -n 1))"$'\n'
+  done
+  [ "$speccomment_seen" -eq 1 ] || speccomment_hits+="(no plugins/*/$pat found)"$'\n'
+done
+if [ -n "$speccomment_hits" ]; then
+  report "the anchored spec comment may reach context before its checks pass (#614)" \
+    "$speccomment_hits" \
+    "Fetch the comment into a file and print it with bin/spec-comment.sh body; never to the transcript."
+fi
+
 if [ "$fail" -ne 0 ]; then
   cat >&2 <<'EOF'
 

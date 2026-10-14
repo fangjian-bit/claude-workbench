@@ -139,7 +139,9 @@ guess a gate (`reference/project-schema.md`).
    never falls back to reading the body. In both modes `I` (not the PR number `<N>` of the
    other steps) is the task issue this PR names, parsed as plain digits; zero, several or
    conflicting references load no spec.
-   - **Legacy:** load `#I`'s body and, when one exists, its anchored spec comment.
+   - **Legacy:** load `#I`'s body and, when one exists, its anchored spec comment: fetched into
+     a file as in the Map branch and printed only with `spec-comment.sh body`, which under
+     `legacy` falls back to `author_association` for the comment's author (`#614`).
    - **Map:** the body is never loaded; the anchored spec comment is the whole specification.
      `I` is never
      the source of a comment id, and every use below is of `plan_anchor.task_issue` once it equals `I`. The comment id comes only from
@@ -151,13 +153,15 @@ guess a gate (`reference/project-schema.md`).
      the line into variables, check that `.number` equals `I` and that `gh-identity.sh author
      "$LOGIN" "$ID" "$DEF_YML_FILE"` prints `trusted`. Then fetch exactly that comment once,
      **into a temp file** (`gh api repos/{backlog.repo}/issues/comments/<id> >"$T/c.json"`),
-     never to the transcript; a non-zero exit is a failure. From that file, with `jq` into
-     variables (`updated_at` into `C_UPDATED`), check that it equals `plan_anchor.spec_comment.updated_at`, that
-     `.issue_url` equals `https://api.github.com/repos/{backlog.repo}/issues/I`, and that
-     `gh-identity.sh author "$LOGIN" "$ID" "$DEF_YML_FILE"` (the comment's `.user.login` and
-     `.user.id`) prints `trusted`. Only when all pass is `.body` printed and loaded; on a
-     failure the body is never printed. The checks establish that a declared maintainer wrote
-     this comment on `#I` and that its text has not moved since the anchor.
+     never to the transcript; a non-zero exit is a failure. Check that file with `spec-comment.sh
+     check "$T/c.json" {backlog.repo} I <id> <updated_at> "$DEF_YML_FILE"` (`#614`; the id and
+     `updated_at` are `plan_anchor.spec_comment`'s, read from `.ai/state.json` with `jq -r` into
+     variables, and `updated_at` is also `C_UPDATED`). Only `ok` continues; it establishes that
+     the file is that comment, that a declared maintainer wrote it on `#I`, and that its text has
+     not moved since the anchor. Any other word is the "No maintainer-authored spec was loaded"
+     outcome below, with the word as the reason; an exit of 2 (no word) is the same outcome,
+     reason `bad argument`. Only after `ok` (and the reaction re-read below)
+     is the spec printed, with `spec-comment.sh body` over the same arguments, never `jq .body`.
 
      **Re-read the maintainer's reaction (`#613`)** — after those checks pass and **before
      `.body` is printed**, in the same Bash call, so the label is settled before any spec text

@@ -49,9 +49,14 @@ under-specified, or requires a design decision, STOP and report back rather than
    bytes, never a second fetch. If a spec comment
    was named (**under a map, always: the anchored comment is the whole spec, so this fetch and
    check run whether or not your spawner named it**), its id **must equal `plan_anchor.spec_comment.id`** — never a comment id from
-   anywhere else — fetch it the same way (`gh api repos/{backlog.repo}/issues/comments/<id>`)
-   and check, in that same response, its `updated_at` against
-   `plan_anchor.spec_comment.updated_at` and its author by the same rule. A mismatch on any of these, or a `plan_anchor` with no `spec_comment` when one
+   anywhere else — fetch it **into a file, never to your transcript**
+   (`gh api repos/{backlog.repo}/issues/comments/<id> >"$T/c.json"`; a non-zero exit is a stop)
+   and print it only through `spec-comment.sh body`, with the arguments
+   `/way-of-working:resume`'s *body read (TOCTOU closure)* rule names (point at it, never restate
+   the checks). Any non-zero exit is a stop, reported like a red gate with the word it wrote on
+   stderr (none on 2). `$T` is a directory you make in that same Bash call (`T=$(mktemp -d)`),
+   removed on every exit with the default-branch copy, since `c.json` holds the comment.
+   A mismatch on any of these, or a `plan_anchor` with no `spec_comment` when one
    was named, is a stop, reported like a red gate — do not proceed on a task whose text may
    have moved, or whose author trust may not hold, since your spawning session verified it.
    Read only `#N`'s body (under `legacy` only) and the anchored spec comment, never any other
