@@ -236,9 +236,9 @@ sed -n "s/^  ,@('\([^']*\)', '\([^']*\)')\$/\1 \2/p" "$root_dir/scripts/identity
 entries=$(wc -l <"$table" | tr -d ' ')
 review_entries=$(grep -c ' review/' "$table" || true)
 check "install setup: the table has review-context rows" test "$review_entries" -gt 0
-# The ten review-context sources, at their own repo paths.
+# Every table source, at its own repo path (the host scripts as well as the review-context files).
 while read -r srcpath dstpath; do
-  case $dstpath in review/*) mkdir -p "$src/$(dirname "$srcpath")"; cp "$root_dir/$srcpath" "$src/$srcpath" ;; esac
+  mkdir -p "$src/$(dirname "$srcpath")"; cp "$root_dir/$srcpath" "$src/$srcpath"
 done <"$table"
 git -C "$src" -c user.name=t -c user.email=t@t add -A
 git -C "$src" -c user.name=t -c user.email=t@t commit -q -m seed
@@ -274,6 +274,10 @@ while read -r srcpath dstpath; do
 done <"$table"
 check "install: every review-context file lands under bin/review" test -n "$review_ok"
 check "install: bin/review holds only table entries" test "$(find "$home/bin/review" -type f | wc -l | tr -d ' ')" -eq "$review_entries"
+in_bin_with_manifest() { test -f "$home/bin/$1" && grep -qE "^[0-9a-f]{64}  $1\$" "$home/bin/MANIFEST"; }
+for f in wow-review review-gate-state.sh token-check.sh gh-identity.sh; do
+  check "install: $f lands in bin with a MANIFEST line" in_bin_with_manifest "$f"
+done
 check "install: files are LF" not_cr "$home/bin/mint.sh" "$home/bin/wow-admin" "$home/bin/broker.ps1"
 check "install: no staging left" test ! -e "$home/bin.new" -a ! -e "$home/bin.old"
 check "install: tokens/<repo> created for each repo" test -d "$home/tokens/alpha" -a -d "$home/tokens/beta"

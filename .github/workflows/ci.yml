@@ -122,6 +122,8 @@ jobs:
         run: sh tests/token-check.test.sh
       - name: review image fixtures
         run: sh tests/review-image.test.sh
+      - name: wow-review launcher fixtures
+        run: sh tests/identity-review.test.sh
 
   # WB-D15 (#45): workflow security scanner, modeled on bounty-infra's own `zizmor` job
   # (`ci.yml`). Unchained like `coupling`/`invariants` above -- a future required check

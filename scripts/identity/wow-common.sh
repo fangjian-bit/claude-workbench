@@ -1,4 +1,4 @@
-# Shared helpers for wow-admin and wow-review-mint (WB-D24, issue #374). Sourced, not run.
+# Shared helpers for wow-admin, wow-review and wow-review-mint (WB-D24, issues #374, #635). Sourced, not run.
 #
 # Host layout, under $WOW_HOME (default ~/.config/glunk-identity):
 #   apps.json              {"admin": {app_id, client_id, installation_id, bot_user_id, key},
@@ -20,15 +20,24 @@
 #                          human commands run from here, never from a checkout a container can write.
 #   bin/review/            the review image's build context (#634), exported with the scripts: the
 #                          Dockerfile plus exactly the files it copies.
-#   review-sessions/<id>/  session-token, mounted read-only into a review container only.
+#   review-sessions/<id>/  only session-token, mounted read-only into a review container (the one directory
+#                          the broker sweeps).
+#   review-host/<id>/      wow-review's working files, never mounted: the project.yml copy, the outbox
+#                          copies, every kept copy of the session token, and its read-token, post-token
+#                          and filing-token. Removed by the launcher's trap.
+#   review-state/          wow-review's lock and its dedupe ledger (<owner>/<name>/<N>/<sha>/).
+#   claude-credential      the Claude setup-token credential, one line; read only by wow-review and
+#                          written only to the injector sidecar's stdin.
 #   review-logs/           review run logs; may hold secrets, swept by the broker by age.
 # Invariant: no path under $WOW_HOME is container-writable. tokens/<repo>/ is mounted only into a
 # dev container, and review-sessions/<id>/ only into a review container, each read-only.
+# claude-credential is never mounted into any container and reaches only the injector's stdin.
 # What these commands write: tokens/ and review-tokens/ directories, a per-repo .lock directory
 # and a transient .unlock.* directory (both removed on exit), admin-token (replaced or removed),
 # reviewer-token (default review-tokens/<repo>/, or the path --out names), the session and filing
 # tokens (wow-review-mint --read / --file, written only to the path --out names), and the .mint.* file
-# mint.sh stages beside any token it writes. Nothing else under $WOW_HOME is modified.
+# mint.sh stages beside any token it writes. wow-review (the launcher) also writes its own review-sessions/,
+# review-host/, review-state/ and review-logs/ entries. Nothing else under $WOW_HOME is modified.
 #
 # The caller sets $prog before sourcing. Toolset: POSIX sh, jq, plus what mint.sh needs.
 

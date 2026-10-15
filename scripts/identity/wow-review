@@ -1,0 +1,963 @@
+#!/bin/sh
+# Host command: the App-mode architect review of one PR head, end to end (WB-D24, #635).
+#
+#   wow-review <owner/repo> <N> [--rerun]
+#
+# In order: mint the read-only session token; start the review container (the image #634 built)
+# with the Claude credential held only by an inject.py sidecar; wait for the session under a time
+# bound; read the outbox through outbox-read and act on it mechanically. It posts the review, or a
+# fixed failure signal, with a host-minted post token, and files at most five findings with a
+# host-minted filing token. The session writes the outbox and its text is shaped by the PR it
+# reviews, so every label the launcher acts on is checked here on the host first.
+#
+# STATUS: built against stubs only, not yet live-verified. No real session writes the outbox until
+# #636 cuts architect-review over; the live run, and its checklist, are #636's. Until then
+# architect-review keeps its in-session App-mode flow.
+#
+# Runs from the installed copy in $WOW_HOME/bin, never from a checkout (install-host-tools.ps1),
+# beside wow-common.sh, wow-review-mint, token-check.sh, gh-identity.sh and review-gate-state.sh.
+# Needs docker, gh, jq, yq (mikefarah v4) and timeout on PATH, else exit 1. POSIX sh, run under
+# `set -f`, stdin closed, never prompts. Layout and toolset: wow-common.sh.
+#
+# Tunables (environment, validated before any call): WOW_REVIEW_MAX (1 to 9, default 1, reviews
+# running at once), WOW_REVIEW_TIMEOUT (seconds, 1 to 6000, default 5400), WOW_REVIEW_REFRESH
+# (seconds, 1 to 1500, default 1500, the session-token refresh interval).
+#
+# Exit codes (the interface #626's scheduled trigger builds on):
+#    0  a review was posted and confirmed
+#    3  a failure review was posted and confirmed
+#    4  nothing to post: exempt or already reviewed, each verified on the host
+#    5  this head already has a ledger entry (--rerun repeats it)
+#    6  not an App-mode gated repo (the default branch's .ai/project.yml says so)
+#   75  busy: the lock is held or the cap is reached; try later
+#  103  a review was posted but the author is not the declared reviewer App (unconfirmed)
+#  104  a review posted, or may have, and the response is unconfirmed
+#    2  usage
+#    1  any other failure, with nothing posted; the reason is in the host log
+#
+# The session's outcome line, and the failure codes. The launcher posts a failure review whose
+# body is the fixed template with one code:
+#   timed-out, no-outbox, bad-outcome, retry-limit, stopped-<reason>, stopped-other,
+#   no-body, bad-body, header-mismatch, no-head-line, mention, secret, oversize.
+# Stop reasons (the outcome line `stopped <N> <sha> <reason>`):
+#   entrypoint's:  entry-env, entry-token, entry-clone, entry-identity, entry-plugin
+#   the session's: head-moved, checks-pending, checks-red, base-override, needs-human
+# head-moved and checks-pending are checked by the host with the read token: confirmed, each
+# posts nothing and exits 1; otherwise they post stopped-<reason>. An unlisted reason posts
+# stopped-other.
+#
+# The ledger rule. $WOW_HOME/review-state/<owner>/<name>/<N>/<sha>/ is made once per head, so a
+# model session is never repeated automatically past its cap; `--rerun` is how a human repeats
+# one. A new entry is removed on exit only when (a) no session started (the `started` record
+# says so), or (b) the host verified a checks-pending stop and <sha>.frees was below 3 (the
+# counter is then incremented; at 3 the stop is posted as retry-limit and the entry is kept). A
+# confirmed moved head never frees and never counts: the new head has its own entry.
+# A --rerun over an existing entry never frees it and never counts toward retry-limit: a checks-pending stop
+# there exits 1.
+#
+# Logs: $WOW_HOME/review-logs/<name>-<N>-<sha12>-<id>.log holds the launcher's own lines and the
+# session's `docker logs`, capped at 1 MiB and stripped of control bytes. It MAY HOLD SECRETS (a
+# session can print its own token). The broker sweeps review-logs/ by age.
+#
+# Residuals:
+#  - A misleading pass can post. The checks are mechanical, not a judgement of the review's
+#    content; the maintainer's code-owner approval still stops a bad merge.
+#  - Junk issues: at most five per head, with fixed-template, fenced, mention-free and
+#    secret-free bodies.
+#  - Timeline events: an owner/repo#N reference or a URL in the review body or a finding title
+#    still adds a timeline event to that issue or PR.
+#  - What the session can send out. The proxy bounds the host, not the recipient: a session given
+#    a credential in the PR text can send anything it read to any account on github.com or
+#    api.github.com (private contents, issues, Actions logs and artifacts of the repo and a
+#    same-owner backlog). Its inference traffic goes to the maintainer's own Anthropic account
+#    through the injector. Every session token is revoked when the wait ends, so one sent out is
+#    live only until then; that revocation is not yet verified for the stateless token format
+#    (the #636 live run measures it). A failed revocation, or a launcher killed outright, leaves
+#    a copy live for the rest of its hour. Signed URLs the session fetched with a token may
+#    outlive the revocation by minutes.
+#  - The secret rule is an accident guard: a session can encode a token past any filter.
+#  - Quota: the session can spend the Claude credential's quota on any model for the whole timeout.
+#  - Network reach: that the internal network reaches only the two sidecars rests on Docker's
+#    --internal and isolated-gateway behaviour (launch.sh measured it); this launcher checks the
+#    network's configuration and membership, not reachability.
+#  - Docker's own environment (DOCKER_HOST, the current context) is host configuration, used as found.
+#  - A killed launcher leaves review-host/<id>/ behind, its tokens unrevoked and live for the rest
+#    of their hour; only review-sessions/ is swept by the broker.
+#  - A checks-pending stop can be forced up to three times per head by a PR job that holds a
+#    required context unfinished. The cap is the bound.
+#  - Two launchers can race on a stale lock.
+#  - The forged-footer guard is a denylist: it refuses a line that reads as one of the three host footers behind
+#    spaces, markup or zero-width characters, but markup it does not list (an HTML comment, an entity, a
+#    homoglyph) can still render a forged footer. Nothing parses the footer by machine; it can mislead a reader.
+#  - The post phases of concurrent runs are not serialized; each run's post token is its own file.
+set -eu
+set -f
+prog=wow-review
+here=$(CDPATH= cd -P -- "$(dirname -- "$0")" && pwd)
+. "$here/wow-common.sh"
+
+usage() { die "$1 (usage: wow-review <owner/repo> <N> [--rerun])" 2; }
+
+# ---- 1. arguments and environment ------------------------------------------------------------
+repo= num= rerun=0 npos=0
+for a in "$@"; do
+  case $a in
+    --rerun) [ "$rerun" = 0 ] || usage "--rerun given twice"; rerun=1 ;;
+    -*) usage "unknown flag or a name beginning with '-': $a" ;;
+    *) npos=$((npos + 1))
+       if [ "$npos" = 1 ]; then repo=$a; elif [ "$npos" = 2 ]; then num=$a; else usage "too many arguments"; fi ;;
+  esac
+done
+[ "$npos" = 2 ] || usage "need <owner/repo> and <N>"
+case $repo in */*/*|/*|*/|*/) usage "repository must be owner/name" ;; */*) ;; *) usage "repository must be owner/name" ;; esac
+owner=${repo%%/*} name=${repo#*/}
+check_repo "$owner"
+check_repo "$name"
+case $num in ''|0*|*[!0-9]*) usage "<N> must be digits with no leading zero" ;; esac
+
+in_range() { # in_range <value> <min> <max>
+  case $1 in ''|*[!0-9]*|0?*) return 1 ;; esac
+  [ "$1" -ge "$2" ] && [ "$1" -le "$3" ]
+}
+MAXN=${WOW_REVIEW_MAX:-1} TMO=${WOW_REVIEW_TIMEOUT:-5400} REFRESH=${WOW_REVIEW_REFRESH:-1500}
+in_range "$MAXN" 1 9 || usage "WOW_REVIEW_MAX must be 1 to 9"
+in_range "$TMO" 1 6000 || usage "WOW_REVIEW_TIMEOUT must be 1 to 6000 seconds"
+in_range "$REFRESH" 1 1500 || usage "WOW_REVIEW_REFRESH must be 1 to 1500 seconds"
+
+case ${WOW_HOME:-} in
+  /*|[A-Za-z]:[\\/]*) ;;
+  *) usage "WOW_HOME must be set and absolute" ;;
+esac
+HAVE_CYGPATH=$(command -v cygpath 2>/dev/null || :)
+wow_home=$WOW_HOME
+if [ -n "$HAVE_CYGPATH" ]; then wow_home=$(cygpath -u "$WOW_HOME"); fi
+wow_home=${wow_home%/}
+
+exec </dev/null
+PATH="$here:$PATH"; export PATH
+for t in docker gh jq yq timeout; do command -v "$t" >/dev/null 2>&1 || die "$t is not on PATH" 1; done
+
+# gh must have no stored login to fall back to: a private empty config directory (made below).
+unset GH_HOST GH_ENTERPRISE_TOKEN GITHUB_TOKEN GITHUB_ENTERPRISE_TOKEN || :
+unset GH_TOKEN || :
+
+hp() { if [ -n "$HAVE_CYGPATH" ]; then cygpath -m "$1"; else printf '%s\n' "$1"; fi; }
+
+ID="$(date +%s)-$$"
+S="wow-review-session-$ID" H="wow-review-holder-$ID" I="wow-review-inject-$ID" P="wow-review-proxy-$ID"
+NET="wow-review-net-$ID" EXT="wow-review-ext-$ID" WORK="wow-review-work-$ID" OUTV="wow-review-outbox-$ID"
+
+LAUNCHER_PID=$$
+MDIR= HDIR= LOG= LOCK= ENTRY= NEWENTRY=0 FREE=0 HAVELOCK=0 DOCKER_USED=0 REFPID= WAITPID= INJPID=
+CRED= TOK= MINT_ALSO= TAG= pin= TIMEDOUT=0 DL=0 NCOPY=0 INST=
+
+logl() {
+  if [ -n "$LOG" ]; then printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" >>"$LOG" 2>/dev/null || :; fi
+  return 0
+}
+say() { printf '%s: %s\n' "$prog" "$1" >&2; logl "$1"; }
+
+# fin <code> <word>: record the decided outcome in the ledger entry, then exit (the trap cleans up).
+fin() {
+  if [ -n "$ENTRY" ] && [ -d "$ENTRY" ]; then printf '%s %s\n' "$1" "$2" >"$ENTRY/outcome" 2>/dev/null || :; fi
+  logl "exit $1 ($2)"
+  exit "$1"
+}
+fail() { say "$1"; fin "${2:-1}" "${3:-failed}"; }
+
+dk() { timeout 120 docker "$@"; }
+# The docker calls whose arguments carry a container path switch MSYS path conversion off for that call only.
+dkp() { MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' timeout 120 docker "$@"; }
+tc() { sh "$here/token-check.sh" "$@"; }
+gid() { sh "$here/gh-identity.sh" "$@"; }
+mintcmd() { sh "$here/wow-review-mint" "$@"; }
+
+# gh_api <args...>: one gh api call with $TOK, on github.com, bounded. An empty token is never passed on.
+gh_api() {
+  [ -n "${TOK:-}" ] || { echo "$prog: no token for a gh call" >&2; return 1; }
+  GH_TOKEN="$TOK" timeout 60 gh api --hostname github.com "$@"
+}
+
+# ---- cleanup ---------------------------------------------------------------------------------
+revoke_all() {
+  [ -n "$HDIR" ] && [ -d "$HDIR" ] || return 0
+  set +f
+  for f in "$MDIR/session-token" "$HDIR"/copy-*; do
+    [ -f "$f" ] || continue
+    t=$(sed -n 1p "$f" 2>/dev/null | tr -d '\r') || t=
+    case $t in ghs_*) ;; *) continue ;; esac
+    # An expired token is dead already: revoking it would be a pointless call.
+    e=$(sed -n 2p "$f" 2>/dev/null | tr -d '\r')
+    case $e in
+      [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z)
+        if [ "$(printf '%s\n%s\n' "$e" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" | sort | sed -n 1p)" = "$e" ] && [ "$e" != "$(date -u +%Y-%m-%dT%H:%M:%SZ)" ]; then continue; fi ;;
+    esac
+    if [ -f "$HDIR/revoked" ] && printf '%s\n' "$t" | grep -qxFf - "$HDIR/revoked"; then continue; fi
+    if GH_TOKEN=$t timeout 60 gh api --hostname github.com -X DELETE installation/token >/dev/null 2>&1; then
+      printf '%s\n' "$t" >>"$HDIR/revoked"
+      logl "revoked a session token ($f)"
+    else
+      logl "revocation FAILED for a session token ($f); it lives out its hour"
+    fi
+  done
+  set -f
+  return 0
+}
+
+stop_refresher() {
+  if [ -n "$REFPID" ]; then
+    kill -TERM -- "-$REFPID" 2>/dev/null || :
+    kill -TERM "$REFPID" 2>/dev/null || :
+    wait "$REFPID" 2>/dev/null || :
+    REFPID=
+  fi
+  return 0
+}
+
+release_lock() {
+  if [ "$HAVELOCK" = 1 ] && [ -n "$LOCK" ] && [ -d "$LOCK" ] && [ "$(cat "$LOCK/id" 2>/dev/null)" = "$ID" ]; then
+    rm -rf "$LOCK"
+  fi
+  HAVELOCK=0
+  return 0
+}
+
+cleanup() {
+  rc=$?
+  trap '' HUP INT TERM
+  set +e +u
+  stop_refresher
+  [ -z "$WAITPID" ] || kill "$WAITPID" 2>/dev/null
+  [ -z "$INJPID" ] || kill "$INJPID" 2>/dev/null
+  # What the ledger rule needs is read before the host directory goes.
+  started=no
+  if [ -n "$HDIR" ] && [ -e "$HDIR/starting" ]; then
+    started=yes
+    if [ -f "$HDIR/started" ]; then
+      case $(cat "$HDIR/started") in 0001-01-01*) started=no ;; esac
+    fi
+  fi
+  revoke_all
+  if [ "$DOCKER_USED" = 1 ]; then
+    for c in "$S" "$H" "$I" "$P"; do dk rm -f "$c" >/dev/null 2>&1; done
+    dk network rm "$NET" "$EXT" >/dev/null 2>&1
+    dk volume rm -f "$WORK" "$OUTV" >/dev/null 2>&1
+  fi
+  [ -z "$MDIR" ] || rm -rf "$MDIR"
+  [ -z "$HDIR" ] || rm -rf "$HDIR"
+  release_lock
+  if [ "$NEWENTRY" = 1 ] && [ -n "$ENTRY" ] && { [ "$started" = no ] || [ "$FREE" = 1 ]; }; then
+    rm -rf "$ENTRY"
+  fi
+  exit "$rc"
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+# ---- 2. directories --------------------------------------------------------------------------
+MDIR="$wow_home/review-sessions/$name-$num-$ID"
+HDIR="$wow_home/review-host/$name-$num-$ID"
+LOGDIR="$wow_home/review-logs"
+STATE="$wow_home/review-state"
+(umask 077 && mkdir -p -- "$wow_home/review-sessions" "$wow_home/review-host" "$LOGDIR" "$STATE" && mkdir -- "$MDIR" "$HDIR" "$HDIR/gh-config") \
+  || die "cannot create the review directories under $wow_home"
+LOG="$LOGDIR/$name-$num-nopin-$ID.log"
+(umask 077 && : >"$LOG") || die "cannot create the log"
+GH_CONFIG_DIR=$(hp "$HDIR/gh-config"); export GH_CONFIG_DIR
+logl "wow-review $repo $num rerun=$rerun id=$ID"
+
+# ---- 3. first mint ---------------------------------------------------------------------------
+keep_copy() { # keep_copy <label>: keep the session token's current value in the host directory
+  if [ -f "$MDIR/session-token" ]; then cp "$MDIR/session-token" "$HDIR/copy-$1" 2>/dev/null || :; fi
+  return 0
+}
+mint_session() {
+  if [ -n "$MINT_ALSO" ]; then
+    mintcmd "$NAME_FOR_MINT" --read --also "$MINT_ALSO" --out "$MDIR/session-token"
+  else
+    mintcmd "$NAME_FOR_MINT" --read --out "$MDIR/session-token"
+  fi
+}
+NAME_FOR_MINT=$name
+mint_session >/dev/null || fail "the first session-token mint failed"
+tc file "$MDIR/session-token" >/dev/null || fail "the session token failed token-check.sh file"
+
+# ---- 4. reach, the PR, the schema and the identity -------------------------------------------
+ref_ok() { # a ref name: [A-Za-z0-9._/-], no leading '-', no leading/trailing '/', no '..' segment
+  case $1 in
+    ''|-*|/*|*/|*[!A-Za-z0-9._/-]*) return 1 ;;
+    ..|../*|*/..|*/../*) return 1 ;;
+  esac
+  return 0
+}
+enc_ref() { printf '%s' "$1" | jq -Rr 'split("/") | map(@uri) | join("/")' | tr -d '\r'; }
+
+TOK=$(tc token "$MDIR/session-token") && [ -n "$TOK" ] || fail "cannot read the session token"
+INST="$HDIR/installation"
+gh_api --paginate installation/repositories --jq '.repositories[].full_name' >"$INST" || fail "installation/repositories failed"
+reached=$(gid reach "$repo" <"$INST") || fail "the reach check could not read the installation records"
+[ "$reached" = reached ] || fail "the session token's installation does not reach $repo"
+
+defbr=$(gh_api "repos/$repo" --jq .default_branch | tr -d '\r') || fail "cannot read the default branch"
+ref_ok "$defbr" || fail "the default branch name is not acceptable"
+prtsv=$(gh_api "repos/$repo/pulls/$num" --jq '[.state, .head.sha, .base.ref] | @tsv' | tr -d '\r') || fail "cannot read PR #$num"
+tab=$(printf '\t')
+IFS=$tab read -r prstate pin baseref <<EOF
+$prtsv
+EOF
+ref_ok "$baseref" || fail "the PR's base ref is not acceptable"
+[ "$prstate" = open ] || fail "PR #$num is not open"
+case $pin in *[!0-9a-f]*) fail "the PR head is not a 40-hex SHA" ;; esac
+[ "${#pin}" = 40 ] || fail "the PR head is not a 40-hex SHA"
+sha12=$(printf '%s' "$pin" | cut -c1-12)
+newlog="$LOGDIR/$name-$num-$sha12-$ID.log"
+mv "$LOG" "$newlog" && LOG=$newlog
+logl "pin $pin base $baseref default $defbr"
+defenc=$(enc_ref "$defbr")
+baseenc=$(enc_ref "$baseref")
+
+DEF="$HDIR/def.yml"
+gh_api -H 'Accept: application/vnd.github.raw+json' "repos/$repo/contents/.ai/project.yml" >"$DEF" || fail "cannot read the default branch's .ai/project.yml"
+
+not_gated() { fail "not an App-mode gated repo: $1" 6 not-gated; }
+yq_s() { yq -r "$1" <"$DEF" 2>/dev/null | tr -d '\r'; }
+[ "$(yq_s '.identities | tag')" = '!!map' ] || not_gated "identities is not a map"
+[ "$(yq_s '.identities.reviewer_app | tag')" = '!!map' ] || not_gated "no reviewer_app"
+[ "$(yq_s '.review.ci_gate | tag')" = '!!map' ] || not_gated "no review.ci_gate"
+for k in header attestation check; do
+  [ "$(yq_s ".review.ci_gate.$k | tag")" = '!!str' ] || not_gated "review.ci_gate.$k is not a string"
+done
+HDR=$(yq -er '.review.ci_gate.header' <"$DEF") || not_gated "unreadable header"
+ATT=$(yq -er '.review.ci_gate.attestation' <"$DEF") || not_gated "unreadable attestation"
+GATE=$(yq -er '.review.ci_gate.check' <"$DEF") || not_gated "unreadable check"
+nl='
+'
+for v in "$HDR" "$ATT" "$GATE"; do
+  case $v in ''|*"$nl"*) not_gated "a gate string is empty or multi-line" ;; esac
+done
+TRIG_EXPR='((.review.ci_gate.triggers_on | select(tag != "!!null")) // .code_paths)'
+[ "$(yq_s "$TRIG_EXPR | tag")" = '!!seq' ] || not_gated "no trigger list"
+[ "$(yq_s "$TRIG_EXPR | length")" -ge 1 ] 2>/dev/null || not_gated "an empty trigger list"
+[ -z "$(yq_s "$TRIG_EXPR | .[] | select(tag != \"!!str\") | tag")" ] && [ -z "$(yq_s "$TRIG_EXPR | .[] | select(length == 0) | tag")" ] || not_gated "a trigger entry is not a non-empty string"
+TRIGGERS=$(yq -o=json -I=0 "$TRIG_EXPR" <"$DEF") || not_gated "unreadable trigger list"
+[ "$(yq_s '.identities.reviewer_app.id | tag')" = '!!int' ] || not_gated "reviewer_app.id is not an integer"
+RID=$(yq_s '.identities.reviewer_app.id')
+case $RID in ''|0*|*[!0-9]*) not_gated "reviewer_app.id is not a positive integer" ;; esac
+[ "$(yq_s '.models.architect | tag')" = '!!str' ] || not_gated "models.architect is not a string"
+MODEL=$(yq_s '.models.architect')
+case $MODEL in ''|-*|*[!A-Za-z0-9._-]*) not_gated "models.architect is not plain characters" ;; esac
+BTAG=$(yq_s '.backlog.repo | tag')
+BREPO=$repo
+case $BTAG in
+  '!!null') ;;
+  '!!str')
+    BREPO=$(yq_s '.backlog.repo')
+    case $BREPO in */*/*|/*|*/|*/) not_gated "backlog.repo is not owner/name" ;; */*) ;; *) not_gated "backlog.repo is not owner/name" ;; esac
+    (check_repo "${BREPO%%/*}" && check_repo "${BREPO#*/}") >/dev/null 2>&1 || not_gated "backlog.repo is not owner/name" ;;
+  *) not_gated "backlog.repo is neither null nor a string" ;;
+esac
+BKIND=$(yq_s '.backlog.kind')
+
+# The identity: GraphQL viewer (the only GraphQL query in this script), fixed, sent with --input.
+jq -n '{query: "{ viewer { login databaseId } }"}' >"$HDIR/viewer.json"
+viewer() { # viewer: print "<login> <id>" for the current $TOK
+  gh_api graphql --input "$(hp "$HDIR/viewer.json")" --jq '.data.viewer | [.login, (.databaseId | tostring)] | @tsv' | tr -d '\r'
+}
+VW=$(viewer) || fail "the viewer query failed"
+IFS=$tab read -r vlogin vid <<EOF
+$VW
+EOF
+[ -n "$vlogin" ] && [ -n "$vid" ] || fail "the viewer query returned nothing"
+vr=$(tc verify reviewer_app "$repo" "$MDIR/session-token" "$INST" "$DEF" "$vlogin" "$vid") && [ "$vr" = app ] \
+  || fail "the session token is not the declared reviewer App"
+
+# The backlog.
+BACKLOG_REASON=
+BNAME=${BREPO#*/} BOWNER=${BREPO%%/*}
+lower() { printf '%s' "$1" | tr 'A-Z' 'a-z'; }
+if [ "$BKIND" != github_issues ]; then
+  BACKLOG_REASON=no-issue-backlog
+elif [ "$(lower "$BOWNER")" != "$(lower "$owner")" ]; then
+  BACKLOG_REASON=cross-owner-backlog
+elif [ "$(lower "$BNAME")" != "$(lower "$name")" ]; then
+  MINT_ALSO=$BNAME
+  keep_copy "b$NCOPY"; NCOPY=$((NCOPY + 1))
+  mint_session >/dev/null || fail "the backlog session-token mint failed"
+  tc file "$MDIR/session-token" >/dev/null || fail "the two-repo session token failed token-check.sh file"
+  TOK=$(tc token "$MDIR/session-token") && [ -n "$TOK" ] || fail "cannot read the session token"
+  gh_api --paginate installation/repositories --jq '.repositories[].full_name' >"$INST" || fail "installation/repositories failed"
+  for r in "$repo" "$BREPO"; do
+    reached=$(gid reach "$r" <"$INST") && [ "$reached" = reached ] || fail "the two-repo session token does not reach $r"
+  done
+fi
+BACKLOG_MINT_NAME=$BNAME
+
+# ---- 5. lock, ledger and cap -----------------------------------------------------------------
+LOCK="$STATE/.lock"
+take_lock() {
+  if mkdir "$LOCK" 2>/dev/null; then printf '%s\n' "$ID" >"$LOCK/id"; HAVELOCK=1; return 0; fi
+  return 1
+}
+if ! take_lock; then
+  if [ -n "$(find "$LOCK" -prune -mmin +60 2>/dev/null)" ]; then
+    mv "$LOCK" "$LOCK.stale.$ID" 2>/dev/null && rm -rf "$LOCK.stale.$ID"
+    logl "cleared a stale lock"
+    take_lock || fail "the lock is held" 75 busy
+  else
+    fail "the lock is held" 75 busy
+  fi
+fi
+
+ENTRY_PARENT="$STATE/$owner/$name/$num"
+ENTRY="$ENTRY_PARENT/$pin"
+mkdir -p -- "$ENTRY_PARENT"
+ENTRY_EXISTS=0
+[ -d "$ENTRY" ] && ENTRY_EXISTS=1
+if [ "$ENTRY_EXISTS" = 1 ] && [ "$rerun" = 0 ]; then
+  ENTRY=
+  release_lock
+  say "this head already has a ledger entry (--rerun repeats it)"
+  exit 5
+fi
+
+DOCKER_USED=1
+now=$(date +%s)
+sweep() { # sweep <label>
+  dk ps -a --filter "label=$1" --format '{{.ID}} {{.Label "wow.review.deadline"}}' 2>/dev/null | tr -d '\r' | while IFS=' ' read -r cid dl; do
+    [ -n "$cid" ] || continue
+    case $dl in ''|*[!0-9]*) dl=0 ;; esac
+    if [ "$dl" -le "$now" ]; then
+      if dk rm -f "$cid" >/dev/null 2>&1; then logl "removed an overdue container $cid"; fi
+    fi
+  done
+  return 0
+}
+sweep wow.review=1
+sweep wow.review.holder=1
+dk ps -q --filter label=wow.review=1 >"$STATE/.ps.$ID" || { rm -f "$STATE/.ps.$ID"; fail "docker ps failed; the cap cannot be counted"; }
+running=$(tr -d '\r' <"$STATE/.ps.$ID" | grep -c . || :)
+rm -f "$STATE/.ps.$ID"
+if [ "$running" -ge "$MAXN" ]; then
+  ENTRY=
+  fail "the cap is reached ($running running)" 75 busy
+fi
+if [ "$ENTRY_EXISTS" = 0 ]; then
+  mkdir "$ENTRY" || { ENTRY=; fail "cannot create the ledger entry" 5 duplicate; }
+  NEWENTRY=1
+fi
+FREES="$ENTRY.frees"
+
+# ---- 6. image --------------------------------------------------------------------------------
+mcommit=$(sed -n 's/^commit \([0-9a-f]\{40\}\)\r\{0,1\}$/\1/p' "$here/MANIFEST" 2>/dev/null | head -n 1)
+[ -n "$mcommit" ] || fail "cannot read the installed commit from $here/MANIFEST"
+TAG="wow-review:$(printf '%s' "$mcommit" | cut -c1-12)"
+if ! dk image inspect "$TAG" >/dev/null 2>&1; then
+  timeout 1800 docker build -q -t "$TAG" "$(hp "$here/review")" >/dev/null || fail "docker build failed"
+fi
+
+# ---- 7. networks and sidecars ----------------------------------------------------------------
+CF="$wow_home/claude-credential"
+[ -s "$CF" ] || fail "$CF is missing or empty"
+CRED=$(head -n 1 "$CF" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+[ -n "$CRED" ] || fail "$CF has no credential on its first line"
+
+HARDEN="--read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit 512"
+dk network create --internal -o com.docker.network.bridge.gateway_mode_ipv4=isolated "$NET" >/dev/null || fail "cannot create the internal network"
+dk network create "$EXT" >/dev/null || fail "cannot create the external network"
+# shellcheck disable=SC2086
+dkp run -d --name "$P" --network "$NET" $HARDEN --memory 256m --tmpfs /tmp:rw,nosuid,size=16m \
+  -e "LOOP_ALLOW_HOSTS=github.com,api.github.com" --entrypoint python3 "$TAG" /opt/review/proxy.py >/dev/null || fail "cannot start the proxy"
+dk network connect "$EXT" "$P" >/dev/null || fail "cannot connect the proxy to the external network"
+# shellcheck disable=SC2086
+dkp create -i --name "$I" --network "$NET" $HARDEN --memory 256m --tmpfs /tmp:rw,nosuid,size=16m \
+  -e "LOOP_CREDENTIAL_ENV=CLAUDE_CODE_OAUTH_TOKEN" --entrypoint python3 "$TAG" /opt/review/inject.py >/dev/null || fail "cannot create the injector"
+dk network connect "$EXT" "$I" >/dev/null || fail "cannot connect the injector to the external network"
+# The credential reaches the injector's stdin from a builtin's pipe: no file, argument or variable of the container.
+printf '%s\n' "$CRED" | docker start -ai "$I" >/dev/null 2>&1 &   # unbounded on purpose: it stays attached for the whole run
+INJPID=$!
+up=0
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  if dk logs "$I" 2>&1 | grep -q '^inject up'; then up=1; break; fi
+  sleep 1
+done
+[ "$up" = 1 ] || fail "the injector did not report 'inject up'"
+
+# ---- 8. volumes and the holder ---------------------------------------------------------------
+DL=$(( $(date +%s) + TMO + 600 ))
+dk volume create --opt type=tmpfs --opt device=tmpfs --opt o=size=2g,uid=1000,gid=1000 "$WORK" >/dev/null || fail "cannot create the work volume"
+dk volume create --opt type=tmpfs --opt device=tmpfs --opt o=size=64m,uid=1000,gid=1000 "$OUTV" >/dev/null || fail "cannot create the outbox volume"
+dkp run -d --name "$H" --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+  --label wow.review.holder=1 --label "wow.review.deadline=$DL" \
+  --mount "type=volume,source=$OUTV,target=/review-out,readonly,volume-nocopy=true" \
+  --entrypoint sleep "$TAG" infinity >/dev/null || fail "cannot start the outbox holder"
+
+# ---- 9. create, preflight, re-mint, start, unlock --------------------------------------------
+dkp create --name "$S" --label wow.review=1 --label "wow.review.deadline=$DL" --network "$NET" \
+  --read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit 512 --memory 4g --cgroupns private --ipc private \
+  --log-opt max-size=10m --log-opt max-file=1 \
+  --tmpfs /tmp:rw,nosuid,size=512m --tmpfs /home/app:rw,nosuid,uid=1000,gid=1000,mode=0700,size=1g \
+  --mount "type=volume,source=$WORK,target=/work,volume-nocopy=true" \
+  --mount "type=volume,source=$OUTV,target=/review-out,volume-nocopy=true" \
+  --mount "type=bind,source=$(hp "$MDIR"),target=/run/glunk-identity/review,readonly" \
+  -e "WOW_REVIEW_REPO=$repo" -e "WOW_REVIEW_PR=$num" -e "WOW_REVIEW_SHA=$pin" -e "WOW_REVIEW_MODEL=$MODEL" \
+  -e "ANTHROPIC_BASE_URL=http://$I:8080" -e "CLAUDE_CODE_OAUTH_TOKEN=wow-review-placeholder-not-a-credential" \
+  -e "HTTPS_PROXY=http://$P:3128" -e "HTTP_PROXY=http://$P:3128" -e "NO_PROXY=$I" -e "no_proxy=$I" \
+  "$TAG" >/dev/null || fail "cannot create the session container"
+
+PLACEHOLDER=wow-review-placeholder-not-a-credential
+dk inspect "$S" >"$HDIR/insp-session.json" || fail "preflight: cannot inspect the session"
+dk inspect "$H" >"$HDIR/insp-holder.json" || fail "preflight: cannot inspect the holder"
+dk inspect "$P" >"$HDIR/insp-proxy.json" || fail "preflight: cannot inspect the proxy"
+dk inspect "$I" >"$HDIR/insp-inject.json" || fail "preflight: cannot inspect the injector"
+dk network inspect "$NET" >"$HDIR/insp-net.json" || fail "preflight: cannot inspect the network"
+
+pfail() { fail "preflight failed: $1"; }
+jq -e '(.[0].HostConfig.CapAdd // []) | length == 0' <"$HDIR/insp-session.json" >/dev/null 2>&1 || pfail "the session adds capabilities"
+jq -e '(.[0].HostConfig.SecurityOpt // []) | index("no-new-privileges") != null' <"$HDIR/insp-session.json" >/dev/null 2>&1 || pfail "the session lacks no-new-privileges"
+jq -e '[.[0].HostConfig.PidMode, .[0].HostConfig.IpcMode, .[0].HostConfig.UsernsMode, .[0].HostConfig.CgroupnsMode] | all(. != "host")' <"$HDIR/insp-session.json" >/dev/null 2>&1 || pfail "the session shares a host namespace"
+jq -e '(.[0].HostConfig.Devices // []) | length == 0' <"$HDIR/insp-session.json" >/dev/null 2>&1 || pfail "the session has devices"
+jq -e '(.[0].Config.User // "") as $u | ($u != "" and $u != "root" and $u != "0" and ($u | startswith("0:") | not) and ($u | startswith("root:") | not))' <"$HDIR/insp-session.json" >/dev/null 2>&1 || pfail "the session user is root"
+jq -e '.[0].HostConfig.ReadonlyRootfs == true' <"$HDIR/insp-session.json" >/dev/null 2>&1 || pfail "the session root filesystem is writable"
+jq -e '(.[0].HostConfig.CapDrop // []) | index("ALL") != null' <"$HDIR/insp-session.json" >/dev/null 2>&1 || pfail "capabilities are not all dropped"
+jq -e '.[0].HostConfig.Privileged == false' <"$HDIR/insp-session.json" >/dev/null 2>&1 || pfail "the session is privileged"
+jq -e --arg n "$NET" '.[0].HostConfig.NetworkMode == $n' <"$HDIR/insp-session.json" >/dev/null 2>&1 || pfail "the session is not on the internal network"
+jq -e --arg w "$WORK" --arg o "$OUTV" '
+  (.[0].Mounts | length) == 3
+  and ([.[0].Mounts[] | select(.Type == "bind")] | length) == 1
+  and ([.[0].Mounts[] | select(.Type == "bind" and .RW == false and .Destination == "/run/glunk-identity/review")] | length) == 1
+  and ([.[0].Mounts[] | select(.Type == "volume" and .Name == $w and .Destination == "/work")] | length) == 1
+  and ([.[0].Mounts[] | select(.Type == "volume" and .Name == $o and .Destination == "/review-out")] | length) == 1
+  and ((.[0] | tostring | test("docker\\.sock")) | not)' <"$HDIR/insp-session.json" >/dev/null 2>&1 || pfail "the session mounts are not exactly the bind and the two volumes"
+jq -e '.[0].Internal == true and .[0].EnableIPv6 == false and (.[0].Options["com.docker.network.bridge.gateway_mode_ipv4"] == "isolated")
+  and ([.[0].IPAM.Config[]? | select(.Gateway != null and .Gateway != "")] | length) == 0' <"$HDIR/insp-net.json" >/dev/null 2>&1 || pfail "the network is not internal and isolated"
+jq -e --arg p "$P" --arg i "$I" '([.[0].Containers[]?.Name] | sort) == ([$p, $i] | sort)' <"$HDIR/insp-net.json" >/dev/null 2>&1 || pfail "the network does not hold exactly the proxy and the injector"
+jq -e --arg ph "CLAUDE_CODE_OAUTH_TOKEN=$PLACEHOLDER" '[.[0].Config.Env[]? | select(startswith("CLAUDE_CODE_OAUTH_TOKEN="))] == [$ph]' <"$HDIR/insp-session.json" >/dev/null 2>&1 || pfail "the session's credential variable is not the placeholder"
+cat "$HDIR/insp-session.json" "$HDIR/insp-holder.json" "$HDIR/insp-proxy.json" "$HDIR/insp-inject.json" >"$HDIR/insp-all.json"
+if printf '%s\n' "$CRED" | grep -qFf - "$HDIR/insp-all.json"; then pfail "the credential appears in docker inspect output"; fi
+jq -e --arg o "$OUTV" '.[0].State.Running == true and .[0].HostConfig.NetworkMode == "none"
+  and (.[0].Mounts | length) == 1 and (.[0].Mounts[0].Type == "volume" and .[0].Mounts[0].Name == $o and .[0].Mounts[0].Destination == "/review-out" and .[0].Mounts[0].RW == false)' <"$HDIR/insp-holder.json" >/dev/null 2>&1 || pfail "the holder is not a running, network-less, read-only mount of the outbox"
+
+# Re-mint immediately before the start: dev-token refuses a token with under five minutes left.
+keep_copy "m$NCOPY"; NCOPY=$((NCOPY + 1))
+mint_session >/dev/null || fail "the pre-start session-token re-mint failed"
+tc file "$MDIR/session-token" >/dev/null || fail "the re-minted session token failed token-check.sh file"
+
+refresher() {
+  trap 'kill "$SP" 2>/dev/null; exit 0' TERM HUP INT
+  rn=0
+  while :; do
+    sleep "$REFRESH" &
+    SP=$!
+    wait "$SP"
+    # A launcher killed outright cannot run its trap: stop minting once it is gone.
+    kill -0 "$LAUNCHER_PID" 2>/dev/null || exit 0
+    rn=$((rn + 1))
+    if [ -f "$MDIR/session-token" ]; then cp "$MDIR/session-token" "$HDIR/copy-r$rn" 2>/dev/null || :; fi
+    if mint_session >/dev/null 2>&1; then
+      logl "refresher: re-minted the session token ($rn)"
+    else
+      logl "refresher: the re-mint FAILED ($rn); the current token stays in use"
+    fi
+  done
+}
+set -m
+refresher </dev/null >/dev/null 2>&1 &
+REFPID=$!
+set +m
+
+: >"$HDIR/starting"
+srt=0
+dk start "$S" >/dev/null 2>&1 || srt=$?
+if dk inspect "$S" >"$HDIR/start-inspect.json" 2>/dev/null; then
+  jq -r '.[0].State.StartedAt' <"$HDIR/start-inspect.json" >"$HDIR/started" 2>/dev/null || rm -f "$HDIR/started"
+fi
+release_lock
+if [ "$srt" != 0 ]; then
+  case $(cat "$HDIR/started" 2>/dev/null) in
+    0001-01-01*) fail "docker start failed ($srt) and the session never started" ;;
+  esac
+fi
+
+# ---- 10. wait, bounded -----------------------------------------------------------------------
+( wr=0; timeout "$TMO" docker wait "$S" >"$HDIR/wait-out" 2>&1 || wr=$?; echo "$wr" >"$HDIR/wait-rc" ) &
+WAITPID=$!
+wait "$WAITPID" || :
+WAITPID=
+wrc=$(cat "$HDIR/wait-rc" 2>/dev/null || echo 1)
+logl "docker wait returned $wrc"
+if [ "$wrc" = 124 ]; then
+  TIMEDOUT=1
+  logl "the session passed the $TMO second bound; killing it"
+  dk kill "$S" >/dev/null 2>&1 || :
+fi
+if dk inspect "$S" >"$HDIR/stop-inspect.json" 2>/dev/null; then
+  if [ "$(jq -r '.[0].State.Running' <"$HDIR/stop-inspect.json" 2>/dev/null | tr -d '\r')" != false ]; then
+    TIMEDOUT=1
+    logl "the session is still running after the wait; killing it"
+    dk kill "$S" >/dev/null 2>&1 || :
+  fi
+  sa=$(jq -r '.[0].State.StartedAt' <"$HDIR/stop-inspect.json" 2>/dev/null | tr -d '\r' || :)
+  case $sa in ''|0001-01-01*|null) ;; *) printf '%s\n' "$sa" >"$HDIR/started" ;; esac
+else
+  TIMEDOUT=1
+  logl "cannot inspect the session after the wait; treating it as timed out"
+  dk kill "$S" >/dev/null 2>&1 || :
+fi
+stop_refresher
+
+# Revoke before anything slow touches the session's output: the token must not outlive the wait.
+revoke_all
+
+# The session's own log, before any container is removed: capped, C0 and DEL deleted, each C1 pair replaced by ? in one pass (never a loop: nested pairs would be quadratic).
+c2=$(printf '\302'); lo=$(printf '\200'); hi=$(printf '\237')
+{
+  printf '%s\n' '--- session log (docker logs; capped at 1 MiB, control bytes removed; may hold secrets) ---'
+  dk logs "$S" 2>&1 | LC_ALL=C tr -d '\000-\010\013-\037\177' | LC_ALL=C sed "s/${c2}[${lo}-${hi}]/?/g" | head -c 1048576
+  printf '\n%s\n' '--- end of session log ---'
+} >>"$LOG" 2>/dev/null || :
+
+
+mint_read() {
+  if [ -n "$MINT_ALSO" ]; then mintcmd "$name" --read --also "$MINT_ALSO" --out "$HDIR/read-token"; else mintcmd "$name" --read --out "$HDIR/read-token"; fi
+}
+mint_read >/dev/null || fail "the fresh read-token mint failed; nothing was decided or posted"
+tc file "$HDIR/read-token" >/dev/null || fail "the read token failed token-check.sh file"
+
+# ---- 11. read the outbox ---------------------------------------------------------------------
+OBRC_outcome=3 OBRC_body=3 OBRC_findings=3
+read_outbox() { # read_outbox <outcome|body|findings>: the file lands in $HDIR/ob-<kind>, the result in OBRC_<kind>
+  rc=0
+  dkp run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges --tmpfs /tmp:rw,nosuid,size=1m \
+    --mount "type=volume,source=$OUTV,target=/review-out,readonly,volume-nocopy=true" \
+    --entrypoint /usr/local/libexec/outbox-read "$TAG" "$1" >"$HDIR/ob-$1" 2>"$HDIR/ob-$1.err" || rc=$?
+  eval "OBRC_$1=$rc"
+  if [ "$rc" != 0 ] && [ "$rc" != 3 ]; then
+    logl "outbox-read $1 refused: $(head -c 40 "$HDIR/ob-$1.err" | tr -cd 'a-z-')"
+  fi
+  return 0
+}
+if [ "$TIMEDOUT" = 0 ]; then
+  read_outbox outcome
+fi
+
+# ---- 12. decide ------------------------------------------------------------------------------
+ACTION= CODE= FOOT=
+RTOK=$(tc token "$HDIR/read-token") && [ -n "$RTOK" ] || fail "cannot read the read token"
+TOK=$RTOK
+
+pr_head() { # the head SHA, or a failure: the call's status is not hidden behind a pipe
+  gh_api "repos/$repo/pulls/$num" --jq .head.sha >"$HDIR/pr-head" || return 1
+  tr -d '\r' <"$HDIR/pr-head"
+}
+
+has_mention() { # has_mention <file>
+  LC_ALL=C grep -Eq '(^|[^A-Za-z0-9_])@[A-Za-z0-9]' "$1" && return 0
+  LC_ALL=C grep -Eiq '&#0*64([^0-9]|$)|&#x0*40([^0-9a-f]|$)|&commat;' "$1" && return 0
+  return 1
+}
+has_secret() { # has_secret <file>
+  LC_ALL=C grep -Eq 'gh[spour]_[A-Za-z0-9._-]{36,}|github_pat_[A-Za-z0-9_]{22,}|sk-ant-[A-Za-z0-9_-]{20,}' "$1"
+}
+
+decide_exempt() {
+  [ "$baseref" = "$defbr" ] || { ACTION=failure; CODE=bad-outcome; logl "exempt: the base is not the default branch"; return; }
+  bad=$(printf '%s' "$TRIGGERS" | jq -r '[.[] | select(test("[*?\\[\\]{}!]") or startswith("/") or startswith("./") or (split("/") | any(. == "..")))] | length' | tr -d '\r')
+  [ "$bad" = 0 ] || { ACTION=failure; CODE=bad-outcome; logl "exempt: an unusable trigger entry"; return; }
+  tip=$(gh_api "repos/$repo/git/ref/heads/$defenc" --jq .object.sha | tr -d '\r') || fail "cannot resolve the default branch tip"
+  case $tip in *[!0-9a-f]*|'') fail "the default branch tip is not a SHA" ;; esac
+  [ "${#tip}" = 40 ] || fail "the default branch tip is not a SHA"
+  gh_api "repos/$repo/compare/$tip...$pin" >"$HDIR/compare.json" || { ACTION=failure; CODE=bad-outcome; logl "exempt: the compare failed"; return; }
+  ok=$(jq -r --argjson t "$TRIGGERS" '
+    if ((.status == "ahead" or .status == "diverged") and ((.ahead_by // 0) >= 1)
+        and ((.files | type) == "array") and (.files | length) >= 1 and (.files | length) < 300
+        and ([.files[] | select(.status == "renamed" and ((.previous_filename // "") == ""))] | length) == 0)
+    then ([.files[] | .filename, .previous_filename] | map(select(. != null))
+          | any(.[]; . as $p | any($t[]; . as $e | $p | startswith($e)))) | if . then "match" else "clear" end
+    else "incomplete" end' <"$HDIR/compare.json" 2>/dev/null | tr -d '\r') || ok=incomplete
+  if [ "$ok" = clear ]; then
+    fin 4 exempt
+  fi
+  ACTION=failure CODE=bad-outcome
+  logl "exempt: not verified ($ok)"
+}
+
+decide_already() {
+  gh_api --paginate "repos/$repo/pulls/$num/reviews" \
+    --jq '.[] | {uid: .user.id, commit_id: .commit_id, state: .state, submitted_at: .submitted_at, body: .body}' >"$HDIR/reviews.json" \
+    || fail "cannot read the PR's reviews"
+  if jq -e -s --argjson rid "$RID" --arg sha "$pin" --arg h "$HDR" --arg a "$ATT" '
+      any(.[]; .uid == $rid and .commit_id == $sha and .state == "COMMENTED" and .submitted_at != null
+               and (((.body // "") | split("\n")) as $l | ($l[0] == $h and $l[2] == $a)))' <"$HDIR/reviews.json" >/dev/null 2>&1; then
+    fin 4 already-reviewed
+  fi
+  ACTION=failure CODE=bad-outcome
+  logl "already-reviewed: no matching review"
+}
+
+decide_stopped() {
+  reason=$1
+  case $reason in
+    entry-env|entry-token|entry-clone|entry-identity|entry-plugin|head-moved|checks-pending|checks-red|base-override|needs-human) ;;
+    *) ACTION=failure CODE=stopped-other; return ;;
+  esac
+  ACTION=failure CODE="stopped-$reason"
+  case $reason in
+    head-moved)
+      cur=$(pr_head) || fail "cannot re-read the PR head"
+      if [ "$cur" != "$pin" ]; then
+        say "the head moved ($cur); nothing posted, entry kept"
+        fin 1 head-moved
+      fi ;;
+    checks-pending)
+      gh_api --paginate "repos/$repo/rules/branches/$baseenc" \
+        --jq '.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context' >"$HDIR/required" \
+        || fail "cannot read the required checks"
+      gh_api --paginate "repos/$repo/commits/$pin/status" --jq '.statuses[] | ["status", .context, .state] | @tsv' >"$HDIR/g-status" \
+        || fail "cannot read the commit statuses"
+      gh_api --paginate "repos/$repo/commits/$pin/check-runs" --jq '.check_runs[] | ["check-run", .name, .status, (.conclusion // "")] | @tsv' >"$HDIR/g-runs" \
+        || fail "cannot read the check runs"
+      cat "$HDIR/g-status" "$HDIR/g-runs" >"$HDIR/g-all"
+      pending=0
+      while IFS= read -r ctx || [ -n "$ctx" ]; do
+        ctx=$(printf '%s' "$ctx" | tr -d '\r')
+        [ -n "$ctx" ] && [ "$ctx" != "$GATE" ] || continue
+        st=$(sh "$here/review-gate-state.sh" "$ctx" <"$HDIR/g-all" 2>/dev/null) || st=unknown
+        [ "$st" != pending ] || pending=1
+      done <"$HDIR/required"
+      if [ "$pending" = 1 ]; then
+        n=$(cat "$FREES" 2>/dev/null || echo 0)
+        case $n in ''|*[!0-9]*) n=0 ;; esac
+        if [ "$NEWENTRY" = 0 ]; then
+          say "a required check is still running; nothing posted (a --rerun entry is never freed)"
+          fin 1 checks-pending
+        elif [ "$n" -ge 3 ]; then
+          ACTION=failure CODE=retry-limit
+        else
+          printf '%s\n' $((n + 1)) >"$FREES"
+          FREE=1
+          say "a required check is still running; nothing posted, the entry is freed ($((n + 1)) of 3)"
+          fin 1 checks-pending
+        fi
+      fi ;;
+  esac
+}
+
+# The findings validation (step 13); sets FOOT and WILLFILE.
+WILLFILE=0 NFIND=0
+validate_findings() {
+  F="$HDIR/ob-findings"
+  nofind="Host: no findings to file"
+  if [ "$OBRC_findings" = 3 ]; then FOOT=$nofind; return; fi
+  nf() { FOOT="Host: findings not filed ($1)"; }
+  [ "$OBRC_findings" = 0 ] || { nf findings-unreadable; return; }
+  jq -e . <"$F" >/dev/null 2>&1 || { nf findings-unreadable; return; }
+  jq -e -s 'length == 1 and (.[0] | type) == "array"' <"$F" >/dev/null 2>&1 || { nf findings-shape; return; }
+  jq -e 'all(.[]; type == "object"
+      and ((keys - ["area"]) | sort) == ["body", "title", "type"]
+      and (.title | type) == "string" and (.body | type) == "string" and (.type | type) == "string"
+      and ((has("area") | not) or (.area | type) == "string"))' <"$F" >/dev/null 2>&1 || { nf findings-shape; return; }
+  jq -e 'length <= 5' <"$F" >/dev/null 2>&1 || { nf findings-count; return; }
+  jq -e 'all(.[]; (.title | length) >= 1 and (.title | length) <= 120)' <"$F" >/dev/null 2>&1 || { nf findings-title; return; }
+  jq -e 'all(.[]; (.body | utf8bytelength) <= 4000)' <"$F" >/dev/null 2>&1 || { nf findings-body; return; }
+  jq -e 'all(.[]; .type == "bug" or .type == "feature" or .type == "chore" or .type == "docs")' <"$F" >/dev/null 2>&1 || { nf findings-type; return; }
+  jq -e 'all(.[]; (has("area") | not) or (.area | test("\\Aarea/[a-z0-9-]+\\z")))' <"$F" >/dev/null 2>&1 || { nf findings-area; return; }
+  jq -e 'all(.[]; ((.title | explode | any(. < 32 or (. >= 127 and . <= 159))) or (.body | explode | any((. < 32 and . != 9 and . != 10) or (. >= 127 and . <= 159)))) | not)' <"$F" >/dev/null 2>&1 || { nf findings-control; return; }
+  jq -r '.[] | .title, .body' <"$F" >"$HDIR/findings-text" 2>/dev/null || { nf findings-unreadable; return; }
+  if has_mention "$HDIR/findings-text"; then nf findings-mention; return; fi
+  if has_secret "$HDIR/findings-text"; then nf findings-secret; return; fi
+  NFIND=$(jq -r 'length' <"$F" | tr -d '\r')
+  if [ "$NFIND" = 0 ]; then FOOT=$nofind; return; fi
+  if [ -n "$BACKLOG_REASON" ]; then nf "$BACKLOG_REASON"; return; fi
+  if [ "$rerun" = 1 ] && [ -s "$ENTRY/filed" ]; then nf already-filed; return; fi
+  FOOT="Host: $NFIND findings will be filed in $BREPO"
+  WILLFILE=1
+}
+
+decide_review() {
+  ACTION=failure
+  read_outbox body
+  case $OBRC_body in 0) ;; 3) CODE=no-body; return ;; *) CODE=bad-body; return ;; esac
+  B="$HDIR/ob-body"
+  # Valid UTF-8: jq replaces an invalid byte with U+FFFD, so a clean round trip is the proof.
+  if ! jq -j -R -s . <"$B" 2>/dev/null | tr -d '\r' | cmp -s - "$B"; then CODE=bad-body; return; fi
+  # A forged host footer: a line that reads "Host:" once leading space, markup and zero-width characters are ignored.
+  zw1=$(printf '\342\200'); zwlo=$(printf '\213'); zwhi=$(printf '\217'); bom=$(printf '\357\273\277')
+  if LC_ALL=C grep -q '^Host: ' "$B" || LC_ALL=C grep -Eq "^([[:space:]*_>#\`~|-]|${zw1}[${zwlo}-${zwhi}]|${bom})*Host: (no findings to file|findings not filed|[0-9]+ findings will be filed)" "$B"; then CODE=bad-body; return; fi
+  if [ "$(sed -n 1p "$B")" != "$HDR" ] || [ -n "$(sed -n 2p "$B")" ] || [ "$(sed -n 3p "$B")" != "$ATT" ] || [ "$(sed -n '$=' "$B")" -lt 3 ]; then
+    CODE=header-mismatch; return
+  fi
+  if ! LC_ALL=C grep -qxF "Reviewed against head $pin" "$B"; then CODE=no-head-line; return; fi
+  if has_mention "$B"; then CODE=mention; return; fi
+  if has_secret "$B"; then CODE=secret; return; fi
+  read_outbox findings
+  validate_findings
+  # The final body: the checked body, one blank line, the footer.
+  { cat "$B"; if [ "$(tail -c 1 "$B" | od -An -tx1 | tr -d ' \n')" = 0a ]; then printf '\n'; else printf '\n\n'; fi; printf '%s' "$FOOT"; } >"$HDIR/final-body"
+  if [ "$(wc -c <"$HDIR/final-body" | tr -d ' ')" -gt 65536 ]; then CODE=oversize; return; fi
+  ACTION=review
+}
+
+if [ "$TIMEDOUT" = 1 ]; then
+  ACTION=failure CODE=timed-out
+elif [ "$OBRC_outcome" = 3 ]; then
+  ACTION=failure CODE=no-outbox
+elif [ "$OBRC_outcome" != 0 ]; then
+  ACTION=failure CODE=bad-outcome
+else
+  line=$(cat "$HDIR/ob-outcome")
+  kind=
+  case $line in
+    "review $num $pin") kind=review ;;
+    "exempt $num $pin") kind=exempt ;;
+    "already-reviewed $num $pin") kind=already ;;
+    "stopped $num $pin "*)
+      kind=stopped
+      sreason=${line#"stopped $num $pin "}
+      case $sreason in ''|*[!a-z-]*) kind= ;; esac ;;
+  esac
+  case $kind in
+    '') ACTION=failure CODE=bad-outcome ;;
+    review) decide_review ;;
+    exempt) decide_exempt ;;
+    already) decide_already ;;
+    stopped) decide_stopped "$sreason" ;;
+  esac
+fi
+logl "decision: $ACTION $CODE"
+
+# ---- 14. post --------------------------------------------------------------------------------
+rm -f "$HDIR/post-token"
+mintcmd "$name" --out "$HDIR/post-token" >/dev/null || fail "the post-token mint failed; nothing posted"
+tc file "$HDIR/post-token" >/dev/null || fail "the post token failed token-check.sh file"
+TOK=$(tc token "$HDIR/post-token") && [ -n "$TOK" ] || fail "cannot read the post token"
+gh_api --paginate installation/repositories --jq '.repositories[].full_name' >"$INST" || fail "installation/repositories failed (post token)"
+reached=$(gid reach "$repo" <"$INST") && [ "$reached" = reached ] || fail "the post token does not reach $repo"
+VW=$(viewer) || fail "the viewer query failed (post token)"
+IFS=$tab read -r vlogin vid <<EOF
+$VW
+EOF
+vr=$(tc verify reviewer_app "$repo" "$HDIR/post-token" "$INST" "$DEF" "$vlogin" "$vid") && [ "$vr" = app ] \
+  || fail "the post token is not the declared reviewer App"
+cur=$(pr_head) || fail "cannot re-read the PR head before posting"
+case $cur in *[!0-9a-f]*|'') fail "the re-read PR head is not a SHA" ;; esac
+if [ "$cur" != "$pin" ]; then
+  say "the head moved before the post ($cur); nothing posted, entry kept"
+  fin 1 head-moved
+fi
+
+if [ "$ACTION" = review ]; then
+  BODYF="$HDIR/final-body"
+else
+  printf 'Automated architect review: no review posted for head %s (%s). The review gate stays red. Rerun on the host: wow-review %s %s --rerun' \
+    "$pin" "$CODE" "$repo" "$num" >"$HDIR/failure-body"
+  BODYF="$HDIR/failure-body"
+fi
+jq -n --rawfile body "$(hp "$BODYF")" --arg sha "$pin" '{commit_id: $sha, event: "COMMENT", body: $body}' >"$HDIR/review-request.json" \
+  || fail "cannot build the review request"
+if ! jq -j .body <"$HDIR/review-request.json" | tr -d '\r' | cmp -s - "$BODYF"; then
+  fail "the request body is not the checked body" 1 bad-body
+fi
+prc=0
+gh_api -X POST "repos/$repo/pulls/$num/reviews" --input "$(hp "$HDIR/review-request.json")" \
+  --jq '[.commit_id, .state, .user.login, (.user.id | tostring), .html_url] | @tsv' >"$HDIR/post-response" || prc=$?
+RESP=$(tr -d '\r' <"$HDIR/post-response" 2>/dev/null || :)
+if [ "$prc" != 0 ]; then
+  say "the review POST failed ($prc): posted or unknown"
+  fin 104 post-unknown
+fi
+IFS=$tab read -r rcommit rstate rlogin rid rurl <<EOF
+$RESP
+EOF
+if [ -z "${rcommit:-}" ] || [ "$rcommit" != "$pin" ] || [ "${rstate:-}" != COMMENTED ]; then
+  say "the POST response does not confirm the review"
+  fin 104 post-unconfirmed
+fi
+if ! tc verify reviewer_app "$repo" "$HDIR/post-token" "$INST" "$DEF" "${rlogin:-}" "${rid:-}" >/dev/null 2>&1; then
+  say "the review's author is not the declared reviewer App"
+  fin 103 post-wrong-author
+fi
+rm -f "$HDIR/post-token"
+if [ "$ACTION" != review ]; then
+  fin 3 "failure-posted:$CODE"
+fi
+logl "review posted: $rurl"
+
+# ---- 15. poll the gate (logged only) ---------------------------------------------------------
+poll_gate() {
+  if ! tc file "$HDIR/read-token" >/dev/null 2>&1; then
+    mint_read >/dev/null 2>&1 && tc file "$HDIR/read-token" >/dev/null 2>&1 || { logl "gate poll: no live read token"; return 0; }
+  fi
+  TOK=$(tc token "$HDIR/read-token") && [ -n "$TOK" ] || { logl "gate poll: cannot read the read token"; return 0; }
+  n=0
+  while [ "$n" -lt 6 ]; do
+    n=$((n + 1))
+    if gh_api --paginate "repos/$repo/commits/$pin/status" --jq '.statuses[] | ["status", .context, .state] | @tsv' >"$HDIR/p-status" 2>/dev/null \
+       && gh_api --paginate "repos/$repo/commits/$pin/check-runs" --jq '.check_runs[] | ["check-run", .name, .status, (.conclusion // "")] | @tsv' >"$HDIR/p-runs" 2>/dev/null \
+       && cat "$HDIR/p-status" "$HDIR/p-runs" >"$HDIR/p-gate"; then
+      gs=$(sh "$here/review-gate-state.sh" "$GATE" <"$HDIR/p-gate" 2>/dev/null) || gs=unreadable
+      logl "gate poll $n: $gs"
+      case $gs in success|failure) return 0 ;; esac
+    else
+      logl "gate poll $n: the read failed"
+    fi
+    [ "$n" -lt 6 ] && sleep 15
+  done
+  return 0
+}
+poll_gate
+
+# ---- 16. file the findings -------------------------------------------------------------------
+file_findings() {
+  mintcmd "$BACKLOG_MINT_NAME" --file --out "$HDIR/filing-token" >/dev/null || { say "the filing-token mint failed; nothing filed"; return 0; }
+  tc file "$HDIR/filing-token" >/dev/null || { say "the filing token failed token-check.sh file; nothing filed"; return 0; }
+  TOK=$(tc token "$HDIR/filing-token") && [ -n "$TOK" ] || { say "cannot read the filing token"; return 0; }
+  gh_api --paginate installation/repositories --jq '.repositories[].full_name' >"$INST" || { say "installation/repositories failed (filing token)"; return 0; }
+  reached=$(gid reach "$BREPO" <"$INST") && [ "$reached" = reached ] || { say "the filing token does not reach $BREPO"; return 0; }
+  VW=$(viewer) || { say "the viewer query failed (filing token)"; return 0; }
+  IFS=$tab read -r vlogin vid <<EOF
+$VW
+EOF
+  vr=$(tc verify reviewer_app "$BREPO" "$HDIR/filing-token" "$INST" "$DEF" "$vlogin" "$vid") && [ "$vr" = app ] \
+    || { say "the filing token is not the declared reviewer App; nothing filed"; return 0; }
+  want="https://github.com/$owner/$name/pull/$num#pullrequestreview-"
+  got=$(lower "$rurl")
+  case $got in
+    "$(lower "$want")"*)
+      tail=${rurl##*#pullrequestreview-}
+      case $tail in ''|*[!0-9]*) say "the review URL has the wrong shape; nothing filed"; return 0 ;; esac ;;
+    *) say "the review URL has the wrong shape; nothing filed"; return 0 ;;
+  esac
+  filing_tok=$TOK
+  # The read token may have been replaced by the gate poll: read it again.
+  RTOK=$(tc token "$HDIR/read-token") && [ -n "$RTOK" ] || { say "cannot read the read token; nothing filed"; return 0; }
+  idx=0
+  while [ "$idx" -lt "$NFIND" ]; do
+    # Labels: kept only where the repository answers a read of the label (the read token).
+    labels='[]'
+    for lab in $(jq -r --argjson i "$idx" '.[$i] | .type, (.area // empty)' <"$HDIR/ob-findings" | tr -d '\r'); do
+      enc=$(printf '%s' "$lab" | jq -Rr '@uri' | tr -d '\r')
+      TOK=$RTOK
+      if gh_api "repos/$BREPO/labels/$enc" >/dev/null 2>&1; then labels=$(printf '%s' "$labels" | jq -c --arg l "$lab" '. + [$l]' | tr -d '\r'); fi
+    done
+    TOK=$filing_tok
+    jq -c --argjson i "$idx" --argjson labels "$labels" --arg opening "Non-blocking finding from the automated architect review of $repo#$num at $pin: $rurl. Written by the review session; not yet read by a human." '
+      .[$i] as $f
+      | ([$f.body | scan("`+") | length] | max // 0) as $run
+      | ([$run + 1, 3] | max) as $n
+      | ([range($n)] | map("`") | join("")) as $fence
+      | {title: $f.title, body: ($opening + "\n\n" + $fence + "\n" + $f.body + "\n" + $fence), labels: $labels}' \
+      <"$HDIR/ob-findings" >"$HDIR/issue-$idx.json" || { say "cannot build issue request $idx"; return 0; }
+    created=$(gh_api -X POST "repos/$BREPO/issues" --input "$(hp "$HDIR/issue-$idx.json")" --jq .number | tr -d '\r') \
+      || { say "creating finding $idx failed; the rest are not filed"; return 0; }
+    case $created in ''|*[!0-9]*) say "the created issue number is not digits; stopping"; return 0 ;; esac
+    printf '%s %s\n' "$idx" "$created" >>"$ENTRY/filed"
+    idx=$((idx + 1))
+  done
+  rm -f "$HDIR/filing-token"
+  return 0
+}
+if [ "$WILLFILE" = 1 ]; then file_findings; fi
+
+fin 0 reviewed
