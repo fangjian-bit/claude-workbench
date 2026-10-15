@@ -2,17 +2,16 @@
 
 **Now:** **Sprint 16** (cursor id `sprint-16`) on [milestone 19, *Identity M4: claude-workbench cutover*](https://github.com/glunk-works/claude-workbench/milestone/19). Status: **planning**.
 
-**Just done (2026-10-15):**
-- Task #611 shipped: PR #622 (`025c0e9`) adds the `/way-of-working:spec-task` skill.
-  - Critic pass on #622, carried from its PR body (not re-verified here): 7 rounds, past the cap of 4 at the maintainer's request, stopped because the human called it, not formally converged. Round 7: the architect found no real defects, and the security-critic found one (check 18 allowed flags before `gh issue`/`gh pr` but not `gh label`/`gh api`), fixed with no further re-run. Every critic ran on its own frontmatter model. Its fetch-and-check shell block has only run against stubs, never a live issue.
-- #514 decided and closed: PR #624 (`1e33fce`) adds WB-D24 item 7 (reviewer tokens never enter a dev container, App-mode review runs on a fresh host session now and in a host-launched review container later) and a short paragraph in the `architect-review` skill.
-  - Critic pass on #624: architect, security-critic and docs-consistency ran for 2 rounds (the initial pass plus 1 fix-and-re-run round, under the cap of 4), converged: round 2 returned wording tightenings only, applied without a further re-run. Every round ran on the critics' own frontmatter models; no second-opinion round was run.
-- The host review session's read credential is open on purpose: the reviewer mint has no Issues or Actions access and reaches one repo, so #623 (the host-launched review container) settles it. It blocks #398's review step, and #400 must not land before it.
-- The private plan (local file and both draft advisories) and `603-Identity/devcontainers#392` were corrected to match.
-- The no-op handoff did not apply (#622 merged before this handoff), so this is the ordinary ledger PR.
+**Just done (2026-10-15, a review and planning session; no code):**
+- Reviewed spec-task and plan-sprint against the goal of fewer per-task human steps. Filed #627 (the agent posts each spec, the maintainer's reaction approves it, no per-task anchor PR; reverses WB-D26) and #628 (plan-sprint rewrites a build order live; retires the description hash).
+- plan-sprint pass: #627 and #628 placed in milestone 19; #601 moved to milestone 22 (this repo's `main` requires no signatures); #394 retargeted to the v0.19.0 release and pin bump; #223 and #334 left unmilestoned. Triage comments are on each issue.
+- Milestone 19's build order was rewritten (by the maintainer, from plan-sprint's draft) with lanes that can run at once: maintainer, lane B (#623 then #626), lane C (#628 then #627), and the driver. The re-anchor found drift, and the text before that edit had already drifted from the old anchor, so the gate below is open.
+- Critic gate on #623's spec comment: security-critic and architect, 1 round, not converged. Seven blocking findings, recorded with the maintainer's decisions (the Claude credential stays behind `scripts/loop/inject.py`; #623 splits into four child issues) in [the findings comment](https://github.com/glunk-works/claude-workbench/issues/623#issuecomment-6192033842). The old spec must not get a reaction.
+- Filed #629: critic-gate runs unattended on every drafted spec, to convergence or escalation (GitHub first, Slack later). Not yet placed.
+- Removed the merged `claude-workbench-392` worktree.
 
-**Next:** plan the next task of milestone 19 with the maintainer: #433 is next in the build order and is human-only, so pick the next buildable open issue (or #433's human step), post its spec comment for the maintainer to react to, then `/way-of-working:handoff` to anchor it. On **opus** (architect), in a fresh session.
+**Next:** as the driver session (the only session that writes `.ai/`), on **opus**: (1) `/way-of-working:plan-sprint` to place #629 (recommended: milestone 19, lane C beside #627, after #628); (2) split #623 into its four child issues per its findings comment, placed in milestone 19 and ordered in #623's checklist; (3) split #628 into its three child issues the same way; (4) draft the first child spec of each with `/way-of-working:spec-task`, run `/way-of-working:critic-gate` on each to convergence before posting, and post it for the maintainer's reaction; (5) give the maintainer one start prompt and the worktree commands per lane, per milestone 19's *Lanes* paragraph. Lane sessions never run `/resume`, `/handoff`, `/plan-sprint` or `/archive-sprint`.
 
-**HITL Gate: NONE OPEN** — next gate: maintainer reaction to the next task spec comment
+**HITL Gate: OPEN** — milestone 19 description edited since last anchor: the maintainer rewrote the build order on 2026-10-15 (plan-sprint) and the text before that edit already differed from the anchored hash; confirm the live description is the plan
 
 **Pointers:** [docs/decisions.md](../docs/decisions.md) · [milestone 19](https://github.com/glunk-works/claude-workbench/milestone/19) · [.ai/parked/](parked/)
