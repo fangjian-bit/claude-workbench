@@ -21,7 +21,8 @@
 # Invariant: no path under $WOW_HOME is container-writable; only tokens/<repo>/ is mounted, read-only.
 # What these commands write: tokens/ and review-tokens/ directories, a per-repo .lock directory
 # and a transient .unlock.* directory (both removed on exit), admin-token (replaced or removed),
-# reviewer-token (default review-tokens/<repo>/, or the path --out names), and the .mint.* file
+# reviewer-token (default review-tokens/<repo>/, or the path --out names), the session and filing
+# tokens (wow-review-mint --read / --file, written only to the path --out names), and the .mint.* file
 # mint.sh stages beside any token it writes. Nothing else under $WOW_HOME is modified.
 #
 # The caller sets $prog before sourcing. Toolset: POSIX sh, jq, plus what mint.sh needs.

@@ -12,6 +12,16 @@
 #   jwt              RS256, verifies against the public key, iss = client id, exp - iat <= 10 min
 #   secrecy          neither the token nor the JWT reaches stdout, stderr or argv
 #   API failure      non-201, and a 201 with no token: exit 1, no --out file left behind
+#   --strict         a response that is exactly the requested permissions (plus metadata: read) and
+#                    repositories is written; every other shape (extra, missing or changed permission,
+#                    extra, missing or re-cased repository, absent or malformed keys, metadata: write)
+#                    exits 1 with an exact message, no --out file, no staging file, no token anywhere
+#                    on stdout, stderr or any jq argv; a refusal keeps an existing --out; --strict works
+#                    in any position; without it an extra permission still exits 0; the type check is
+#                    not fooled by a bare string beside a valid name; a response of more than one JSON
+#                    document is refused, whichever document is good
+#   jq argv          a wrapper records every jq call per run: each strict run made a `-e` call, and no
+#                    token is ever in any recorded argv
 #   usage            missing/odd arguments exit 2 before curl is ever called
 #
 # Permitted toolset: POSIX sh, its standard utilities, openssl and jq (the script's own
@@ -47,6 +57,15 @@ sed -n 's/^data-binary = "\(.*\)"$/\1/p' "$STUB_DIR/stdin" | sed 's/\\"/"/g' >"$
 printf '%s\n%s' "$STUB_BODY" "$STUB_STATUS"
 STUB
 chmod +x "$tmp/bin/curl"
+# A jq wrapper that records each call's argv, then runs the real jq. The real jq is resolved
+# here, before run() puts $tmp/bin first on PATH.
+REAL_JQ=$(command -v jq); export REAL_JQ
+cat >"$tmp/bin/jq" <<'STUB'
+#!/bin/sh
+{ echo '--call--'; printf '%s\n' "$@"; } >>"$STUB_DIR/jq-argv"
+exec "$REAL_JQ" "$@"
+STUB
+chmod +x "$tmp/bin/jq"
 
 fail=0
 pass_count=0
@@ -74,13 +93,18 @@ GOOD_BODY="{\"token\":\"$TOKEN\",\"expires_at\":\"$EXPIRES\"}"
 run() {
   STUB_STATUS=$1 STUB_BODY=$2
   shift 2
-  rm -f "$tmp/argv" "$tmp/stdin" "$tmp/calls"
+  rm -f "$tmp/argv" "$tmp/stdin" "$tmp/calls" "$tmp/jq-argv"
   rc=0
   STUB_DIR=$tmp STUB_STATUS=$STUB_STATUS STUB_BODY=$STUB_BODY STUB_RC=${STUB_RC:-0} \
   STUB_MKDIR=${STUB_MKDIR:-} PATH="$tmp/bin:$PATH" \
     sh "$script" "$@" >"$tmp/so" 2>"$tmp/se" || rc=$?
   so=$(cat "$tmp/so")
   se=$(cat "$tmp/se")
+  # The response reaches jq on stdin only: whatever token the body carried is in no jq argv.
+  body_tok=$(printf '%s' "$STUB_BODY" | jq -r '.token? // empty' 2>/dev/null || true)
+  if [ "${#body_tok}" -ge 20 ] && [ -f "$tmp/jq-argv" ]; then
+    if grep -qF -- "$body_tok" "$tmp/jq-argv"; then bad "token in jq argv" "recorded in $tmp/jq-argv"; else ok; fi
+  fi
 }
 
 good_args() {
@@ -265,6 +289,145 @@ mkdir "$tmp/globdir" && : >"$tmp/globdir/other-repo"
     --perms contents=read --out "$tmp/token" >/dev/null 2>&1) && globrc=0 || globrc=$?
 assert_eq "--repos '*' exits 2" 2 "$globrc"
 
+# --- --strict --------------------------------------------------------------------------------
+# good_args asks for contents=write,pull_requests=write on claude-workbench and devcontainers.
+P_OK='{"contents":"write","pull_requests":"write","metadata":"read"}'
+R_OK='[{"name":"claude-workbench"},{"name":"devcontainers"}]'
+PERM_MSG='mint.sh: --strict: GitHub granted permissions other than requested'
+REPO_MSG='mint.sh: --strict: GitHub granted repositories other than requested'
+
+# sbody <permissions-json|-> <repositories-json|-> : a 201 body; "-" leaves the key out
+sbody() {
+  printf '{"token":"%s","expires_at":"%s"' "$TOKEN" "$EXPIRES"
+  [ "$1" = - ] || printf ',"permissions":%s' "$1"
+  [ "$2" = - ] || printf ',"repositories":%s' "$2"
+  printf '}'
+}
+
+assert_strict_ran() { # desc: the recorded jq argv holds a `-e` call
+  if grep -qx -- '-e' "$tmp/jq-argv" 2>/dev/null; then ok; else bad "$1" "no jq -e call recorded"; fi
+}
+
+# strict_refuses <desc> <message> <body> [args...]: exit 1, exact message, nothing written or leaked
+strict_refuses() {
+  desc=$1 msg=$2 body=$3; shift 3
+  rm -f "$tmp/token"
+  if [ $# -eq 0 ]; then
+    # shellcheck disable=SC2046
+    run 201 "$body" --strict $(good_args)
+  else
+    run 201 "$body" "$@"
+  fi
+  assert_eq "strict: $desc exits 1" 1 "$rc"
+  assert_eq "strict: $desc message" "$msg" "$se"
+  [ ! -e "$tmp/token" ] && ok || bad "strict: $desc leaves no out file" "$tmp/token exists"
+  assert_eq "strict: $desc leaves no staging file" "" "$(ls -A "$tmp" | grep '^\.mint\.' || true)"
+  assert_absent "strict: $desc token not on stdout" "$so" "$TOKEN"
+  assert_absent "strict: $desc token not on stderr" "$se" "$TOKEN"
+  assert_strict_ran "strict: $desc ran through the jq wrapper"
+}
+
+# exact response, plus metadata: read
+rm -f "$tmp/token"
+# shellcheck disable=SC2046
+run 201 "$(sbody "$P_OK" "$R_OK")" --strict $(good_args)
+assert_eq "strict: exact response exits 0" 0 "$rc"
+assert_eq "strict: exact response writes the token" "$TOKEN" "$(sed -n 1p "$tmp/token")"
+assert_strict_ran "strict: exact response ran through the jq wrapper"
+# key order and a repeated --strict do not matter
+rm -f "$tmp/token"
+# shellcheck disable=SC2046
+run 201 "$(sbody '{"metadata":"read","pull_requests":"write","contents":"write"}' '[{"name":"devcontainers"},{"name":"claude-workbench"}]')" --strict --strict $(good_args)
+assert_eq "strict: reordered response and repeated flag exit 0" 0 "$rc"
+assert_strict_ran "strict: reordered response ran through the jq wrapper"
+# a requested metadata permission is compared like any other
+rm -f "$tmp/token"
+run 201 "$(sbody '{"metadata":"read","contents":"read"}' '[{"name":"a"}]')" --strict --client-id 1 --installation-id 2 \
+  --key "$tmp/key.pem" --repos a --perms metadata=read,contents=read --out "$tmp/token"
+assert_eq "strict: requested metadata=read exits 0" 0 "$rc"
+assert_strict_ran "strict: requested metadata ran through the jq wrapper"
+# a repeated --repos element is compared as a set
+rm -f "$tmp/token"
+run 201 "$(sbody '{"contents":"read"}' '[{"name":"a"}]')" --strict --client-id 1 --installation-id 2 \
+  --key "$tmp/key.pem" --repos a,a --perms contents=read --out "$tmp/token"
+assert_eq "strict: repeated --repos element exits 0" 0 "$rc"
+assert_strict_ran "strict: repeated --repos ran through the jq wrapper"
+
+strict_refuses "extra permission" "$PERM_MSG" \
+  "$(sbody '{"contents":"write","pull_requests":"write","issues":"read","metadata":"read"}' "$R_OK")"
+strict_refuses "missing permission" "$PERM_MSG" "$(sbody '{"contents":"write","metadata":"read"}' "$R_OK")"
+strict_refuses "changed level" "$PERM_MSG" \
+  "$(sbody '{"contents":"read","pull_requests":"write","metadata":"read"}' "$R_OK")"
+strict_refuses "metadata: write" "$PERM_MSG" \
+  "$(sbody '{"contents":"write","pull_requests":"write","metadata":"write"}' "$R_OK")"
+strict_refuses "no permissions key" "$PERM_MSG" "$(sbody - "$R_OK")"
+strict_refuses "permissions not an object" "$PERM_MSG" "$(sbody '"contents"' "$R_OK")"
+strict_refuses "permissions an array" "$PERM_MSG" "$(sbody '[]' "$R_OK")"
+strict_refuses "extra repository" "$REPO_MSG" \
+  "$(sbody "$P_OK" '[{"name":"claude-workbench"},{"name":"devcontainers"},{"name":"extra"}]')"
+strict_refuses "missing repository" "$REPO_MSG" "$(sbody "$P_OK" '[{"name":"claude-workbench"}]')"
+strict_refuses "repository differing in case" "$REPO_MSG" \
+  "$(sbody "$P_OK" '[{"name":"Claude-Workbench"},{"name":"devcontainers"}]')"
+strict_refuses "no repositories key" "$REPO_MSG" "$(sbody "$P_OK" -)"
+strict_refuses "repositories not an array" "$REPO_MSG" "$(sbody "$P_OK" '{"name":"claude-workbench"}')"
+strict_refuses "empty repositories" "$REPO_MSG" "$(sbody "$P_OK" '[]')"
+strict_refuses "repository element not an object" "$REPO_MSG" \
+  "$(sbody "$P_OK" '[{"name":"claude-workbench"},{"name":"devcontainers"},7]')"
+strict_refuses "repository name not a string" "$REPO_MSG" \
+  "$(sbody "$P_OK" '[{"name":"claude-workbench"},{"name":5}]')"
+strict_refuses "repository element without a name" "$REPO_MSG" \
+  "$(sbody "$P_OK" '[{"name":"claude-workbench"},{"id":5}]')"
+# permissions are checked first: both wrong reports the permissions line only
+strict_refuses "both wrong" "$PERM_MSG" "$(sbody '{}' '[]')"
+# a bare string beside a valid name leaves the name set unchanged: a lenient name gatherer
+# (.name?, select(type=="object")) would accept it
+strict_refuses "stream order: bare string among objects" "$REPO_MSG" \
+  "$(sbody "$P_OK" '["claude-workbench",{"name":"claude-workbench"},{"name":"devcontainers"}]')"
+
+# two JSON documents: jq -e would judge the last only, so the first (with the token) must not pass
+TWO_DOCS="$(sbody '{"contents":"write","pull_requests":"write","admin":"write"}' '[{"name":"claude-workbench"},{"name":"devcontainers"},{"name":"x"}]') {\"permissions\":$P_OK,\"repositories\":$R_OK}"
+strict_refuses "two documents, the last one good" "$PERM_MSG" "$TWO_DOCS"
+TWO_DOCS="$(sbody "$P_OK" "$R_OK") {\"permissions\":{},\"repositories\":[]}"
+strict_refuses "two documents, the first one good" "$PERM_MSG" "$TWO_DOCS"
+# both pass the predicate: only the exactly-one-document rule refuses this
+TWO_DOCS="$(sbody "$P_OK" "$R_OK") {\"permissions\":$P_OK,\"repositories\":$R_OK}"
+strict_refuses "two documents, both good" "$PERM_MSG" "$TWO_DOCS"
+
+# a refusal leaves an existing --out byte for byte
+printf 'old\n2026-01-01T00:00:00Z\n' >"$tmp/token"
+cp "$tmp/token" "$tmp/token.orig"
+# shellcheck disable=SC2046
+run 201 "$(sbody '{"contents":"write"}' "$R_OK")" --strict $(good_args)
+assert_eq "strict: refusal exits 1 with an existing out file" 1 "$rc"
+assert_strict_ran "strict: existing-out refusal ran through the jq wrapper"
+if cmp -s "$tmp/token" "$tmp/token.orig"; then ok; else bad "strict: refusal keeps an existing out file" "bytes differ"; fi
+rm -f "$tmp/token" "$tmp/token.orig"
+
+# --strict in any position, each against a refusing response
+REFUSE=$(sbody '{"contents":"write"}' "$R_OK")
+rm -f "$tmp/token"
+run 201 "$REFUSE" --strict --client-id Iv23liTestClient0001 --installation-id 678 --key "$tmp/key.pem" \
+  --repos claude-workbench,devcontainers --perms contents=write,pull_requests=write --out "$tmp/token"
+assert_eq "strict: flag first exits 1" 1 "$rc"
+assert_strict_ran "strict: flag first ran through the jq wrapper"
+run 201 "$REFUSE" --client-id Iv23liTestClient0001 --installation-id 678 --key "$tmp/key.pem" --strict \
+  --repos claude-workbench,devcontainers --perms contents=write,pull_requests=write --out "$tmp/token"
+assert_eq "strict: flag in the middle exits 1" 1 "$rc"
+assert_strict_ran "strict: flag in the middle ran through the jq wrapper"
+# shellcheck disable=SC2046
+run 201 "$REFUSE" $(good_args) --strict
+assert_eq "strict: flag last exits 1" 1 "$rc"
+assert_strict_ran "strict: flag last ran through the jq wrapper"
+[ ! -e "$tmp/token" ] && ok || bad "strict: positioned flags leave no out file" "$tmp/token exists"
+
+# without --strict an extra permission is still accepted, as before
+rm -f "$tmp/token"
+# shellcheck disable=SC2046
+run 201 "$(sbody '{"contents":"write","pull_requests":"write","issues":"write"}' "$R_OK")" $(good_args)
+assert_eq "no --strict: an extra permission still exits 0" 0 "$rc"
+assert_eq "no --strict: token written" "$TOKEN" "$(sed -n 1p "$tmp/token")"
+rm -f "$tmp/token"
+
 # --- usage errors exit 2 and never call curl -------------------------------------------------
 usage_case() { # desc <args...>
   desc=$1; shift
@@ -293,7 +456,11 @@ base="--client-id Iv23liTestClient0001 --installation-id 678 --key $tmp/key.pem 
   usage_case "dangling flag"       $base --repos a --perms contents=read --out
   usage_case "duplicate perm"      $base --repos a --perms contents=read,contents=admin
   usage_case "out is a directory"  --client-id 1 --installation-id 2 --key "$tmp/key.pem" --repos a --perms contents=read --out "$tmp"
-  usage_case "out dir is missing"  --client-id 1 --installation-id 2 --key "$tmp/key.pem" --repos a --perms contents=read --out "$tmp/nodir/token"
+  usage_case "--out then --strict"  --client-id 1 --installation-id 2 --key "$tmp/key.pem" --repos a --perms contents=read --out --strict
+  usage_case "--repos then --strict" --client-id 1 --installation-id 2 --key "$tmp/key.pem" --perms contents=read --out "$tmp/token" --repos --strict
+  usage_case "strict, then a flag missing its value" --strict $base --repos a --perms
+  usage_case "value beginning with a dash" $base --repos a --perms -contents=read
+  usage_case "out dir is missing" --client-id 1 --installation-id 2 --key "$tmp/key.pem" --repos a --perms contents=read --out "$tmp/nodir/token"
 }
 
 if [ "$fail" -eq 0 ]; then

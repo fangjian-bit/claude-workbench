@@ -1,41 +1,90 @@
 #!/bin/sh
-# Host command: a short-lived reviewer token for one repo, on request (WB-D24, #374).
+# Host command: a short-lived reviewer token on request (WB-D24, #374, #633).
 #
 #   wow-review-mint <repo> [--out FILE]
+#   wow-review-mint <repo> --read [--also <repo2>] --out FILE
+#   wow-review-mint <repo> --file --out FILE
 #
-# Mints from the reviewer App with fixed, least-privilege permissions (contents, checks and
-# statuses read; pull_requests write), scoped to <repo>. No passphrase: the reviewer key
-# (review.pem) is unencrypted so the reviewing session can ask for a token unattended, after its sandbox is destroyed (review-token.sh, #389).
-# The token and its expires_at go to --out, default $WOW_HOME/review-tokens/<repo>/reviewer-token, a tree no dev container mounts.
+# Mints from the reviewer App with fixed permission sets, scoped to <repo>. Three shapes:
+#   post (the default)  contents, checks, statuses read; pull_requests write. review-token.sh's
+#                       shape (the in-session App-mode review). Not strict. Written to --out,
+#                       default $WOW_HOME/review-tokens/<repo>/reviewer-token, a tree no dev
+#                       container mounts.
+#   --read              the session token: contents, pull_requests, checks, statuses, issues and
+#                       actions read. The launcher's shape (#635). Always mint.sh --strict.
+#   --file              the filing token: issues write. The launcher's shape. Always --strict.
+# --read and --file require --out and have no default file, so no path is shared between reviews.
+# Every caller of --read and --file must write them to its own per-review directory: never under
+# $wow_home/tokens/ (the tree a dev container mounts, $wow_home being the resolved home from
+# wow-common.sh) and never in review-tokens/<repo>/ beside the post token. This command does not
+# check --out (choice C7); the rule is the caller's.
+# --also <repo2> (with --read only) adds a second repository to the same request: one token covers
+# both, and --strict checks the two-repository set. An installation token has one permission map
+# for all its repositories, so all six reads reach the second repository, not only issues.
+# Minting again to the same --out replaces the earlier token; the file then holds the token whose
+# set was checked. Repository names must be in GitHub's canonical case or a strict mint is refused.
+#
+# No passphrase: the reviewer key (review.pem) is unencrypted so the reviewing session can ask for a token unattended, after its sandbox is destroyed (review-token.sh, #389).
 # --out may name any path the caller can write; a broker forwarding sandbox input must not pass it.
 # The token is never printed. Run by path, not via a symlink. Layout and toolset: wow-common.sh.
-# Exit 0 / 1 / 2 as mint.sh. There is no revoke here: a reviewer token lives out its hour.
+# Exit 0 / 1 / 2 as mint.sh; every usage error exits 2 before any mint. There is no revoke here: a reviewer token lives out its hour.
 set -eu
 set -f
 prog=wow-review-mint
 here=$(CDPATH= cd -P -- "$(dirname -- "$0")" && pwd)
 . "$here/wow-common.sh"
 
-usage() { die "usage: wow-review-mint <repo> [--out FILE]" 2; }
+usage_err() { die "$1 (usage: wow-review-mint <repo> [--out FILE] | <repo> --read [--also <repo2>] --out FILE | <repo> --file --out FILE)" 2; }
 
-repo= out=
+# Value-shape rules, positional arguments and unknown flags fire here; every other rule, repeats
+# included, after the loop, so flag order does not matter between those.
+repo= out= also= n_out=0 n_also=0 n_read=0 n_file=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --out) [ $# -ge 2 ] || usage; out=$2; shift ;;
-    -*) usage ;;
-    *) [ -z "$repo" ] || usage; repo=$1 ;;
+    --out|--also)
+      flag=$1
+      [ $# -ge 2 ] || usage_err "$flag needs a value"
+      case "$2" in -*) usage_err "$flag: a value must not begin with '-'" ;; esac
+      if [ "$flag" = --out ]; then n_out=$((n_out + 1)) out=$2; else n_also=$((n_also + 1)) also=$2; fi
+      shift ;;
+    --read) n_read=$((n_read + 1)) ;;
+    --file) n_file=$((n_file + 1)) ;;
+    -*) usage_err "unknown flag $1" ;;
+    *) [ -n "$1" ] || usage_err "an empty repository name"
+       [ -z "$repo" ] || usage_err "only one repository may be named"; repo=$1 ;;
   esac
   shift
 done
-[ -n "$repo" ] || usage
+[ -n "$repo" ] || usage_err "a repository is required"
 check_repo "$repo"
+[ "$n_out" -le 1 ] || usage_err "--out given twice"
+[ "$n_also" -le 1 ] || usage_err "--also given twice"
+[ "$n_read" -le 1 ] || usage_err "--read given twice"
+[ "$n_file" -le 1 ] || usage_err "--file given twice"
+[ "$n_read" -eq 0 ] || [ "$n_file" -eq 0 ] || usage_err "--read and --file cannot be combined"
+[ "$n_also" -eq 0 ] || [ "$n_read" -eq 1 ] || usage_err "--also requires --read"
+{ [ "$n_read" -eq 0 ] && [ "$n_file" -eq 0 ]; } || [ -n "$out" ] || usage_err "--read and --file require --out"
+if [ "$n_also" -eq 1 ]; then
+  (check_repo "$also") >/dev/null 2>&1 || usage_err "--also: not a bare repository name"
+  [ "$(printf '%s' "$also" | tr 'A-Z' 'a-z')" != "$(printf '%s' "$repo" | tr 'A-Z' 'a-z')" ] \
+    || usage_err "--also names the same repository as <repo>"
+fi
 
 command -v jq >/dev/null 2>&1 || die "jq not on PATH"
 client_id=$(app_get review client_id) inst_id=$(app_get review installation_id) revkey=$(app_key review)
 [ -n "$client_id" ] && [ -n "$inst_id" ] || die "review client_id / installation_id / key missing or unusable in $wow_home/apps.json (entries are keyed by role: admin, review)"
 [ -n "$revkey" ] && [ -r "$revkey" ] || die "review key file not readable"
 
-[ -n "$out" ] || out=$(token_dir review-tokens "$repo")/reviewer-token
-
-sh "$here/mint.sh" --client-id "$client_id" --installation-id "$inst_id" --key "$revkey" \
-  --repos "$repo" --perms contents=read,checks=read,statuses=read,pull_requests=write --out "$out"
+if [ "$n_read" -eq 1 ]; then
+  sh "$here/mint.sh" --client-id "$client_id" --installation-id "$inst_id" --key "$revkey" \
+    --repos "$repo${also:+,$also}" \
+    --perms contents=read,pull_requests=read,checks=read,statuses=read,issues=read,actions=read \
+    --out "$out" --strict
+elif [ "$n_file" -eq 1 ]; then
+  sh "$here/mint.sh" --client-id "$client_id" --installation-id "$inst_id" --key "$revkey" \
+    --repos "$repo" --perms issues=write --out "$out" --strict
+else
+  [ -n "$out" ] || out=$(token_dir review-tokens "$repo")/reviewer-token
+  sh "$here/mint.sh" --client-id "$client_id" --installation-id "$inst_id" --key "$revkey" \
+    --repos "$repo" --perms contents=read,checks=read,statuses=read,pull_requests=write --out "$out"
+fi

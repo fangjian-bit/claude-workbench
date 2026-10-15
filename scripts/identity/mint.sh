@@ -3,7 +3,7 @@
 #
 #   mint.sh --client-id ID --installation-id ID --key PEM_FILE \
 #           --repos name[,name...] --perms perm=level[,perm=level...] \
-#           --out FILE
+#           --out FILE [--strict]
 #
 # --client-id is the App's Client ID (Iv...), which GitHub uses as the JWT `iss` in place of the
 # numeric App ID.
@@ -21,8 +21,19 @@
 # The only file the token touches is a temp file beside FILE, created under umask 077 and
 # renamed into place. NTFS has no POSIX modes: there, FILE's confidentiality is its directory's ACL.
 #
+# --strict refuses a token that differs from what was requested. After the token and expires_at
+# are validated, and before anything is staged, the response must report `permissions` equal to
+# the requested map (same names, same levels; a `metadata: read` entry GitHub adds is tolerated
+# only when metadata was not requested) and `repositories` naming exactly the requested set. A
+# refusal exits 1 with a message that appends nothing from the response, and the token is never
+# staged, written or printed. This relies on GitHub reporting back what it granted, which is not
+# yet verified live. Repository names compare case-sensitively, so they must be in GitHub's
+# canonical case. A refused token still exists on GitHub until it expires, although it was never
+# written to a file, printed or placed on a command line. Any failed mint, strict or not, leaves
+# an existing --out file as it was, so a caller treats a non-zero exit as "no token".
+#
 # Run on the host, where the App key lives; no key is ever copied into a container. Exit 0 on
-# success, 1 on a failed mint (API error, bad response), 2 on bad usage.
+# success, 1 on a failed mint (API error, bad response, strict refusal), 2 on bad usage.
 #
 # Toolset: POSIX sh, openssl, curl, jq.
 set -eu
@@ -30,11 +41,15 @@ set -f # --repos / --perms are split unquoted below; never let a `*` glob into f
 LC_ALL=C; export LC_ALL # so [!A-Za-z0-9] means ASCII only in every shell and locale
 
 die() { echo "mint.sh: $1" >&2; exit "${2:-1}"; }
-usage() { die "usage: mint.sh --client-id ID --installation-id ID --key PEM --repos a,b --perms p=l,... --out FILE" 2; }
+usage() { die "usage: mint.sh --client-id ID --installation-id ID --key PEM --repos a,b --perms p=l,... --out FILE [--strict]" 2; }
 
-client_id= inst_id= key= repos= perms= out=
+# --strict is a bare flag, anywhere. Every other flag takes one value, which may not begin with
+# `-` (so `--out --strict` is a usage error, never a file named --strict); a repeat keeps the last.
+client_id= inst_id= key= repos= perms= out= strict=0
 while [ $# -gt 0 ]; do
+  if [ "$1" = --strict ]; then strict=1; shift; continue; fi
   [ $# -ge 2 ] || usage
+  case "$2" in -*) usage ;; esac
   case "$1" in
     --client-id) client_id=$2 ;;
     --installation-id) inst_id=$2 ;;
@@ -136,6 +151,28 @@ case "$token" in ghs_*) tok_body=${token#ghs_} ;; *) tok_body= ;; esac
 case "$tok_body" in *[!A-Za-z0-9._-]*) tok_body= ;; esac
 [ "${#tok_body}" -ge 36 ] || die "response token is not token-shaped"
 case "$expires" in *[!0-9TZ:-]*) die "response expires_at is not a timestamp" ;; esac
+
+# --strict: the response reaches jq on stdin only; the requested sets go in as --argjson, built
+# from the validated --perms / --repos elements. Each predicate is a parenthesised `== true`, so
+# its only outputs are true and false and jq -e's exit status is the verdict. stderr is dropped
+# because a jq runtime error prints a truncated copy of the value it failed on.
+if [ "$strict" -eq 1 ]; then
+# The response is slurped and must be exactly one JSON value: jq -e judges the last output
+# only, so a second document could otherwise decide for a first that carried the token.
+  printf '%s' "$resp" | jq -e -s --argjson want "{$perms_json}" '
+    (  (length == 1)
+       and (.[0] | (  (.permissions | type == "object")
+                      and ((.permissions
+                            | if has("metadata") and .metadata == "read" and ($want | has("metadata") | not)
+                              then del(.metadata) else . end) == $want)  ))  ) == true' >/dev/null 2>&1 \
+    || die "--strict: GitHub granted permissions other than requested"
+  printf '%s' "$resp" | jq -e -s --argjson want "[$repos_json]" '
+    (  (length == 1)
+       and (.[0] | (  (.repositories | type == "array")
+                      and (.repositories | all(.[]; type == "object" and (.name | type == "string")))
+                      and ((.repositories | map(.name) | unique) == ($want | unique))  ))  ) == true' >/dev/null 2>&1 \
+    || die "--strict: GitHub granted repositories other than requested"
+fi
 
 staged=$(umask 077 && mktemp -- "$outdir/.mint.XXXXXX") || die "cannot stage the token beside $out"
 printf '%s\n%s\n' "$token" "$expires" >"$staged" || die "cannot write the token"

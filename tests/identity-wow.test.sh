@@ -13,6 +13,10 @@
 #   revoke           DELETE /installation/token with the token as bearer; 204 and 401 remove the
 #                    file, other statuses keep it, no file is an error
 #   reviewer         reviewer installation, fixed permissions, written under review-tokens/ and never tokens/, --out or the default path
+#   reviewer shapes  post (default) unchanged and non-strict; --read sends the six reads (--also adds a
+#                    second repo to the same request, either flag order); --file sends issues write;
+#                    both are strict (one extra permission, or a missing repo, exits 1 with no token
+#                    file); every usage rule exits 2 before curl with a message naming it
 #   secrecy          neither token nor passphrase reaches stdout, stderr or argv
 #   usage / config   bad arguments exit 2 and missing config exits 1, before curl is called
 #
@@ -167,6 +171,109 @@ mkdir "$tmp/outdir"
 run sh "$review" repo1 --out "$tmp/outdir/t"
 assert_eq "reviewer --out rc" 0 "$rc"
 assert_eq "reviewer --out token" "$TOKEN" "$(sed -n 1p "$tmp/outdir/t")"
+
+# --- reviewer shapes: post (default, non-strict), --read, --read --also, --file (strict)
+RP_POST='{"contents":"read","checks":"read","statuses":"read","pull_requests":"write","metadata":"read"}'
+RP_READ='{"contents":"read","pull_requests":"read","checks":"read","statuses":"read","issues":"read","actions":"read","metadata":"read"}'
+RP_FILE='{"issues":"write","metadata":"read"}'
+# rbody <permissions-json> <repo names...>: a 201 body echoing a grant
+rbody() {
+  perms=$1; shift
+  names=$(printf '%s\n' "$@" | jq -R '{name: .}' | jq -sc .)
+  printf '{"token":"%s","expires_at":"%s","permissions":%s,"repositories":%s}' "$TOKEN" "$EXPIRES" "$perms" "$names"
+}
+READ_PERMS='{"contents":"read","pull_requests":"read","checks":"read","statuses":"read","issues":"read","actions":"read"}'
+
+# post shape unchanged: the four permissions, one repo, default path, and still non-strict
+rm -f "$rtok"
+STUB_BODY=$(rbody "$RP_POST" repo1) run sh "$review" repo1
+assert_eq "post shape rc" 0 "$rc"
+assert_eq "post shape installation" 1 "$(grep -c '/app/installations/222/access_tokens' "$tmp/stub/stdin")"
+assert_eq "post shape perms" \
+  '{"contents":"read","checks":"read","statuses":"read","pull_requests":"write"}' "$(sent | jq -c .permissions)"
+assert_eq "post shape repo" '["repo1"]' "$(sent | jq -c .repositories)"
+assert_eq "post shape default path" "$TOKEN" "$(sed -n 1p "$rtok")"
+rm -f "$rtok"
+STUB_BODY=$(rbody '{"contents":"read","checks":"read","statuses":"read","pull_requests":"write","issues":"write"}' repo1) run sh "$review" repo1
+assert_eq "post shape stays non-strict: an extra permission still exits 0" 0 "$rc"
+assert_eq "post shape non-strict token written" "$TOKEN" "$(sed -n 1p "$rtok")"
+
+# --read: the six reads on one repo, to the --out path
+rm -f "$tmp/outdir/read" "$rtok"
+STUB_BODY=$(rbody "$RP_READ" repo1) run sh "$review" repo1 --read --out "$tmp/outdir/read"
+assert_eq "--read rc" 0 "$rc"
+assert_eq "--read perms" "$READ_PERMS" "$(sent | jq -c .permissions)"
+assert_eq "--read repo" '["repo1"]' "$(sent | jq -c .repositories)"
+assert_eq "--read installation" 1 "$(grep -c '/app/installations/222/access_tokens' "$tmp/stub/stdin")"
+assert_eq "--read token at --out" "$TOKEN" "$(sed -n 1p "$tmp/outdir/read")"
+assert_eq "--read no token in output" 0 "$(printf '%s' "$out" | grep -c "$TOKEN" || true)"
+# --read --also: one request, both repositories, either flag order
+for order in "repo1 --read --also repo2" "repo1 --also repo2 --read"; do
+  rm -f "$tmp/outdir/read"
+  # shellcheck disable=SC2086
+  STUB_BODY=$(rbody "$RP_READ" repo1 repo2) run sh "$review" $order --out "$tmp/outdir/read"
+  assert_eq "[$order] rc" 0 "$rc"
+  assert_eq "[$order] repositories" '["repo1","repo2"]' "$(sent | jq -c .repositories)"
+  assert_eq "[$order] perms" "$READ_PERMS" "$(sent | jq -c .permissions)"
+  assert_eq "[$order] one curl call" 1 "$(calls)"
+  assert_eq "[$order] token at --out" "$TOKEN" "$(sed -n 1p "$tmp/outdir/read")"
+done
+# a grant of only one of the two repositories is refused
+rm -f "$tmp/outdir/read"
+STUB_BODY=$(rbody "$RP_READ" repo1) run sh "$review" repo1 --read --also repo2 --out "$tmp/outdir/read"
+assert_eq "--read --also granting one repository rc" 1 "$rc"
+[ ! -e "$tmp/outdir/read" ] && ok || bad "--read --also partial grant" "token file written"
+
+# --file: exactly issues write
+rm -f "$tmp/outdir/file"
+STUB_BODY=$(rbody "$RP_FILE" repo1) run sh "$review" repo1 --file --out "$tmp/outdir/file"
+assert_eq "--file rc" 0 "$rc"
+assert_eq "--file perms" '{"issues":"write"}' "$(sent | jq -c .permissions)"
+assert_eq "--file repo" '["repo1"]' "$(sent | jq -c .repositories)"
+assert_eq "--file token at --out" "$TOKEN" "$(sed -n 1p "$tmp/outdir/file")"
+
+# strictness: one extra permission refuses --read and --file, and nothing is written
+rm -f "$tmp/outdir/read"
+STUB_BODY=$(rbody '{"contents":"read","pull_requests":"read","checks":"read","statuses":"read","issues":"read","actions":"read","issues_extra":"read"}' repo1) \
+  run sh "$review" repo1 --read --out "$tmp/outdir/read"
+assert_eq "--read refuses an extra permission rc" 1 "$rc"
+[ ! -e "$tmp/outdir/read" ] && ok || bad "--read extra permission" "token file written"
+assert_eq "--read refusal prints no token" 0 "$(printf '%s' "$out" | grep -c "$TOKEN" || true)"
+rm -f "$tmp/outdir/file"
+STUB_BODY=$(rbody '{"issues":"write","contents":"read"}' repo1) run sh "$review" repo1 --file --out "$tmp/outdir/file"
+assert_eq "--file refuses an extra permission rc" 1 "$rc"
+[ ! -e "$tmp/outdir/file" ] && ok || bad "--file extra permission" "token file written"
+assert_eq "--file refusal prints no token" 0 "$(printf '%s' "$out" | grep -c "$TOKEN" || true)"
+# neither new shape writes anywhere but --out
+[ ! -e "$rtok" ] && ok || bad "new shapes" "wrote the default post-token path"
+assert_eq "new shapes wrote nothing else beside the post token" "" "$(ls -A "$home/review-tokens/repo1" || true)"
+assert_eq "new shapes wrote nothing under tokens/" "" "$(ls -A "$home/tokens/repo1" | grep -v '^admin-token$' || true)"
+STUB_BODY="{\"token\":\"$TOKEN\",\"expires_at\":\"$EXPIRES\"}"
+
+# usage errors: exit 2, curl uncalled, and the message names the rule that fired
+review_usage() { # needle args...
+  needle=$1; shift
+  run sh "$review" "$@"
+  assert_eq "review usage rc [$*]" 2 "$rc"
+  assert_eq "review usage curl uncalled [$*]" 0 "$(calls)"
+  case "$out" in *"$needle"*) ok ;; *) bad "review usage message [$*]" "'$needle' not in: $out" ;; esac
+}
+review_usage "--read and --file require --out" repo1 --read
+review_usage "--read and --file require --out" repo1 --file
+review_usage "cannot be combined" repo1 --read --file --out "$tmp/outdir/x"
+review_usage "--also requires --read" repo1 --also repo2 --out "$tmp/outdir/x"
+review_usage "--also requires --read" repo1 --file --also repo2 --out "$tmp/outdir/x"
+review_usage "same repository" repo1 --read --also repo1 --out "$tmp/outdir/x"
+review_usage "same repository" repo1 --read --also REPO1 --out "$tmp/outdir/x"
+review_usage "not a bare repository name" repo1 --read --also ../x --out "$tmp/outdir/x"
+review_usage "must not begin with '-'" repo1 --read --also --out x
+review_usage "must not begin with '-'" repo1 --out --read
+review_usage "--also given twice" repo1 --read --also a --also b --out "$tmp/outdir/x"
+review_usage "--read given twice" repo1 --read --read --out "$tmp/outdir/x"
+review_usage "--file given twice" repo1 --file --file --out "$tmp/outdir/x"
+review_usage "--out given twice" repo1 --out "$tmp/outdir/x" --out "$tmp/outdir/y"
+review_usage "unknown flag" repo1 --bogus
+review_usage "empty repository name" "" repo1 --read --out "$tmp/outdir/x"
 
 # --- revoke accepts the stateless ghs_APPID_JWT format (dots and dashes)
 JWT_TOKEN=ghs_12345_eyJhbGciOiJSUzI1NiJ9.eyJpYXQiOjE3NjAwMDAwMDB9-abc_DEF.c2lnbmF0dXJlLXNpZ25hdHVyZS1zaWduYXR1cmU
