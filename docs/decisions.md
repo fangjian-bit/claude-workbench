@@ -1869,6 +1869,59 @@ take effect. Full reasoning and the task breakdown that implements them:
     a build-order rewrite would then never drift, but an edited precondition would, which
     keeps a check `#628` did not ask to keep and `handoff`'s re-anchor machinery for it.
 
+- **WB-D28 (`#628`, `#638`) — a checked milestone-description writer, and no allow rule for it
+  yet.** Child (b) of `#628`. Built as `bin/milestone-desc.sh write <milestone> <file>`; it has
+  no caller until `#639`.
+  - **Why the script.** A description write made live is refused by this machine's auto-mode
+    classifier, which refuses `gh api` writes to the org's repositories, so `plan-sprint` stages
+    it for a human, and an edit to the anchored milestone's description is refused outright and
+    made by hand. Since `WB-D27` a live write no longer makes `plan-anchor.sh verify` read
+    `drift`. `#639` needs one narrow, checked form for it.
+  - **What the script bounds.** The method (`PATCH`), the one field (`description`, never
+    `title`, `state` or `due_on`), the endpoint's shape, the file's name and shape
+    (`description-m<N>.txt`, one link, not a symlink, not empty, directly in a `mktemp -d`-shaped
+    directory under `${TMPDIR:-/tmp}`) and the target's owner (the backlog named by the default
+    branch's committed `.ai/project.yml`, read over the API, must share the owner of the
+    checkout's `origin`). Not the text, and not the acting identity.
+  - **Why no allow rule yet.** A Bash allow rule approves a command name, not a file. Any file of
+    that name that a session can place earlier on `PATH`, or any edit to the installed copy, would
+    run under it unchecked; on this host (2026-10-15) the first `PATH` entry, `~/bin`, does not
+    exist and the plugin's `bin/` is the last of 38. A rule would also take these writes past both
+    the classifier and the human who sees a staged write today, into a public description that
+    later sessions read as specification. Whether auto mode passes the script's call without a
+    rule is unverified; `#639`'s first live run shows it. A pass is not a green light: the
+    classifier sees only `milestone-desc.sh write <n> <path>`, not the text, the file that runs,
+    or the PATCH, so a pass bypasses the human and the classifier's view of the write just as a
+    rule would. Either way, letting the write through unattended is a decision for `#639` to make
+    explicitly.
+    - **Deferred.** A rule on the command name, by the maintainer, 2026-10-15.
+    - **Rejected.** A rule on `gh api` itself, which would cover any endpoint, method, field and
+      file; a rule pinned to the installed copy's path, which a session can still edit and which
+      changes every release.
+  - **Accepted residuals.**
+    - The text is the caller's. A session can put any text in a correctly named scratch file,
+      including text drawn from a public issue body it read.
+    - The acting identity is whatever token the caller's environment holds. On the host today
+      that is the maintainer's login, and milestones keep no edit history (`WB-D27`).
+    - The target is the backlog of whichever checkout the command runs in, limited to the owner
+      of that checkout's `origin`. A rewritten `remote.origin.url`, however it is set, redirects
+      the repository read; a planted `insteadOf` or a second URL is refused. That refusal fails
+      closed on legitimate setups too: a checkout with an SSH-form `origin` is refused wherever
+      an `insteadOf` rule rewrites SSH to https, as `.devcontainer/Dockerfile` sets system-wide.
+      `#639`'s caller should expect it.
+    - A process already running can swap the file between the checks and the copy. The
+      after-copy recheck narrows that to a double swap; it does not close it. A swap that wins
+      sends any file the user can read. On a volume without stable file IDs (FAT, exFAT, some
+      network shares), MSYS can make up inode numbers, and the recheck may not see a swap.
+    - `<root>` comes from the caller's `TMPDIR`, so the root check is a convention filter, not a
+      boundary. The name, link and inode rules carry the weight.
+    - Callers should spell the file's path literally. In this repo's only permission evidence,
+      managed rules under `--restricted --permission-mode dontAsk` on claude 2.1.289, commands
+      expanding `$HOME` and `$PWD` were denied (plan v9, section 9), and
+      `docs/proposals/V9-TEST-RESULTS.md` states the general rule that such allow rules do not
+      cover a command that expands a variable. There is no evidence for auto mode or project
+      rules; it matters if a rule is ever added.
+
 ## Status
 
 All four of `WB-D1..D4` are implemented by this repo's existence and structure as of

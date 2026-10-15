@@ -64,7 +64,7 @@ plugins/way-of-working/
   agents/     architect.md coder.md security-critic.md docs-consistency.md
   bin/        cursor-drift.sh entry-anchor.sh review-gate-state.sh plan-anchor.sh
               spawn-model.sh review-base-anchor.sh review-sandbox.sh
-              milestone-close-line.sh plan-gather.sh schema-complete.sh
+              milestone-close-line.sh plan-gather.sh milestone-desc.sh schema-complete.sh
               cursor-sync-pr.sh blocked-state.sh prune-verdict.sh review-step.sh critic-section.sh
               plan-depends.sh driver-lock.sh auto-merge-arm.sh app-push.sh stall-merge.sh gh-identity.sh review-token.sh token-check.sh hitl-gate-closed.sh spec-reaction.sh spec-comment.sh spec-shape.sh
               — executables, added to the Bash
