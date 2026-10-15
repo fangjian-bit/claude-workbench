@@ -388,6 +388,16 @@ guess a gate (`reference/project-schema.md`).
    block. **The live run — one review posted on the scratch repo through this flow — is the
    human's.**
 
+   **App mode runs on the host, never in a dev container** (`WB-D24` item 7, `#514`). The
+   reviewer token never enters a dev container, so `review-token.sh request` there fails closed
+   (no reviewer key is mounted; in practice `wow-review-mint` is not on `PATH`): stop and tell the
+   human to start the review in a fresh host session, from a clone no container opens. Do not
+   look for another way to get a token. The `STOP: reviewer token file not removed` line the
+   trap then prints is expected there (`WOW_HOME` is unset) and means no token existed. The read
+   credential for the host session once its logins are removed is not settled (`#623`): until
+   then every other `gh` call, before and after the post, runs as the host session already does,
+   and the reviewer token is requested only for the post, as above.
+
    **Consume the cursor's vote the moment a post succeeds — pinned or not, and before the poll
    below** (`WB-D22`, `#283`). The base, synced and clean, is the checkout resume auto-starts
    from, so nothing but the gate would stop a later resume there from starting a second review

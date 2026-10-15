@@ -1611,6 +1611,29 @@ take effect. Full reasoning and the task breakdown that implements them:
        maintainer-login key. Unattended `/resume` auto-start also requires the
        maintainer's **reaction** on the exact spec comment, created after its last edit.
        An App can edit comments but cannot react as another user.
+    7. **Reviewer tokens never enter a dev container; App-mode review runs on the host
+       (#514, decided 2026-10-14).** The reviewer must be a different identity from the PR's
+       author, and a container that held the token would share the author session's home
+       volume, Claude login and anything the authoring session planted, so "reviewer" would
+       be a label. #509's request channel was removed in #513 for that reason, and
+       `review-tokens/` stays out of every dev container.
+       - **Now:** the human starts a fresh review session on the host, from a clone no
+         container opens. `review-token.sh` is the plugin's own script; it runs
+         `wow-review-mint`, which the host installs into `$WOW_HOME/bin`. No reviewer key is
+         mounted in a dev container, so no mint can succeed there, and `token-check.sh verify`
+         rejects a token from any other App before a post; in practice `request` stops
+         earlier, because `wow-review-mint` is not on `PATH`.
+       - **Later (#623, revisiting #158):** a review container the host launches per review,
+         with the reviewer token mounted into that container only.
+       - **Open: the host review session's read credential.** Once the host logins are
+         removed (#400) it needs one for its GitHub reads across the review, and the
+         reviewer token as minted does not cover them: it has no Issues or Actions access
+         (the task-spec load, the CI witness reads, filing a finding), reaches one repo only,
+         and nothing keeps its token file away from `review-sandbox.sh make` or `run`. Until
+         #623 settles this, the host session keeps the credential it has today, which
+         sandboxed PR code can reach just as it could a reviewer token (`review-sandbox.sh`'s
+         "does NOT close" list); #623 is the boundary. So #400 (removing the host's admin
+         `gh` logins) must not land before #623 settles the host review session's credential.
   - **Rejected.**
     - **Keeping `--admin` for cursor-sync only.** It needs a bypass-capable login in the
       agent's shell, which is the exposure itself.
