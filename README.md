@@ -4,7 +4,9 @@ A [Claude Code plugin marketplace](https://code.claude.com/docs/en/plugin-market
 holding `way-of-working`: a portable Claude Code session-handoff protocol
 (`/way-of-working:resume` → `/way-of-working:handoff` → `/way-of-working:critic-gate` → `/way-of-working:ship` → `/way-of-working:pr-checks` → `/way-of-working:archive-sprint`,
 plus `/way-of-working:retro`, `/way-of-working:plan-sprint` for triaging the backlog into
-milestones under `github_milestones` planning, `/way-of-working:architect-review` for a repo
+milestones under `github_milestones` planning, `/way-of-working:spec-task` for drafting a
+task's spec comment (it drafts and stops; the maintainer posts it),
+`/way-of-working:architect-review` for a repo
 that wires a fresh-session review gate, and `/way-of-working:park-sprint` /
 `/way-of-working:unpark-sprint` for
 setting a sprint aside mid-flight), four general-purpose review/implementation agents (`architect`, `coder`,
@@ -58,13 +60,13 @@ own `.ai/project.yml` per `reference/project-schema.md`.
 plugins/way-of-working/
   .claude-plugin/plugin.json
   skills/     resume/ handoff/ critic-gate/ ship/ pr-checks/ archive-sprint/ retro/
-              park-sprint/ unpark-sprint/ plan-sprint/ architect-review/
+              park-sprint/ unpark-sprint/ plan-sprint/ spec-task/ architect-review/
   agents/     architect.md coder.md security-critic.md docs-consistency.md
   bin/        cursor-drift.sh entry-anchor.sh review-gate-state.sh plan-anchor.sh
               spawn-model.sh review-base-anchor.sh review-sandbox.sh
               milestone-close-line.sh plan-gather.sh schema-complete.sh
               cursor-sync-pr.sh blocked-state.sh prune-verdict.sh review-step.sh critic-section.sh
-              plan-depends.sh driver-lock.sh auto-merge-arm.sh app-push.sh stall-merge.sh gh-identity.sh review-token.sh token-check.sh hitl-gate-closed.sh spec-reaction.sh spec-comment.sh
+              plan-depends.sh driver-lock.sh auto-merge-arm.sh app-push.sh stall-merge.sh gh-identity.sh review-token.sh token-check.sh hitl-gate-closed.sh spec-reaction.sh spec-comment.sh spec-shape.sh
               — executables, added to the Bash
               tool's PATH
   hooks/      hooks.json + ai-cursor-banner.sh

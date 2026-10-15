@@ -345,6 +345,11 @@ description and cannot be mistaken for the human's approval.
   refuses to edit a milestone description `pointers.plan_anchor` already names — that needs
   `/way-of-working:handoff`'s own re-anchor instead. Grounded triage, not design; any
   model.
+- **`/way-of-working:spec-task <N>`** — the spec-comment half of the Opus planning role. Run
+  just in time, right before task `#N` is next: it reads the issue only when its author is
+  trusted, drafts the spec comment in the fixed shape against the PR base's tree, and **stops
+  without posting it**. The maintainer posts the draft on `#N` and reacts, then
+  `/way-of-working:handoff` anchors it. Never posts, edits or reacts (`WB-D26`). Runs on `models.architect`.
 - **`/way-of-working:park-sprint <next-id>`** — set the live sprint aside mid-flight:
   snapshot its cursor into tracked `.ai/parked/<id>-*`, seed the live cursor for the next
   sprint, and open the docs-only cursor-sync PR. Mechanical; any model.

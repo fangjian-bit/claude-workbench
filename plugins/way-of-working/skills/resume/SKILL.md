@@ -806,8 +806,9 @@ edited it. **Default to the full checklist whenever unsure.**
      `updated_at`; otherwise **`unreacted`**, which **waits** like `drift` and is stated in the
      pick-up summary, impossible to miss: `Spec approval: waiting — a maintainer reaction
      (👍, ❤️, 🎉 or 🚀) is needed on <comment URL>, after its last edit.` — or, with no
-     spec comment anchored, `Spec approval: waiting — no spec comment is anchored; post the spec
-     as a comment on #N, anchor it at handoff, and react to it.` An edit to the
+     spec comment anchored, `Spec approval: waiting — no spec comment is anchored; draft one with
+     /way-of-working:spec-task <N>, post it as a comment on #N, anchor it at handoff, and react
+     to it.` An edit to the
      comment after the reaction makes the reaction stale, and a comment alone never counts.
      Under `legacy` (`identities: null`) the flag is omitted and nothing changes.
 

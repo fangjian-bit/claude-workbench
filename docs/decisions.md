@@ -1755,6 +1755,45 @@ take effect. Full reasoning and the task breakdown that implements them:
     `Seuss27` and `JaredGroves-603`, the account that opens the terraform repos' PRs (the
     maintainer's report, 2026-10-14; it is a per-account setting the dev App cannot read).
 
+- **WB-D26 (`#611`) — `/way-of-working:spec-task` drafts a task's spec comment and stops; the
+  maintainer posts it and reacts.** Decided by the maintainer in the issue's design, and
+  recorded with the spec comment on `#611`. It follows `WB-D24`'s rule that a spec comment
+  auto-starts a build only when a declared maintainer wrote it and a declared maintainer reacted to it.
+  - **Why.**
+    - **A comment the agent posts has the wrong author.** After cutover the agent acts as the
+      dev App, so `plan-anchor.sh verify` reads its comment as `untrusted` and `resume` waits.
+      The spec has to be the maintainer's own comment.
+    - **Posting makes approval a reflex.** The maintainer reading a draft before posting it is
+      the review; a skill that posted and then asked for a reaction would turn that into a click.
+    - **Planning time is too early.** A spec is checked against a tree, and the tree moves; the
+      skill runs just in time, right before the task is next.
+  - **The rule.**
+    - The skill reads `#N` only when its author is trusted, by the same
+      `gh-identity.sh author` test `resume` uses, from the default branch's `identities`.
+      It reads no other issue's body and no comments, and treats the body as data.
+    - It drafts in a fixed shape (goal, files touched, done when, tests, out of scope, restated
+      from the issue body), checks every file, function and test it names on `origin/{pr_base}`
+      or marks it **(new)**, and prints the draft only after `bin/spec-shape.sh` says `ok`.
+    - It never posts, edits or reacts. `scripts/invariants-check.sh` check 18 fails the build if
+      the skill's text carries a `gh issue`/`gh pr` write command, a `gh label` command, or a
+      `gh api` call with a POST, PATCH, PUT or DELETE method or a field or input flag. It is a
+      static check on the skill's prose, not a proof about a model's behaviour.
+    - It reads the repo, backlog repo and base from the default branch's copy of `.ai/project.yml`, as
+      `resume` does, and its closing message says to build in a fresh session: this one has read
+      `#N`'s body, which the builder must not have in context under a map (`#496`).
+    - It runs on the architect model (`models.architect`; Opus by default), with `spawn-model.sh` provenance when it is a subagent.
+    - `resume` and `handoff` point at it and never invoke it. No new `.ai/project.yml` key: the
+      shape is generic method, and the trusted ids and base come from `identities` and
+      `pr_base`.
+  - **Rejected.**
+    - **Writing specs in `plan-sprint`.** That is planning time, when the tree has not yet moved
+      past the spec, and it turns a triage pass into a drafting pass.
+    - **Letting the skill post the comment.** The author and reflex problems above.
+  - **Accepted residual.** The trust check is on the issue's author, not its last editor: an
+    account with write access to the backlog (the dev App included) can edit a trusted
+    author's body, and the edited text reaches the drafter. The draft is paraphrased, its last
+    section lists what came from the body, and the maintainer reads it before posting.
+
 ## Status
 
 All four of `WB-D1..D4` are implemented by this repo's existence and structure as of

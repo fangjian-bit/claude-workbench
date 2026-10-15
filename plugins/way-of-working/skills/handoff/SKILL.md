@@ -163,7 +163,9 @@ names `{backlog.repo}` takes `{repo}` then (the derive line below passes `-` ins
    say so, rather than writing an anchor that would silently verify against the wrong text.
    Under a map (`identities` is `!!map`; `reference/project-schema.md` § `identities`), `/way-of-working:resume`
    auto-starts only on an anchored spec comment a maintainer wrote and a maintainer reacted to (`WB-D24`, `#383`, `#497`), so an
-   anchor with no `<comment-id>` there leaves resume waiting on `unreacted`. Under that same
+   anchor with no `<comment-id>` there leaves resume waiting on `unreacted`;
+   `/way-of-working:spec-task <N>` drafts the comment for the maintainer to post and react to
+   (`WB-D26`). Under that same
    map the builder takes the anchored comment as the whole spec and `#N`'s body never enters
    its context (`#496`), so anything the task needs from the issue text must be in the spec
    comment; text that lives only in the issue body is not seen.

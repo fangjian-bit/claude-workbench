@@ -53,6 +53,8 @@ sh tests/spec-reaction.test.sh  # spec-reaction.sh approved/unreacted/bad-argume
 sh tests/invariants-spec-reaction.test.sh  # invariants-check.sh check 16 (one spec-reaction rule, plan-anchor.sh and architect-review call it) fixtures (not yet required)
 sh tests/spec-comment.test.sh  # spec-comment.sh ok/moved/wrong-issue/untrusted/unreadable/bad-argument fixtures (not yet required)
 sh tests/invariants-spec-comment.test.sh  # invariants-check.sh check 17 (resume, coder and architect-review print the spec comment only via spec-comment.sh) fixtures (not yet required)
+sh tests/spec-shape.test.sh    # spec-shape.sh ok/missing-section/wrong-order/empty-restated/unreadable/bad-argument fixtures (not yet required)
+sh tests/invariants-spec-task-post.test.sh  # invariants-check.sh check 18 (the spec-task skill carries no posting form) fixtures (not yet required)
 sh tests/hitl-gate-closed.test.sh  # hitl-gate-closed.sh canonical closed form vs bare, OPEN, parked, appended clause, empty fixtures (not yet required)
 sh tests/invariants-gh-pipe.test.sh  # invariants-check.sh check 11 (no gh output piped into a bin/ predicate) fixtures (not yet required)
 sh tests/cursor-sync-pr.test.sh # resume's cursor-sync PR report predicate fixtures (not yet required)

@@ -10,7 +10,7 @@
       "name": "way-of-working",
       "source": "./plugins/way-of-working",
       "license": "Apache-2.0",
-      "description": "Session handoff protocol (/way-of-working:resume, /way-of-working:handoff, /way-of-working:critic-gate, /way-of-working:ship, /way-of-working:pr-checks, /way-of-working:archive-sprint, /way-of-working:retro, /way-of-working:park-sprint, /way-of-working:unpark-sprint, /way-of-working:plan-sprint, /way-of-working:architect-review), the architect/coder/security-critic/docs-consistency agents, and the Global Conventions — parameterized by each repo's .ai/project.yml."
+      "description": "Session handoff protocol (/way-of-working:resume, /way-of-working:handoff, /way-of-working:critic-gate, /way-of-working:ship, /way-of-working:pr-checks, /way-of-working:archive-sprint, /way-of-working:retro, /way-of-working:park-sprint, /way-of-working:unpark-sprint, /way-of-working:plan-sprint, /way-of-working:spec-task, /way-of-working:architect-review), the architect/coder/security-critic/docs-consistency agents, and the Global Conventions — parameterized by each repo's .ai/project.yml."
     }
   ]
 }

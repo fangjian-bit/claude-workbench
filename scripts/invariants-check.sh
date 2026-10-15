@@ -757,6 +757,48 @@ if [ -n "$speccomment_hits" ]; then
     "Fetch the comment into a file and print it with bin/spec-comment.sh body; never to the transcript."
 fi
 
+# --- 18. The spec-task skill drafts and never posts (#611, WB-D26) -----------------------------
+#
+# A spec comment the agent posted would be authored by the agent's own identity, which
+# plan-anchor.sh verify reads as `untrusted`, and posting would make the maintainer's approval a
+# reflex. So skills/spec-task is draft-only, and its text must carry no posting form: `gh issue
+# comment`, `gh pr comment` and the other `gh issue`/`gh pr` write verbs (flags may sit between
+# the words), `gh label`, or a `gh api` call with `-X`/`--method` POST|PATCH|PUT|DELETE or with
+# `-f`/`-F` (a value may be attached) or `--field`/`--raw-field`/`--input` (any of which turns a
+# read into a write). A command wrapped over several lines with a trailing backslash is joined
+# before the test. It is a static
+# check on the skill's prose and its appendices, not a proof about a model's behaviour; a
+# posting call spelled some other way is outside it. A tree with no spec-task skill fails: a
+# check that cannot look must not pass (#243's stance).
+spectask_hits=""
+spectask_seen=0
+for f in plugins/*/skills/spec-task/SKILL.md plugins/*/skills/spec-task/appendices/*.md; do
+  [ -f "$f" ] || continue
+  case "$f" in */SKILL.md) spectask_seen=1 ;; esac
+  # CRs go first, so a CRLF checkout joins wrapped lines too.
+  joined=$(tr -d '\r' <"$f" | sed -e ':a' -e '/\\$/N; s/\\\n[[:space:]]*/ /; ta')
+  # Flags may sit between `issue`/`pr` and the verb (`gh issue -R x comment`).
+  # `gh` must start a word, so prose like "high label" is not a command. A verb may be quoted.
+  h=$(printf '%s\n' "$joined" | grep -inE '(^|[^A-Za-z0-9_-])gh(\.exe)?([[:space:]]+-[^[:space:]]+([[:space:]]+[^-[:space:]][^[:space:]]*)?)*[[:space:]]+["'"'"']?(issue|pr)["'"'"']?([[:space:]]+-[^[:space:]]+([[:space:]]+[^-[:space:]][^[:space:]]*)?)*[[:space:]]+["'"'"']?(comment|edit|close|reopen|create|new|review|lock|unlock|delete|transfer|merge|ready|pin|unpin|develop|update-branch|revert)([^A-Za-z-]|$)' || true)
+  [ -z "$h" ] || spectask_hits+="$f (a gh issue/pr write command):"$'\n'"$h"$'\n'
+  h=$(printf '%s\n' "$joined" | grep -inE '(^|[^A-Za-z0-9_-])gh(\.exe)?([[:space:]]+-[^[:space:]]+([[:space:]]+[^-[:space:]][^[:space:]]*)?)*[[:space:]]+["'"'"']?label([^A-Za-z-]|$)' || true)
+  [ -z "$h" ] || spectask_hits+="$f (a gh label command):"$'\n'"$h"$'\n'
+  # The whole line is tested, not a segment of it: cutting at a pipe or `;` would hide a write
+  # piped into `gh api` or one that follows a separator inside a quoted argument. A skill line
+  # that mentions `gh api` next to an unrelated `-f` is reworded, not exempted.
+  h=$(printf '%s\n' "$joined" | grep -inE '(^|[^A-Za-z0-9_-])gh(\.exe)?([[:space:]]+-[^[:space:]]+([[:space:]]+[^-[:space:]][^[:space:]]*)?)*[[:space:]]+["'"'"']?api' |
+    grep -iE -e '(^|[[:space:]])["'"'"']?(-[A-Za-z]*X|--method)["'"'"']?[[:space:]=]*["'"'"']?(POST|PATCH|PUT|DELETE)([^A-Za-z]|$)' \
+      -e '(^|[[:space:]])["'"'"']?-[A-Za-z]*[fF]' \
+      -e '(^|[[:space:]])["'"'"']?--(field|raw-field|input)([[:space:]=]|$)' || true)
+  [ -z "$h" ] || spectask_hits+="$f (a gh api write):"$'\n'"$h"$'\n'
+done
+[ "$spectask_seen" -eq 1 ] || spectask_hits+="(no plugins/*/skills/spec-task/SKILL.md found)"$'\n'
+if [ -n "$spectask_hits" ]; then
+  report "the spec-task skill contains a posting form; it must draft and stop (#611)" \
+    "$spectask_hits" \
+    "The maintainer posts the draft and reacts to it. See docs/decisions.md WB-D26."
+fi
+
 if [ "$fail" -ne 0 ]; then
   cat >&2 <<'EOF'
 
