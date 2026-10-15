@@ -44,7 +44,7 @@ sh tests/milestone-close-line.test.sh  # archive-sprint's Milestone close: ledge
 sh tests/schema-complete.test.sh  # WB-D17 .ai/project.yml completeness-checker fixtures (not yet required)
 sh tests/plan-gather.test.sh    # plan-sprint's read-only gather-step fixtures (not yet required)
 sh tests/milestone-desc.test.sh  # milestone-desc.sh write: scratch-file, repository and read-back fixtures vs a stub gh (not yet required)
-sh tests/plan-depends.test.sh   # plan-sprint's depends_on marker read-back fixtures (not yet required)
+sh tests/plan-depends.test.sh   # plan-sprint's depends_on marker read-back, plus order, frame and items, fixtures (not yet required)
 sh tests/invariants-reach-order.test.sh  # invariants-check.sh check 3 (reach precedes ruleset) fixtures (not yet required)
 sh tests/invariants-null-repo.test.sh  # invariants-check.sh check 12 (null backlog.repo means {repo}) fixtures (not yet required)
 sh tests/invariants-unpark-pfc.test.sh  # invariants-check.sh check 13 (unpark-sprint validates parked_from_commit) fixtures (not yet required)

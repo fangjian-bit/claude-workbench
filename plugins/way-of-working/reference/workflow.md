@@ -342,9 +342,10 @@ description and cannot be mistaken for the human's approval.
   stages the milestone writes the calling environment's own write policy refuses, and posts
   a dated triage comment recording each decision. Recommends but never decides, never
   creates or closes a milestone the human hasn't named, and
-  refuses to edit a milestone description `pointers.plan_anchor` already names — the human
-  edits it by hand until `#639`, with no handoff. Grounded triage, not design; any
-  model.
+  edits a build order live through `milestone-desc.sh`, the anchored milestone included,
+  after the human confirms the diff. It stages the edit when the live write does not go
+  through, and records the old and new order in a triage comment. Grounded triage, not
+  design; any model.
 - **`/way-of-working:spec-task <N>`** — the spec-comment half of the Opus planning role. Run
   just in time, right before task `#N` is next: it reads the issue only when its author is
   trusted, drafts the spec comment in the fixed shape against the PR base's tree, and **stops

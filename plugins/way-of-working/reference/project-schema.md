@@ -348,14 +348,16 @@ planning:
   phase, and any **`BLOCKING:`** acceptance criteria (`reference/conventions.md` §
   *Blocking preconditions* gains "or the milestone description" as where the marker lives
   under this kind). `/way-of-working:plan-sprint` is where the concrete template for this
-  shape lives — it drafts new-milestone descriptions from it and proposes it in its own
+  shape lives — it drafts new-milestone descriptions, and the items it adds to an existing
+  milestone's list, from it and proposes it in its own
   dialogue; this doc states the shape's required elements, not the literal prose.
   **Each Build order item may carry a `depends_on` marker** `/way-of-working:plan-sprint`
   writes from the human's confirmation — a trailing ` [depends_on: none]` or
   ` [depends_on: #N, #M]` token that `bin/plan-depends.sh read` returns as `independent`,
   `after <N>…`, or `all-earlier <reason>`. It lives here, in the description, because the
   description is the one place a reader already gets the plan from without opening an issue
-  body. It is written only for a new milestone's drafted list; anything unconfirmed, absent,
+  body. It is written for a new milestone's drafted list and for the items plan-sprint adds to an
+  existing milestone's list; anything unconfirmed, absent,
   or malformed reads `all-earlier` (the item waits for every earlier item), never
   `independent`. **The token is description text, and trust rule 1 applies to it:** the reader
   cannot tell who wrote it. Nothing binds it after publication

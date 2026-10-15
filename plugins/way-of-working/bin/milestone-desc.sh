@@ -15,7 +15,7 @@
 # `git` and `gh` call go to /dev/null or to a file in this script's own temp directory, so neither
 # stream ever carries the file's content, the description, `gh`'s response or a remote URL.
 #
-# Who calls it: no one yet (#639 makes plan-sprint its first caller). Why it exists: a description
+# Who calls it: plan-sprint's Apply & stage step (#639). Why it exists: a description
 # write made live is refused by an auto-mode classifier that refuses `gh api` writes to an org's
 # repositories, and the plan anchor no longer binds the description (`WB-D27`, `#628`), so a live
 # write is safe for the anchor. This is the one narrow, checked form for it.

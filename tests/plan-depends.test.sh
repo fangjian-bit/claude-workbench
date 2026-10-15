@@ -222,4 +222,145 @@ status=0
 sh "$script" bogus "$tmp/desc" 1 >"$tmp/out" 2>/dev/null || status=$?
 assert_eq "an unknown subcommand exits 1" "1" "$status"
 
+echo "# order -- the list's issue numbers"
+
+ord_() { sh "$script" order "$tmp/desc"; }
+frm() { sh "$script" frame "$1"; }
+itm() { sh "$script" items "$tmp/desc"; }
+
+write_desc <<'EOF'
+1. #12: first. [depends_on: none]
+2. #14: second. [depends_on: #12]
+3. #9: third, listed last but a lower number. [depends_on: none]
+EOF
+assert_eq "order prints the numbers in list order, not sorted" "order 12 14 9" "$(ord_)"
+
+write_desc <<'EOF'
+1. #12: first, a reason that the human wrapped
+   onto a second line. [depends_on: none]
+2. #14: no marker at all.
+3. #9: ok. [depends_on: #12]
+EOF
+assert_eq "wrapped lines and a missing marker read the same" "order 12 14 9" "$(ord_)"
+
+printf '**Build order:**\r\n1. #12: a. [depends_on: none]\r\n2. #14: b.\r\n' >"$tmp/desc"
+assert_eq "a CRLF file reads the same" "order 12 14" "$(ord_)"
+
+write_desc <<'EOF'
+1. #12: ok. [depends_on: none]
+2. #14: malformed. [depends_on: #12 #99]
+EOF
+assert_eq "one malformed marker does not make order unreadable" "order 12 14" "$(ord_)"
+
+rm -f "$tmp/desc"
+assert_eq "order: a missing file is unreadable" "unreadable" "$(sh "$script" order "$tmp/desc")"
+assert_eq "order: a directory is unreadable" "unreadable" "$(sh "$script" order "$tmp/dir")"
+printf 'No build order here.\n' >"$tmp/desc"
+assert_eq "order: no header is unreadable" "unreadable" "$(ord_)"
+printf '**Build order:**\n1. #1: a.\n\n**Build order:**\n1. #2: b.\n' >"$tmp/desc"
+assert_eq "order: a repeated header is unreadable" "unreadable" "$(ord_)"
+printf '**Build order:**\n1. #1: a.\n3. #2: b.\n' >"$tmp/desc"
+assert_eq "order: numbering not 1..k is unreadable" "unreadable" "$(ord_)"
+printf '**Build order:**\n1. #1: a.\n2. #1: b.\n' >"$tmp/desc"
+assert_eq "order: a repeated issue is unreadable" "unreadable" "$(ord_)"
+printf '**Build order:**\n1. #01: a.\n' >"$tmp/desc"
+assert_eq "order: a leading zero is unreadable" "unreadable" "$(ord_)"
+printf '**Build order:**\n1. #1234567890: a.\n' >"$tmp/desc"
+assert_eq "order: a number over 9 digits is unreadable" "unreadable" "$(ord_)"
+printf '**Build order:**\n\n1. #1: a.\n' >"$tmp/desc"
+assert_eq "order: a header with no items is unreadable" "unreadable" "$(ord_)"
+printf '**Build order:**\n' >"$tmp/desc"
+assert_eq "order: a header at end of file is unreadable" "unreadable" "$(ord_)"
+
+echo "# frame -- everything outside the list"
+
+mkframe() { # mkframe <file> <list-body> [<trailer>]
+  {
+    printf 'Intro line.\n\n**Build order:**\n'
+    printf '%s\n' "$2"
+    printf '\n%s\n' "${3:-**Model per phase:** coder.}"
+  } >"$1"
+}
+mkframe "$tmp/f1" '1. #12: a. [depends_on: none]'
+mkframe "$tmp/f2" '1. #7: new. [depends_on: none]
+2. #12: a, renumbered
+   and wrapped. [depends_on: none]'
+assert_eq "frames differing only inside the list are equal" "$(frm "$tmp/f1")" "$(frm "$tmp/f2")"
+assert_eq "the frame keeps the header and the text around the list" \
+  "Intro line.
+
+**Build order:**
+
+**Model per phase:** coder." "$(frm "$tmp/f1")"
+
+printf 'Intro line.\n\n**Build order:**\n1. #12: a. [depends_on: none]\n\n**Model per phase:** coder.' >"$tmp/f3"
+assert_eq "frames differing only in the final newline are equal" "$(frm "$tmp/f1")" "$(frm "$tmp/f3")"
+
+mkframe "$tmp/f4" '1. #12: a. [depends_on: none]' '**BLOCKING:** wait for review.'
+if [ "$(frm "$tmp/f1")" != "$(frm "$tmp/f4")" ]; then
+  echo "ok - a changed line after the list changes the frame"
+else
+  echo "FAIL - a changed line after the list left the frame equal" >&2; fail=1
+fi
+sed 's/^Intro line\./Changed intro./' "$tmp/f1" >"$tmp/f5"
+if [ "$(frm "$tmp/f1")" != "$(frm "$tmp/f5")" ]; then
+  echo "ok - a changed line before the header changes the frame"
+else
+  echo "FAIL - a changed line before the header left the frame equal" >&2; fail=1
+fi
+sed 's/^\*\*Build order:\*\*$/**Build order:** /' "$tmp/f1" >"$tmp/f6"
+assert_eq "a changed header makes the list unreadable, so the frame says so" "unreadable" "$(frm "$tmp/f6")"
+printf '**Build order:**\n\n1. #1: a.\n' >"$tmp/f7"
+assert_eq "frame: an unreadable list prints unreadable" "unreadable" "$(frm "$tmp/f7")"
+assert_eq "frame: a missing file prints unreadable" "unreadable" "$(frm "$tmp/nosuch")"
+printf 'Intro.\r\n\r\n**Build order:**\r\n1. #12: a.\r\n\r\nTail.\r\n' >"$tmp/f8"
+assert_eq "frame strips CR as read does" "Intro.
+
+**Build order:**
+
+Tail." "$(frm "$tmp/f8")"
+
+# the skill's real pair: gh --jq adds one newline to a stored description that already ends in
+# one; the composed file drops it, and the check copy adds it back. Compared as files with cmp.
+printf 'R.\n\n**Build order:**\n1. #5: a.\n\n**Model per phase**\n- x\n\n\n' >"$tmp/g-before"
+printf 'R.\n\n**Build order:**\n1. #5: a.\n2. #6: b.\n\n**Model per phase**\n- x\n\n' >"$tmp/g-composed"
+{ cat "$tmp/g-composed"; printf '\n'; } >"$tmp/g-check"
+sh "$script" frame "$tmp/g-before" >"$tmp/g-fb"
+sh "$script" frame "$tmp/g-check" >"$tmp/g-fc"
+status=0; cmp -s "$tmp/g-fb" "$tmp/g-fc" || status=$?
+assert_eq "frames of a stored-newline description and its check copy are cmp-equal" "0" "$status"
+
+echo "# items -- each item's text"
+
+write_desc <<'EOF'
+1. #12: first. [depends_on: none]
+2. #14: second, a reason that wraps
+   onto a continuation. [depends_on: #12]
+3. #9: third.
+   **BLOCKING:** not yet.
+EOF
+assert_eq "items prints one N text line per item, continuations joined" \
+  "12 first. [depends_on: none]
+14 second, a reason that wraps onto a continuation. [depends_on: #12]
+9 third. **BLOCKING:** not yet." "$(itm)"
+printf '**Build order:**\r\n1. #12: first. [depends_on: none]\r\n2. #14: x\r\n   y.\r\n' >"$tmp/desc"
+assert_eq "items: a CRLF file reads the same as an LF one" "12 first. [depends_on: none]
+14 x y." "$(itm)"
+printf '**Build order:**\n1. #1: a.\n1. #2: b.\n' >"$tmp/desc"
+assert_eq "items: an unreadable list prints unreadable" "unreadable" "$(itm)"
+assert_eq "items: a missing file prints unreadable" "unreadable" "$(sh "$script" items "$tmp/nosuch")"
+
+echo "# usage errors for the new subcommands"
+
+for sub in order frame items; do
+  status=0
+  sh "$script" "$sub" >"$tmp/out" 2>/dev/null || status=$?
+  assert_eq "$sub with no file exits 1" "1" "$status"
+  assert_eq "$sub with no file prints nothing" "" "$(cat "$tmp/out")"
+  status=0
+  sh "$script" "$sub" "$tmp/desc" extra >"$tmp/out" 2>/dev/null || status=$?
+  assert_eq "$sub with an extra argument exits 1" "1" "$status"
+  assert_eq "$sub with an extra argument prints nothing" "" "$(cat "$tmp/out")"
+done
+
 exit "$fail"

@@ -1863,18 +1863,18 @@ take effect. Full reasoning and the task breakdown that implements them:
       removed criterion leaves no line in the PR body, so the code owner sees nothing of it,
       and `archive-sprint`'s precondition 5 reads the live description too, so the
       sprint-close audit misses it as well. Narrowing those reads is `#640`.
-    - Until `#639` lands, an anchored description is still edited by hand, with no record of
-      the old order.
+    - plan-sprint's own edits are recorded in its triage comment; an edit made outside
+      plan-sprint leaves no record of the old order.
   - **Rejected.** Binding only the `BLOCKING:` criteria in the anchor (a `blocking_sha256`):
     a build-order rewrite would then never drift, but an edited precondition would, which
     keeps a check `#628` did not ask to keep and `handoff`'s re-anchor machinery for it.
 
 - **WB-D28 (`#628`, `#638`) — a checked milestone-description writer, and no allow rule for it
-  yet.** Child (b) of `#628`. Built as `bin/milestone-desc.sh write <milestone> <file>`; it has
-  no caller until `#639`.
+  yet.** Child (b) of `#628`. Built as `bin/milestone-desc.sh write <milestone> <file>`; its
+  caller is plan-sprint (`#639`).
   - **Why the script.** A description write made live is refused by this machine's auto-mode
     classifier, which refuses `gh api` writes to the org's repositories, so `plan-sprint` stages
-    it for a human, and an edit to the anchored milestone's description is refused outright and
+    it for a human, and an edit to the anchored milestone's description was refused outright and
     made by hand. Since `WB-D27` a live write no longer makes `plan-anchor.sh verify` read
     `drift`. `#639` needs one narrow, checked form for it.
   - **What the script bounds.** The method (`PATCH`), the one field (`description`, never
@@ -1892,12 +1892,34 @@ take effect. Full reasoning and the task breakdown that implements them:
     rule is unverified; `#639`'s first live run shows it. A pass is not a green light: the
     classifier sees only `milestone-desc.sh write <n> <path>`, not the text, the file that runs,
     or the PATCH, so a pass bypasses the human and the classifier's view of the write just as a
-    rule would. Either way, letting the write through unattended is a decision for `#639` to make
-    explicitly.
+    rule would. Either way, letting the write through unattended is a decision for the
+    maintainer once `#639`'s first live run shows what auto mode does.
     - **Deferred.** A rule on the command name, by the maintainer, 2026-10-15.
     - **Rejected.** A rule on `gh api` itself, which would cover any endpoint, method, field and
       file; a rule pinned to the installed copy's path, which a session can still edit and which
       changes every release.
+  - **The caller (`#639`).** plan-sprint edits an existing milestone's build order, the
+    anchored one included, through this script.
+    - Before a live write it runs mechanical checks on the fetched and composed files (nothing
+      outside the list changed, pre-existing item text unchanged, new items in the template's
+      shape, the issue set exactly the old one plus the confirmed placements, the live
+      description unmoved) and shows the human a `diff -u`. These are the session's own steps.
+      A session steered by injected text can skip them and misreport the diff alike, and
+      `milestone-desc.sh` enforces none of them. On a classifier pass nothing outside the
+      session stands in the way. The triage record is the session's own post too, so the only
+      external trace is the changed description, which has no history behind it. Enforcing the
+      checks in `milestone-desc.sh` is a named follow-up. This accepted residual feeds the open
+      decision below.
+    - The record is the dated triage comment, which holds the old and new order as issue
+      numbers, built from `plan-depends.sh order` on fetched files.
+    - The fallback is today's staged script, for a `refused` or `mismatch`, a usage exit or a
+      denied call. A write is never retried in another form.
+    - The window between the recheck and the PATCH is a residual: the script makes several `gh`
+      calls first, and GitHub has no conditional milestone PATCH.
+    - plan-sprint resolves the script's target once per run, while the script resolves it on
+      every call. A `backlog.repo` change merged mid-run could send a write to another
+      repository of the same owner; it needs default-branch write access.
+    - The allow-rule decision stays open. The first live run's outcome is added here.
   - **Accepted residuals.**
     - The text is the caller's. A session can put any text in a correctly named scratch file,
       including text drawn from a public issue body it read.
