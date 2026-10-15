@@ -180,10 +180,10 @@ edited it. **Default to the full checklist whenever unsure.**
        --paginate "repos/{backlog.repo}/issues?milestone=<number>&state=open" --jq '.[] |
        [.number, .title] | @tsv'`, and the milestone description (sprint goal, build order, any
        `BLOCKING:` criteria) — may be made for the human-facing summary. Never before that
-       conclusion, and never let a title or description feed the auto-start decision: titles are
-       author-editable, and on a cursor that could auto-start the description is fetched exactly
-       once, inside `plan-anchor.sh verify` (hashed against `plan_anchor.description_sha256`) — a
-       second, display-only fetch would reopen the TOCTOU gap.
+       conclusion, and never let a title or description feed the auto-start decision: both are
+       author-editable text, and on a cursor that could auto-start the description is never
+       fetched (`plan-anchor.sh verify` does not read it, `WB-D27`), which keeps that text out
+       of the auto-start decision.
 
        **`#N`'s own body never comes from either list call.** It, and its spec comment, are
        read only under the *body read (TOCTOU closure)* rule in the auto-start section, which

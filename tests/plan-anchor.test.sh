@@ -46,10 +46,12 @@ cat >"$fakebin/gh" <<'FAKE_GH'
 set -eu
 [ "$1" = api ] || { echo "fake gh: unsupported command $1" >&2; exit 1; }
 path="$2"
+[ -z "${FAKE_GH_LOG:-}" ] || printf '%s %s\n' "$path" "$*" >>"$FAKE_GH_LOG"
 case "$path" in
   repos/*/milestones/*)
     [ "${FAKE_MS_FAIL:-0}" = 1 ] && exit 1
     case "$*" in
+      *'.number'*) printf '%s\n' "${FAKE_MS_NUMBER-${path##*/}}" ;;
       *'.creator'*)
         [ "${FAKE_AUTHOR_FAIL:-0}" = 1 ] && exit 1
         printf '%s\n' "${FAKE_MS_CREATOR-maintainer}" ;;
@@ -101,24 +103,43 @@ POINTER="https://github.com/$REPO/milestone/12"
 
 echo "# write"
 
+# WB-D27 (#628, #637): write no longer reads the milestone description or emits
+# description_sha256; it reads the milestone's number instead.
 out="$(FAKE_MS_DESC="the plan" FAKE_ISSUE_UPDATED="2026-09-20T12:00:00Z" \
        FAKE_COMMENT_UPDATED="2026-09-21T09:00:00Z" \
        run write "$REPO" 12 86 335)"
-expect_hash="$(printf 'the plan' | sha256sum 2>/dev/null | awk '{print $1}')"
 assert_eq "write: full anchor is well-formed JSON with the right fields" \
-  "{\"milestone\":12,\"description_sha256\":\"$expect_hash\",\"task_issue\":86,\"task_issue_updated_at\":\"2026-09-20T12:00:00Z\",\"spec_comment\":{\"id\":335,\"updated_at\":\"2026-09-21T09:00:00Z\"}}" \
+  "{\"milestone\":12,\"task_issue\":86,\"task_issue_updated_at\":\"2026-09-20T12:00:00Z\",\"spec_comment\":{\"id\":335,\"updated_at\":\"2026-09-21T09:00:00Z\"}}" \
   "$out"
 
 out="$(FAKE_MS_DESC="the plan" run write "$REPO" 12 - -)"
 assert_eq "write: no task, no comment -- both fields null" \
-  "{\"milestone\":12,\"description_sha256\":\"$expect_hash\",\"task_issue\":null,\"task_issue_updated_at\":null,\"spec_comment\":null}" \
+  "{\"milestone\":12,\"task_issue\":null,\"task_issue_updated_at\":null,\"spec_comment\":null}" \
   "$out"
 
-out="$(FAKE_MS_DESC="the plan" FAKE_ISSUE_UPDATED="2026-09-20T12:00:00Z" \
-       run write "$REPO" 12 86)"
+out="$(FAKE_ISSUE_UPDATED="2026-09-20T12:00:00Z" run write "$REPO" 12 86)"
 assert_eq "write: comment argument may be omitted, defaults to none" \
-  "{\"milestone\":12,\"description_sha256\":\"$expect_hash\",\"task_issue\":86,\"task_issue_updated_at\":\"2026-09-20T12:00:00Z\",\"spec_comment\":null}" \
+  "{\"milestone\":12,\"task_issue\":86,\"task_issue_updated_at\":\"2026-09-20T12:00:00Z\",\"spec_comment\":null}" \
   "$out"
+
+out="$(run write "$REPO" 12 - -)"
+assert_eq "write: a milestone with no description writes the same shape" \
+  "{\"milestone\":12,\"task_issue\":null,\"task_issue_updated_at\":null,\"spec_comment\":null}" \
+  "$out"
+
+case "$out" in
+  *description_sha256*) assert_eq "write: output has no description_sha256 key" absent present ;;
+  *) assert_eq "write: output has no description_sha256 key" absent absent ;;
+esac
+
+: >"$tmp/log"
+out="$(FAKE_GH_LOG="$tmp/log" FAKE_ISSUE_UPDATED="2026-09-20T12:00:00Z" \
+       FAKE_COMMENT_UPDATED="2026-09-21T09:00:00Z" run write "$REPO" 12 86 335)"
+if grep -q 'description' "$tmp/log"; then seen=read; else seen=none; fi
+assert_eq "write: the call log has no description read" none "$seen"
+assert_eq "write: the milestone read asks for .number" \
+  "repos/$REPO/milestones/12 api repos/$REPO/milestones/12 --jq .number" \
+  "$(sed -n 1p "$tmp/log")"
 
 out="$(run write "$REPO" abc 86)"
 assert_eq "write: a non-digit milestone is unreadable" "unreadable" "$out"
@@ -126,10 +147,21 @@ assert_eq "write: a non-digit milestone is unreadable" "unreadable" "$out"
 out="$(FAKE_MS_FAIL=1 run write "$REPO" 12 86)"
 assert_eq "write: a failed milestone read is unreadable" "unreadable" "$out"
 
-out="$(FAKE_MS_DESC="x" FAKE_ISSUE_FAIL=1 run write "$REPO" 12 86)"
+out="$(FAKE_MS_NUMBER=13 run write "$REPO" 12 86)"
+assert_eq "write: a milestone read returning another number is unreadable" "unreadable" "$out"
+
+out="$(FAKE_MS_NUMBER= run write "$REPO" 12 86)"
+assert_eq "write: a milestone read returning no number is unreadable" "unreadable" "$out"
+
+: >"$tmp/log"
+out="$(FAKE_GH_LOG="$tmp/log" run write "$REPO" 012 86)"
+assert_eq "write: a leading-zero milestone is unreadable" "unreadable" "$out"
+assert_eq "write: a leading-zero milestone makes no call" "0" "$(wc -l <"$tmp/log" | tr -d ' ')"
+
+out="$(FAKE_ISSUE_FAIL=1 run write "$REPO" 12 86)"
 assert_eq "write: a failed issue read is unreadable" "unreadable" "$out"
 
-out="$(FAKE_MS_DESC="x" FAKE_ISSUE_UPDATED="2026-01-01T00:00:00Z" FAKE_COMMENT_FAIL=1 \
+out="$(FAKE_ISSUE_UPDATED="2026-01-01T00:00:00Z" FAKE_COMMENT_FAIL=1 \
        run write "$REPO" 12 86 335)"
 assert_eq "write: a failed comment read is unreadable" "unreadable" "$out"
 
@@ -155,7 +187,9 @@ echo "# verify (full) -- match and each drift dimension"
 # it. A test-data variable named `desc` would silently read back whatever the
 # PREVIOUS assertion's description string was.
 plan_desc="the live plan"
-hash="$(printf '%s' "$plan_desc" | sha256sum 2>/dev/null | awk '{print $1}')"
+# An older anchor's description_sha256: verify ignores it, whatever the value (WB-D27).
+# This one matches no description in this file.
+hash="0000000000000000000000000000000000000000000000000000000000000000"
 good_anchor="{\"milestone\":12,\"description_sha256\":\"$hash\",\"task_issue\":86,\"task_issue_updated_at\":\"2026-09-20T12:00:00Z\",\"spec_comment\":null}"
 
 out="$(FAKE_MS_STATE=open FAKE_MS_DESC="$plan_desc" \
@@ -169,9 +203,13 @@ out="$(FAKE_MS_STATE=closed FAKE_MS_DESC="$plan_desc" \
        run verify "$REPO" "$POINTER" "$good_anchor")"
 assert_eq "verify: a closed milestone is drift" "drift" "$out"
 
+# WB-D27: this used to assert drift on a changed description. The description is no
+# longer bound, so an old anchor's stale hash is ignored.
 out="$(FAKE_MS_STATE=open FAKE_MS_DESC="a different plan now" \
+       FAKE_ISSUE_STATE=open FAKE_ISSUE_UPDATED="2026-09-20T12:00:00Z" \
+       FAKE_ISSUE_REPO_URL="https://api.github.com/repos/$REPO" FAKE_ISSUE_NUMBER=86 FAKE_ISSUE_MILESTONE=12 \
        run verify "$REPO" "$POINTER" "$good_anchor")"
-assert_eq "verify: an edited description is drift" "drift" "$out"
+assert_eq "verify: an old anchor's hash that matches no description is ignored (WB-D27)" "match" "$out"
 
 out="$(FAKE_MS_STATE=open FAKE_MS_DESC="$plan_desc" \
        FAKE_ISSUE_STATE=closed FAKE_ISSUE_UPDATED="2026-09-20T12:00:00Z" \
@@ -316,28 +354,6 @@ assert_eq "verify: an anchor missing 'milestone' is unreadable" "unreadable" "$o
 out="$(run verify "$REPO" "$POINTER" 'not json at all')"
 assert_eq "verify: an anchor that is not JSON is unreadable" "unreadable" "$out"
 
-echo "# a multi-line description hashes the exact bytes gh returned, on both sides"
-
-multiline="line one
-line two"
-out="$(FAKE_MS_DESC="$multiline" run write "$REPO" 12 - -)"
-multiline_hash="$(printf '%s' "$multiline" | sha256sum 2>/dev/null | awk '{print $1}')"
-assert_eq "write: a multi-line description hashes the bytes gh returned" \
-  "{\"milestone\":12,\"description_sha256\":\"$multiline_hash\",\"task_issue\":null,\"task_issue_updated_at\":null,\"spec_comment\":null}" \
-  "$out"
-
-echo "# an empty or missing description is a legitimate hash, not an error"
-
-out="$(run write "$REPO" 12 - -)"   # FAKE_MS_DESC unset -- gh's own '.description // empty' shape for a null description
-empty_hash="$(printf '' | sha256sum 2>/dev/null | awk '{print $1}')"
-assert_eq "write: a missing description hashes as empty input" \
-  "{\"milestone\":12,\"description_sha256\":\"$empty_hash\",\"task_issue\":null,\"task_issue_updated_at\":null,\"spec_comment\":null}" \
-  "$out"
-
-empty_desc_anchor="{\"milestone\":12,\"description_sha256\":\"$empty_hash\",\"task_issue\":null,\"task_issue_updated_at\":null,\"spec_comment\":null}"
-out="$(FAKE_MS_STATE=open run verify --plan "$REPO" "$POINTER" "$empty_desc_anchor")"
-assert_eq "verify --plan: an empty description matches an empty-hash anchor" "match" "$out"
-
 echo "# a pretty-printed anchor (one space after each colon) parses the same as compact"
 
 pretty_anchor='{"milestone": 12, "description_sha256": "'"$hash"'", "task_issue": 86, "task_issue_updated_at": "2026-09-20T12:00:00Z", "spec_comment": {"id": 335, "updated_at": "2026-09-21T09:00:00Z"}}'
@@ -356,7 +372,7 @@ spec_anchor="{\"milestone\":12,\"description_sha256\":\"$hash\",\"task_issue\":8
 # variable it varies (FAKE_ISSUE_AUTHOR=x lrun verify ...), which reaches the fake gh
 # the same way it does for `run` itself.
 lrun() {
-  FAKE_MS_STATE=open FAKE_MS_DESC="$plan_desc" FAKE_ISSUE_STATE=open   FAKE_ISSUE_UPDATED="2026-09-20T12:00:00Z" FAKE_ISSUE_REPO_URL="https://api.github.com/repos/$REPO"   FAKE_ISSUE_NUMBER=86 FAKE_ISSUE_MILESTONE=12   FAKE_COMMENT_UPDATED="2026-09-21T09:00:00Z" FAKE_COMMENT_ISSUE_URL="https://api.github.com/repos/$REPO/issues/86"   run "$@"
+  FAKE_MS_STATE="${FAKE_MS_STATE:-open}" FAKE_MS_DESC="${FAKE_MS_DESC-$plan_desc}" FAKE_ISSUE_STATE=open   FAKE_ISSUE_UPDATED="${FAKE_ISSUE_UPDATED:-2026-09-20T12:00:00Z}" FAKE_ISSUE_REPO_URL="https://api.github.com/repos/$REPO"   FAKE_ISSUE_NUMBER=86 FAKE_ISSUE_MILESTONE=12   FAKE_COMMENT_UPDATED="${FAKE_COMMENT_UPDATED:-2026-09-21T09:00:00Z}" FAKE_COMMENT_ISSUE_URL="https://api.github.com/repos/$REPO/issues/86"   run "$@"
 }
 out="$(lrun verify --loop-identity loop-app[bot] "$REPO" "$POINTER" "$good_anchor")"
 assert_eq "verify --loop-identity: a different author on every artifact still matches" "match" "$out"
@@ -380,7 +396,7 @@ assert_eq "verify --loop-identity: a different spec-comment author still matches
 # artifacts have ALSO drifted reads untrusted, never drift or unreadable.
 out="$(FAKE_MS_STATE=closed FAKE_MS_DESC='edited since' FAKE_ISSUE_AUTHOR='loop-app[bot]' \
        run verify --loop-identity 'loop-app[bot]' "$REPO" "$POINTER" "$good_anchor")"
-assert_eq "verify --loop-identity: untrusted wins over a closed milestone and an edited description" "untrusted" "$out"
+assert_eq "verify --loop-identity: untrusted wins over a closed milestone" "untrusted" "$out"
 
 # The failing-open case: a STALE loop_identity (the loop is now a machine user whose
 # association would pass any association check). The name rule fires on the login alone.
@@ -437,6 +453,77 @@ done
 
 out="$(lrun verify --loop-identity)"
 assert_eq "verify --loop-identity: the flag with no value is unreadable" "unreadable" "$out"
+
+echo "# the new anchor shape (no description_sha256) -- WB-D27"
+
+# The removed fixtures hashed a multi-line and an empty description on both sides, and
+# asserted that an empty description matches an empty-hash anchor. write and verify no
+# longer read a description at all (WB-D27).
+new_anchor='{"milestone":12,"task_issue":86,"task_issue_updated_at":"2026-09-20T12:00:00Z","spec_comment":null}'
+new_null_anchor='{"milestone":12,"task_issue":null,"task_issue_updated_at":null,"spec_comment":null}'
+new_spec_anchor='{"milestone":12,"task_issue":86,"task_issue_updated_at":"2026-09-20T12:00:00Z","spec_comment":{"id":335,"updated_at":"2026-09-21T09:00:00Z"}}'
+bad_hash_anchor='{"milestone":12,"description_sha256":"not-a-hash","task_issue":86,"task_issue_updated_at":"2026-09-20T12:00:00Z","spec_comment":null}'
+
+out="$(lrun verify "$REPO" "$POINTER" "$new_anchor")"
+assert_eq "verify: a new-shape anchor matches when everything is live" "match" "$out"
+
+out="$(lrun verify "$REPO" "$POINTER" "$bad_hash_anchor")"
+assert_eq "verify: a malformed description_sha256 value is ignored" "match" "$out"
+
+out="$(FAKE_MS_DESC="entirely different" lrun verify "$REPO" "$POINTER" "$new_anchor")"
+assert_eq "verify: a changed description alone never turns a full-mode match into drift" "match" "$out"
+
+out="$(FAKE_MS_DESC="entirely different" lrun verify --plan "$REPO" "$POINTER" "$new_anchor")"
+assert_eq "verify --plan: a changed description is not drift" "match" "$out"
+
+out="$(FAKE_MS_STATE=open run verify --plan "$REPO" "$POINTER" "$new_null_anchor")"
+assert_eq "verify --plan: a new-shape anchor with no task matches on an open milestone" "match" "$out"
+
+out="$(FAKE_MS_STATE=closed run verify --plan "$REPO" "$POINTER" "$new_null_anchor")"
+assert_eq "verify --plan: a new-shape anchor on a closed milestone is drift" "drift" "$out"
+
+out="$(FAKE_MS_STATE=closed lrun verify "$REPO" "$POINTER" "$new_anchor")"
+assert_eq "verify: a new-shape anchor on a closed milestone is drift" "drift" "$out"
+
+out="$(lrun verify --plan "$REPO" "$POINTER" '{"milestone":5,"task_issue":null,"task_issue_updated_at":null,"spec_comment":null}')"
+assert_eq "verify --plan: an anchor whose milestone differs from the pointer's is drift" "drift" "$out"
+
+out="$(FAKE_MS_CREATOR='loop-app[bot]' lrun verify --plan --loop-identity 'loop-app[bot]' "$REPO" "$POINTER" "$new_null_anchor")"
+assert_eq "verify --plan --loop-identity: a new-shape anchor on a loop-created milestone is untrusted" "untrusted" "$out"
+
+out="$(FAKE_MS_FAIL=1 run verify --plan "$REPO" "$POINTER" "$new_null_anchor")"
+assert_eq "verify --plan: a failed state read on a new-shape anchor is unreadable" "unreadable" "$out"
+
+out="$(FAKE_ISSUE_UPDATED="2026-09-22T00:00:00Z" lrun verify "$REPO" "$POINTER" "$new_anchor")"
+assert_eq "verify: a new-shape anchor still drifts when the task issue moved" "drift" "$out"
+
+out="$(lrun verify "$REPO" "$POINTER" "$new_spec_anchor")"
+assert_eq "verify: a new-shape anchor with a spec comment matches" "match" "$out"
+
+out="$(FAKE_COMMENT_UPDATED="2026-09-22T00:00:00Z" lrun verify "$REPO" "$POINTER" "$new_spec_anchor")"
+assert_eq "verify: a new-shape anchor's edited spec comment is drift" "drift" "$out"
+
+out="$(FAKE_REACTIONS="$(printf '1001\t+1\t2026-09-21T09:00:01Z')\n" lrun verify --maintainer-ids "1001,1002" "$REPO" "$POINTER" "$new_spec_anchor")"
+assert_eq "verify --maintainer-ids: a new-shape anchor with a fresh maintainer reaction matches" "match" "$out"
+
+out="$(FAKE_COMMENT_AUTHOR_ID=7777 FAKE_REACTIONS= lrun verify --maintainer-ids "1001,1002" "$REPO" "$POINTER" "$new_spec_anchor")"
+assert_eq "verify --maintainer-ids: a new-shape anchor's outsider comment is untrusted" "untrusted" "$out"
+
+out="$(FAKE_ISSUE_AUTHOR='loop-app[bot]' lrun verify --loop-identity 'loop-app[bot]' "$REPO" "$POINTER" "$new_anchor")"
+assert_eq "verify --loop-identity: a new-shape anchor's loop-authored task issue is untrusted" "untrusted" "$out"
+
+echo "# no verify ever reads the description"
+
+: >"$tmp/log"
+for a in "$good_anchor" "$new_anchor" "$new_spec_anchor" "$bad_hash_anchor"; do
+  FAKE_GH_LOG="$tmp/log" lrun verify "$REPO" "$POINTER" "$a" >/dev/null
+  FAKE_GH_LOG="$tmp/log" lrun verify --plan "$REPO" "$POINTER" "$a" >/dev/null
+  FAKE_GH_LOG="$tmp/log" lrun verify --loop-identity 'loop-app[bot]' "$REPO" "$POINTER" "$a" >/dev/null
+done
+if grep -q 'description' "$tmp/log"; then seen=read; else seen=none; fi
+assert_eq "verify: across every shape and mode, no call names the description" none "$seen"
+assert_eq "verify: the call log is not empty (the check is live)" yes \
+  "$([ -s "$tmp/log" ] && echo yes || echo no)"
 
 echo "# the reaction rule: --maintainer-ids (#383) -- a comment alone never approves a spec"
 

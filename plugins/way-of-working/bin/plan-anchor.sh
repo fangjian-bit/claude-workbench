@@ -1,7 +1,7 @@
 #!/bin/sh
 # The deterministic predicate behind the `planning: kind: github_milestones` key
 # (reference/project-schema.md § `planning`) -- whether a cursor's `plan_anchor`
-# still describes the LIVE milestone description, task issue, and spec comment.
+# still names a live, open milestone, task issue, and spec comment.
 # Mirrors cursor-drift.sh's shape and reasoning: a predicate with a correctness
 # argument, not a judgment call, so /way-of-working:resume's auto-start test,
 # /way-of-working:handoff's re-anchor check, and /way-of-working:archive-sprint's
@@ -62,10 +62,9 @@
 # `repository_url` names `<repo>` and its `number` is `N`, its `milestone.number`
 # matches, and its `updated_at` equals the anchor's; the spec comment (when
 # anchored) has `updated_at` equal to the anchor's and belongs to issue `#N`;
-# the description hash matches.
+# nothing else.
 #
-# `verify --plan` checks only: milestone open, number equality, description
-# hash. It ignores `task_issue` and `spec_comment` entirely -- the mode
+# `verify --plan` checks only: milestone open and number equality. It ignores `task_issue` and `spec_comment` entirely -- the mode
 # handoff's baseline re-anchor check uses, and archive-sprint's milestone-close
 # check uses too, since `#N` is legitimately null or closed by the time a
 # milestone closes.
@@ -77,16 +76,11 @@
 # lines): a general parser needs a real interpreter, which the rest of this
 # plugin's bin/ scripts are written to avoid requiring.
 #
-# Hashing: description bytes are read into a FILE by direct redirection
-# (`gh api ... > file`), never captured through `$(...)`, which strips
-# trailing newlines and would make `write`'s hash and `verify`'s recomputed
-# hash diverge on content that legitimately ends in one. An empty or missing
-# description hashes like any other content gh and jq agree on -- `unreadable`
-# is tied to a FAILED call, never to empty content, so a failed read on both
-# sides can never accidentally compare equal.
+# The milestone's free-text body is not bound by this anchor (`WB-D27`, `#628`, `#637`):
+# neither mode fetches it. An older anchor may still carry a `description_sha256` key;
+# `verify` tolerates it and ignores its value.
 #
-# Permitted toolset: POSIX sh, `gh` (using only its own embedded --jq), and
-# `sha256sum` or `shasum -a 256`. No system `jq`, no `yq`, no python -- the
+# Permitted toolset: POSIX sh and `gh` (using only its own embedded --jq). No system `jq`, no `yq`, no python -- the
 # same bar as cursor-drift.sh and entry-anchor.sh: this must run on any
 # maintainer machine with nothing extra installed beyond `gh` itself, which
 # the rest of this predicate's job already requires. The anchor parser below
@@ -101,16 +95,6 @@ set -eu
 tmp="$(mktemp -d)" || { echo unreadable; exit 0; }
 trap 'rm -rf "$tmp"' EXIT
 
-hash_file() { # hash_file <path> -- prints the hex sha256 of its bytes
-  if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum "$1" | awk '{print $1}'
-  elif command -v shasum >/dev/null 2>&1; then
-    shasum -a 256 "$1" | awk '{print $1}'
-  else
-    return 1
-  fi
-}
-
 is_digits() { # is_digits <s> -- true iff <s> is one or more ASCII digits
   case "$1" in
     '' | *[!0-9]*) return 1 ;;
@@ -124,12 +108,13 @@ tsv_field() { # tsv_field <n> <tsv-line> -- the nth tab-separated field
 
 # --- anchor JSON: a fixed shape parsed narrowly (see header) ----------------
 #
-#   {"milestone":<N>,"description_sha256":"<64 hex>","task_issue":<N|null>,
+#   {"milestone":<N>,"task_issue":<N|null>,
 #    "task_issue_updated_at":<"<ts>"|null>,"spec_comment":<{"id":<N>,
 #    "updated_at":"<ts>"}|null>}
 #
-# Every value here is either digits, "null", or a quote-free string (a hex
-# hash or an ISO-8601 timestamp), so one pair of anchored sed patterns per key
+# An older anchor also carries "description_sha256":"<64 hex>" after "milestone";
+# `verify` never reads it. Every value here is either digits, "null", or a
+# quote-free string (an ISO-8601 timestamp), so one pair of anchored sed patterns per key
 # is enough -- there is never an escaped quote or a brace to worry about,
 # because this script is the only writer of this shape. `[[:space:]]*` after
 # the colon tolerates any run of spaces or tabs there (`"key":  value`),
@@ -197,11 +182,11 @@ if [ "$mode" = write ]; then
   if [ "$task" != "-" ] && ! is_digits "$task"; then echo unreadable; exit 0; fi
   if [ "$comment" != "-" ] && ! is_digits "$comment"; then echo unreadable; exit 0; fi
 
-  if ! gh api "repos/$repo/milestones/$milestone" --jq '.description // empty' \
-       >"$tmp/desc" 2>/dev/null; then
-    echo unreadable; exit 0
-  fi
-  desc_hash="$(hash_file "$tmp/desc")" || { echo unreadable; exit 0; }
+  # A leading zero is rejected before any call: the comparison below is a string one and
+  # must not depend on how GitHub answers `012`.
+  case "$milestone" in 0*) echo unreadable; exit 0 ;; esac
+  ms_number="$(gh api "repos/$repo/milestones/$milestone" --jq .number 2>/dev/null)" \
+    && [ "$ms_number" = "$milestone" ] || { echo unreadable; exit 0; }
 
   task_field=null
   task_updated_field=null
@@ -219,8 +204,8 @@ if [ "$mode" = write ]; then
     comment_field="{\"id\":$comment,\"updated_at\":\"$comment_updated\"}"
   fi
 
-  printf '{"milestone":%s,"description_sha256":"%s","task_issue":%s,"task_issue_updated_at":%s,"spec_comment":%s}\n' \
-    "$milestone" "$desc_hash" "$task_field" "$task_updated_field" "$comment_field"
+  printf '{"milestone":%s,"task_issue":%s,"task_issue_updated_at":%s,"spec_comment":%s}\n' \
+    "$milestone" "$task_field" "$task_updated_field" "$comment_field"
   exit 0
 fi
 
@@ -276,12 +261,11 @@ case "$pointer" in
 esac
 if ! is_digits "$num_pointer"; then echo unreadable; exit 0; fi
 
-if ! anchor_has_key milestone "$anchor" || ! anchor_has_key description_sha256 "$anchor"; then
+if ! anchor_has_key milestone "$anchor"; then
   echo unreadable; exit 0
 fi
 a_milestone="$(anchor_num milestone "$anchor")"
-a_hash="$(anchor_str description_sha256 "$anchor")"
-if [ -z "$a_milestone" ] || [ "$a_milestone" = null ] || [ -z "$a_hash" ] || [ "$a_hash" = null ]; then
+if [ -z "$a_milestone" ] || [ "$a_milestone" = null ]; then
   echo unreadable; exit 0
 fi
 
@@ -342,13 +326,6 @@ if [ "$a_milestone" != "$num_pointer" ]; then echo drift; exit 0; fi
 ms_state="$(gh api "repos/$repo/milestones/$a_milestone" --jq '.state // empty' 2>/dev/null)" \
   && [ -n "$ms_state" ] || { echo unreadable; exit 0; }
 if [ "$ms_state" != open ]; then echo drift; exit 0; fi
-
-if ! gh api "repos/$repo/milestones/$a_milestone" --jq '.description // empty' \
-     >"$tmp/desc" 2>/dev/null; then
-  echo unreadable; exit 0
-fi
-live_hash="$(hash_file "$tmp/desc")" || { echo unreadable; exit 0; }
-if [ "$live_hash" != "$a_hash" ]; then echo drift; exit 0; fi
 
 if [ "$plan_only" -eq 1 ]; then
   echo match

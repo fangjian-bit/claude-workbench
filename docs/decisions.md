@@ -1817,6 +1817,58 @@ take effect. Full reasoning and the task breakdown that implements them:
     author's body, and the edited text reaches the drafter. The draft is paraphrased, its last
     section lists what came from the body, and the maintainer reads it before posting.
 
+- **WB-D27 (`#628`, `#637`) — the plan anchor stops binding the milestone description.**
+  Decided by the maintainer in `#628`, built by child (a), `#637`. The anchor came from `#86`
+  and `#128`; `WB-D24` only adds the reaction rule on top of it, so this is a new decision,
+  not an amendment of that one.
+  - **Why.**
+    - **Nothing automated reads the description to choose a task.** The task is the cursor's
+      `task_issue`. `resume`'s leading-token cross-check binds it to the approved cursor:
+      `next_action`, the merged ledger's **Next:** line and `plan_anchor.task_issue` must all
+      name the same `task #N`, or `resume` waits. On the auto-start path `resume` fetched the
+      description only so that `verify` could hash it.
+    - **On a repo whose `identities` is a map, three further checks stand between a task and a
+      merge:** a trusted issue author, a declared maintainer's approving reaction on the spec
+      comment after its last edit (`WB-D24`, `#383`), and code-owner approval on the PR. Where
+      `identities` is `null`, only the author check applies.
+    - **The hash made every build-order change a hand edit, a handoff and a cursor-PR
+      approval.**
+  - **The rule.**
+    - `plan-anchor.sh write` reads the milestone's `number` instead of its description, prints
+      `unreadable` unless that call succeeds and returns the requested number, and emits
+      `{"milestone","task_issue","task_issue_updated_at","spec_comment"}`.
+    - `verify` neither requires nor reads `description_sha256` and never fetches the
+      description. Its other checks stay: the milestone is open, its number equals the
+      pointer's, and with `--loop-identity` its creator is not the loop's own login. Full mode
+      keeps every task-issue and spec-comment check.
+    - The first-anchor `hitl_gate` stays, and now means the human confirms which milestone the
+      sprint works from.
+    - `archive-sprint`'s close step shows the milestone's `BLOCKING:` lines with a selector that
+      matches both documented shapes; the old `startswith("BLOCKING:")` matched neither.
+  - **The condition it rests on.** When `#627` lets the agent pick the next task from the
+    build order, the order only decides which spec is drafted next, and the maintainer's
+    reaction on that spec stays the build gate.
+  - **Old anchors stay valid.** An anchor that still carries `description_sha256` reads as
+    valid and the field is ignored. A new-shape anchor read by an older `plan-anchor.sh` prints
+    `unreadable`: that fails closed, but a mixed or downgraded plugin pin waits until the
+    next handoff writes an anchor it can read.
+  - **Accepted residuals.**
+    - Any session holding the dev App, or any write collaborator, can edit a description, and
+      GitHub keeps no milestone edit history. Text added or rewritten there persists
+      undetected too, and so does a `[depends_on:]` marker: a scheduling hint can be forged to
+      read `independent` with nothing detecting it. `--loop-identity` checks only the
+      milestone's creator, so it never covered a later edit by the loop's own login.
+    - A `BLOCKING:` criterion can be edited or removed unseen between handoff and ship. `ship`
+      reads the live description, which is author-editable text, in an unattended session. A
+      removed criterion leaves no line in the PR body, so the code owner sees nothing of it,
+      and `archive-sprint`'s precondition 5 reads the live description too, so the
+      sprint-close audit misses it as well. Narrowing those reads is `#640`.
+    - Until `#639` lands, an anchored description is still edited by hand, with no record of
+      the old order.
+  - **Rejected.** Binding only the `BLOCKING:` criteria in the anchor (a `blocking_sha256`):
+    a build-order rewrite would then never drift, but an edited precondition would, which
+    keeps a check `#628` did not ask to keep and `handoff`'s re-anchor machinery for it.
+
 ## Status
 
 All four of `WB-D1..D4` are implemented by this repo's existence and structure as of

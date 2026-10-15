@@ -248,7 +248,7 @@
 #
 # Permitted toolset: git, $REVIEW_SANDBOX_GH (default: gh), POSIX sh, `timeout`
 # (ships in Git for Windows' usr/bin, same as the rest of this toolset), `sha256sum`
-# or `shasum -a 256` for the marker hash (same permitted pair plan-anchor.sh uses),
+# or `shasum -a 256` for the marker hash,
 # and `yq` for `trust`'s one read of `orchestration.loop_identity` (the permission
 # review-base-anchor.sh already holds for `migration_base`), plus `gh-identity.sh author`
 # (which also reads `identities` with `yq`) for who is trusted. No jq, no python.

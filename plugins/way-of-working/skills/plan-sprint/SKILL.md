@@ -18,7 +18,7 @@ description: >-
   refuses (a script for the human to run, plus the proposed text posted as an issue comment
   so it survives), posts a dated triage comment recording every placement decision, and
   opens hitl_gate on anything staged. Refuses to edit a milestone description while
-  pointers.plan_anchor names it -- that needs a /way-of-working:handoff re-anchor instead.
+  pointers.plan_anchor names it -- the human edits it by hand (no handoff needed) until #639.
   Ends with a docs-only cursor-sync PR (or defers to a same-sitting handoff), never a commit
   on whatever branch the session is on. Recommends with a cited basis and the human decides:
   never creates or closes a milestone the human hasn't named, never writes a placement the
@@ -170,7 +170,7 @@ If any precondition fails, stop and report why — do not proceed.
      paraphrase, **never a quotation from an issue title, body, or milestone description**,
      since the reason is what
      gets published (a triage comment, a new milestone's description, and from there the
-     plan prose an auto-starting session consumes); the same rule covers every other text
+     text a later session reads as the plan); the same rule covers every other text
      this step drafts for publication — a new milestone's title, batch reason, and ships-as
      line;
    - **the evidence it cites**, pointed at, never merely asserted and never reproduced
@@ -379,10 +379,9 @@ If any precondition fails, stop and report why — do not proceed.
    with the file-editing tool and run `plan-depends.sh read` on it for every item: `none`
    must read `independent`, a list must read `after` the same issues, and an item written
    with no token must read `all-earlier unconfirmed`. Any other answer is shown to the human
-   and re-asked — never published or staged as it stands. The marker rides in the description, so
-   once `/way-of-working:handoff` anchors it the anchor's description hash detects a later
-   change, and changing it then is a re-anchor, not an edit — but the hash binds whatever
-   text is live at anchor time, so it cannot prove a token was ever the human's.
+   and re-asked — never published or staged as it stands. The marker rides in the description, and
+   nothing binds it after publication (`WB-D27`): a later edit by anyone with Issues write
+   changes the marker unseen, and nothing can prove a token was ever the human's.
    **A description this skill did not draft is never a source of tokens**: when an edit to an
    existing, non-anchored milestone starts from a fetched description that already carries a
    `[depends_on:` token, show it to the human rather than republishing it unseen.
@@ -556,21 +555,22 @@ If any precondition fails, stop and report why — do not proceed.
    `pointers.plan_anchor` when readable (authoritative whenever it is) — if its `milestone`
    field is non-null and equals the one being edited, **whatever `sprint_status` says**: a
    **description** edit is refused outright, never attempted or staged. State plainly that
-   editing it would make the next `/way-of-working:resume`/`handoff` read `drift` against the
-   recorded anchor, and that the only correct path is for the human to apply the edit by hand
-   and immediately run `/way-of-working:handoff` to re-anchor — never this skill's own job.
+   the refusal no longer protects anything (an edited description makes no `verify` read
+   `drift`, `WB-D27`) and stays only until `#639` replaces it with a live write that records
+   the old and new order. Meanwhile the human applies the edit by hand; a hand edit is
+   enough, and no handoff or re-anchor is needed — never this skill's own job.
    When `.ai/state.json` is unreadable, fall back to parsing `pointers.sprint_plan` from the
    `.ai/next-steps.md` ledger's **Pointers:** line (the same anchored, digits-only match
    `bin/plan-anchor.sh` itself uses on `https://github.com/{backlog.repo}/milestone/<N>` —
    never a substring check, which would conflate milestone `5` and `50`); the ledger carries
    no `plan_anchor` field at all, so this fallback can only approximate by treating *any*
    milestone it names as potentially anchored, fail-closed. If neither source answers the
-   question, fail closed the same way: refuse the edit, hand to `handoff`.
+   question, fail closed the same way: refuse the edit, and the human edits by hand.
 
    A **due-date-only** change is exempt from this refusal — send `-f due_on="<validated
    value>"` alone (never re-sending `description`, which avoids a whitespace/newline mismatch
-   on read-back); `bin/plan-anchor.sh` hashes only `.description`, so a `due_on`-only write
-   never moves the anchor and never causes drift on the milestone write itself. Clearing a due
+   on read-back); `bin/plan-anchor.sh` reads neither field of the milestone's text (`WB-D27`), so a
+   `due_on`-only write never causes drift on the milestone write itself. Clearing a due
    date needs `-F due_on=null` (a typed null — `-F` here, not `-f`, since `null` is exactly
    the coercion this field wants). Compare the read-back by **date only**, not the full
    timestamp — GitHub is known to normalize the time-of-day component of `due_on` on write, so
@@ -607,16 +607,15 @@ If any precondition fails, stop and report why — do not proceed.
    wrongly staged. Should GitHub ever hand back `null` for a description this skill emptied,
    the fetched file is zero bytes, the compare fails, and the write is staged and named —
    the fail-closed direction, on a path no template here produces (a new milestone's
-   description always opens with its confirmed batch reason). `bin/plan-anchor.sh` compares two *fetched* files, so it
-   needs no such step — cite it only for the hashing tool (`sha256sum`/`shasum -a 256`), and
-   never capture either side through `$(...)`, which strips trailing newlines from whichever
+   description always opens with its confirmed batch reason). The hashing tool here is `sha256sum`/`shasum -a 256`; never
+   capture either side through `$(...)`, which strips trailing newlines from whichever
    side it is used on.
 
    Also scan `.ai/parked/*-state.json` for the same milestone number; if found, **warn** in
-   the report, naming the parked sprint — what actually catches a changed description there is
-   `plan-anchor.sh verify` reading `drift` the next time anything re-verifies that parked
-   sprint's own anchor: the next `/way-of-working:resume` after it is restored reports `drift`
-   (it verifies any non-null anchor), and the next `handoff` opens a gate on it. Unpark
+   the report, naming the parked sprint — nothing catches a changed description there now:
+   `plan-anchor.sh verify` no longer compares it (`WB-D27`), so neither the next
+   `/way-of-working:resume` after the sprint is restored nor the next `handoff` will read
+   `drift` for it. Unpark
    restores `plan_anchor` as parked without re-verifying it, and its own gate does not
    re-verify the restored anchor. Say that, not that this warning is itself a gate.
 
@@ -628,7 +627,7 @@ If any precondition fails, stop and report why — do not proceed.
    and never any parked snapshot's own task issue, as a candidate, ever.** A new comment, like
    a milestone edit, bumps `updated_at` on the issue it lands on — landing on the anchored
    task issue would make the next `/way-of-working:resume` read `drift` on an otherwise-healthy
-   sprint, exactly the failure the anchor-consequence check above exists to prevent, just
+   sprint, the same self-inflicted drift the task-level anchor's `updated_at` check reports, just
    reached through a second write this skill might also make. **If `.ai/state.json` is
    unreadable and the ledger can't answer which issue is anchored either, OR if ANY
    `.ai/parked/*-state.json` snapshot is itself unreadable or malformed — not only one already
@@ -828,7 +827,7 @@ If any precondition fails, stop and report why — do not proceed.
 - Never writes a placement, a new milestone, or a milestone edit the human hasn't confirmed
   in this dialogue.
 - Never edits a milestone description while `pointers.plan_anchor.milestone` names it,
-  whatever `sprint_status` says — hands to `/way-of-working:handoff` instead.
+  whatever `sprint_status` says — the human edits it by hand until `#639`, with no handoff.
 - Never posts the staged-write fallback comment on a live or parked anchor's task issue —
   that write alone can manufacture drift — and never guesses that exclusion when the anchor
   can't be read; it skips the comment instead.

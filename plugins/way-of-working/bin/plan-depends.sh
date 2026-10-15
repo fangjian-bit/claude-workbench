@@ -35,8 +35,8 @@
 # item unreadable rather than letting either copy win.
 #
 # What this does NOT claim: the description is editable by any write-level collaborator
-# (reference/project-schema.md, the planning trust boundary). For the live sprint, the plan
-# anchor's description hash is what binds this text; this script only parses what it is
+# (reference/project-schema.md, the planning trust boundary). Nothing binds this text
+# after publication (`WB-D27`); this script only parses what it is
 # handed. A marker is a scheduling hint that can only ever be read as MORE serial, never
 # less, when anything about it is doubtful.
 #
