@@ -2,18 +2,21 @@
 
 **Now:** **Sprint 16** (cursor id `sprint-16`) on [milestone 19, *Identity M4: claude-workbench cutover*](https://github.com/glunk-works/claude-workbench/milestone/19). Status: **planning**. No lane is building.
 
-**Just done (2026-10-15, driver session at eac7d8d; no code):**
-- Ran lane B on #634 and lane C on #638, on sonnet, each from its maintainer-reacted spec comment. Both merged: #646 (the App-mode review image and host plumbing, closes #634) and #645 (`milestone-desc.sh`, closes #638, `WB-D28`). #646 merged `main` in once to resolve a `CLAUDE.md` conflict with #645. Their worktrees and branches are removed.
-  - The installed plugin (0.18.0) does not ship `bin/spec-comment.sh`, and the script must be run by path anyway. Lane prompts read the spec with `sh plugins/way-of-working/bin/spec-comment.sh body …` from the worktree.
-- Edited #628's and #639's texts for the deferred allow rule (`WB-D28`): the staged script stays as the fallback when a live description write is refused, #639 reports what auto mode does on its first live run, and letting the write through unattended is the maintainer's decision afterwards.
+**Just done (2026-10-15, driver session at 46e2c39; no code):**
+- Drafted the #635 spec (the `wow-review` host launcher) with `spec-task` from `main`, critic-gated it, and posted it: [spec comment](https://github.com/glunk-works/claude-workbench/issues/635#issuecomment-6199934707). The maintainer approved it with a reaction.
+- Drafted, gated and posted the #639 spec (`plan-sprint` rewrites a build order live, records it in the triage comment): [spec comment](https://github.com/glunk-works/claude-workbench/issues/639#issuecomment-6199785741). The maintainer approved it with a reaction.
+- Critic pass, `architect` and `security-critic` on their frontmatter models:
+  - #635: 5 rounds (initial plus 4 fix-and-re-run rounds); converged at the cap, with no blocking findings in the last round.
+  - #639: 5 rounds, same; converged at the cap. The maintainer declined the offered `fable` second-opinion round.
+- Beyond `spec-task`'s rules:
+  - It read #623's two design comments, #628's body and the hand-off note on #635, after checking each was written by the declared maintainer.
+  - It posted both specs as Seuss27, as the #634 and #638 specs were.
+- Each spec lists the choices it made (C1, C2, …) for the maintainer to change. #639 records an open `WB-D28` residual: its pre-write checks bind only a session that follows the skill.
 
-**Next:** as the driver session (the only session that writes `.ai/`), on **opus**:
-1. Draft the #635 spec with `plugins/way-of-working/skills/spec-task/SKILL.md` from `main`, drawing on the hand-off note on #635. Run `/way-of-working:critic-gate` on it to convergence (`architect` and `security-critic`, per milestone 19) and post it for the maintainer's reaction.
-2. Draft, gate and post the #639 spec the same way, from #639's text as edited for `WB-D28`.
-3. Once a spec has the maintainer's reaction, give the maintainer the worktree and start prompt for its lane (lane B: #635; lane C: #639), reading the spec by path as above.
+**Next:** as the driver session (the only session that writes `.ai/`), on **opus**: give the maintainer the worktree and start prompt for lane B (#635) and lane C (#639). Each lane builds on **sonnet** from its maintainer-reacted spec comment, read by path with `sh plugins/way-of-working/bin/spec-comment.sh`, since the installed plugin (0.18.0) does not ship it. Then wait for the lane PRs.
 
 Lane sessions never run `/resume`, `/handoff`, `/plan-sprint` or `/archive-sprint`.
 
-**HITL Gate: NONE OPEN** — next gate: the maintainer reacts to each posted spec, then merges each lane PR
+**HITL Gate: NONE OPEN** — next gate: the maintainer merges each lane PR
 
 **Pointers:** [docs/decisions.md](../docs/decisions.md) · [milestone 19](https://github.com/glunk-works/claude-workbench/milestone/19) · [.ai/parked/](parked/)
