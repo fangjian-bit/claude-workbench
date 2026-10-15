@@ -18,7 +18,12 @@
 #   bin/                   the installed copies of these scripts (install-host-tools.ps1, from
 #                          committed code on origin/main, with a MANIFEST); the broker task and the
 #                          human commands run from here, never from a checkout a container can write.
-# Invariant: no path under $WOW_HOME is container-writable; only tokens/<repo>/ is mounted, read-only.
+#   bin/review/            the review image's build context (#634), exported with the scripts: the
+#                          Dockerfile plus exactly the files it copies.
+#   review-sessions/<id>/  session-token, mounted read-only into a review container only.
+#   review-logs/           review run logs; may hold secrets, swept by the broker by age.
+# Invariant: no path under $WOW_HOME is container-writable. tokens/<repo>/ is mounted only into a
+# dev container, and review-sessions/<id>/ only into a review container, each read-only.
 # What these commands write: tokens/ and review-tokens/ directories, a per-repo .lock directory
 # and a transient .unlock.* directory (both removed on exit), admin-token (replaced or removed),
 # reviewer-token (default review-tokens/<repo>/, or the path --out names), the session and filing

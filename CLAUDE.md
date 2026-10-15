@@ -81,9 +81,11 @@ sh tests/loop-critic.test.sh   # scripts/loop/critic.sh bundle, launch line and 
 sh tests/identity-mint.test.sh  # scripts/identity/mint.sh JWT, request and failure fixtures, stub curl (not yet required)
 sh tests/identity-wow.test.sh   # scripts/identity/wow-admin and wow-review-mint fixtures, stub curl (not yet required)
 sh tests/identity-broker.test.sh  # scripts/identity/broker.ps1 dev-token rotation and install-host-tools.ps1 fixtures, stub minters; needs pwsh, skips without (not yet required)
+sh tests/review-image.test.sh   # scripts/identity/review/ entrypoint, outbox-read, Dockerfile and build-context fixtures (not yet required)
 ```
 
 `scripts/lint.sh` needs the `claude` CLI and `jq` on PATH. `scripts/invariants-check.sh` needs
 `yq` (mikefarah v4) on PATH too — it fails the gate, never skips it, when `yq` is missing.
 `tests/review-base-anchor.test.sh`, `tests/schema-complete.test.sh` and `tests/milestone-desc.test.sh` need `yq` on PATH as
-well (each skips itself, loudly, if absent).
+well (each skips itself, loudly, if absent). `tests/review-image.test.sh` needs `jq` and `yq`,
+and skips itself loudly without them.

@@ -15,8 +15,13 @@
 #                the other repo is still minted
 #   token shape  a CRLF token file, or one with a blank line, is not "current" and is replaced
 #   expiry       a reviewer-token file older than the TTL is removed for any repo, a recent one kept
+#   sweep        review-sessions/<id> older than the session age is removed and a recent one kept; a session
+#                directory that is, or holds, a junction is left and its target never touched; review-logs
+#                files older than the log age are removed and recent ones kept (#634)
 #   install      install-host-tools.ps1 exports committed files only into bin with a MANIFEST (commit, hashes),
-#                refuses an uncommitted change or a HEAD not on origin/main, and creates tokens/<repo>;
+#                the review image's build context into bin/review/ from the table in the script,
+#                refuses an uncommitted change (in any source directory) or a HEAD not on origin/main, and
+#                creates tokens/<repo>;
 #                register-broker-task.ps1 -WhatIf points the task at bin and installs nothing
 #   no tool on PATH  with PATH holding only an empty directory and no -Sh, register-broker-task, broker
 #                and install-host-tools each reach their own "no POSIX sh found" / "git not found" message,
@@ -80,7 +85,7 @@ run_broker() { # leaves the exit code in $rc, output in $tmp/out
   pwsh -NoProfile -NonInteractive -File "$(wp "$root_dir/scripts/identity/broker.ps1")" \
     -WowHome "$(wp "$home")" -Sh "$sh_path" -ScriptsDir "$(wp "$scripts")" -Once >"$tmp/out" 2>&1 || rc=$?
 }
-reset() { rm -f "$stubdir"/*; rm -rf "$home/tokens" "$home/staging" "$home/broker.log"; echo "$repos_ok" >"$home/broker.json"; }
+reset() { rm -f "$stubdir"/*; rm -rf "$home/tokens" "$home/staging" "$home/broker.log" "$home/review-sessions" "$home/review-logs"; echo "$repos_ok" >"$home/broker.json"; }
 calls() { if [ -f "$stubdir/$1" ]; then wc -l <"$stubdir/$1" | tr -d ' '; else echo 0; fi; }
 write_token() { # write_token <repo> <token> <expires>
   mkdir -p "$home/tokens/$1"; printf '%s\n%s\n' "$2" "$3" >"$home/tokens/$1/dev-token"
@@ -169,6 +174,54 @@ run_broker
 check "expiry: an old file is removed for a repo not in broker.json" test ! -e "$home/review-tokens/gone-repo/reviewer-token"
 check "expiry: a recent file is kept" test -e "$home/review-tokens/alpha/reviewer-token"
 
+# --- sweep (#634) ----------------------------------------------------------------------------
+# mkjunction <path> <target>: a junction via pwsh (no admin on Windows); non-zero where one cannot be made.
+mkjunction() {
+  pwsh -NoProfile -NonInteractive -Command "New-Item -ItemType Junction -Path '$(wp "$1")' -Target '$(wp "$2")' | Out-Null" >/dev/null 2>&1 &&
+    pwsh -NoProfile -NonInteractive -Command "if ((Get-Item -LiteralPath '$(wp "$1")' -Force).LinkType) { exit 0 } else { exit 1 }" >/dev/null 2>&1
+}
+reset
+write_token alpha "$old" "$soon"; write_token beta "$old" "$soon"
+mkdir -p "$home/review-sessions/old-sess" "$home/review-sessions/new-sess" "$home/review-sessions/.bad name"
+echo t >"$home/review-sessions/old-sess/session-token"; touch -d '-200 minutes' "$home/review-sessions/old-sess/session-token"
+echo t >"$home/review-sessions/new-sess/session-token"
+mkdir -p "$home/review-sessions/nofile-old" "$home/review-sessions/nofile-new"
+touch -d '-200 minutes' "$home/review-sessions/nofile-old"
+mkdir -p "$home/review-logs/sub"
+echo l >"$home/review-logs/old.log"; touch -d '-10 days' "$home/review-logs/old.log"
+echo l >"$home/review-logs/recent.log"
+echo l >"$home/review-logs/sub/old-nested.log"; touch -d '-10 days' "$home/review-logs/sub/old-nested.log"
+run_broker
+check "sweep: exits 0" test "$rc" -eq 0
+check "sweep: an old review session is removed" test ! -e "$home/review-sessions/old-sess"
+check "sweep: a recent review session is kept" test -e "$home/review-sessions/new-sess/session-token"
+check "sweep: a session with no token is aged by its directory" test ! -e "$home/review-sessions/nofile-old" -a -d "$home/review-sessions/nofile-new"
+check "sweep: a badly named directory is left" test -d "$home/review-sessions/.bad name"
+check "sweep: an old log is removed" test ! -e "$home/review-logs/old.log"
+check "sweep: a recent log is kept" test -e "$home/review-logs/recent.log"
+check "sweep: logs are swept at the top level only" test -e "$home/review-logs/sub/old-nested.log"
+
+reset
+write_token alpha "$old" "$soon"; write_token beta "$old" "$soon"
+mkdir -p "$tmp/jt/inner" "$tmp/jt2" "$home/review-sessions/nest-sess"
+echo secret >"$tmp/jt/session-token"; touch -d '-200 minutes' "$tmp/jt/session-token"
+echo keep >"$tmp/jt2/keep.txt"
+echo t >"$home/review-sessions/nest-sess/session-token"; touch -d '-200 minutes' "$home/review-sessions/nest-sess/session-token"
+if mkjunction "$home/review-sessions/junc-sess" "$tmp/jt" && mkjunction "$home/review-sessions/nest-sess/inner" "$tmp/jt2"; then
+  run_broker
+  check "sweep: a junction session directory is left" test -d "$home/review-sessions/junc-sess"
+  check "sweep: a session holding a junction is left" test -d "$home/review-sessions/nest-sess" -a -e "$home/review-sessions/nest-sess/session-token"
+  check "sweep: a junction's target is never touched" test -f "$tmp/jt/session-token" -a -f "$tmp/jt2/keep.txt"
+  check "sweep: the left session is logged" grep -q 'nest-sess.*link or junction' "$home/broker.log"
+  check "sweep: ...logged once in a pass, not once per repo (the once-per-process cache is not exercised: -Once is one pass)" test "$(grep -c 'nest-sess.*link or junction' "$home/broker.log")" -eq 1
+else
+  echo "SKIP - a junction cannot be made here; the junction sweep fixtures did not run" >&2
+fi
+# Whatever happened, take the junctions off without following them before the temp tree is removed.
+for j in "$home/review-sessions/junc-sess" "$home/review-sessions/nest-sess/inner"; do
+  [ ! -e "$j" ] || pwsh -NoProfile -NonInteractive -Command "(Get-Item -LiteralPath '$(wp "$j")' -Force).Delete()" >/dev/null 2>&1 || true
+done
+
 # --- install-host-tools / register -----------------------------------------------------------
 # A throwaway source repo with the host scripts committed on main, and a bare origin it is pushed to.
 src="$tmp/src" origin="$tmp/origin.git"
@@ -177,6 +230,16 @@ mkdir -p "$src/scripts/identity"
 for f in broker.ps1 mint.sh wow-common.sh wow-review-mint wow-admin register-broker-task.ps1 install-host-tools.ps1; do
   cp "$root_dir/scripts/identity/$f" "$src/scripts/identity/$f"
 done
+# The install table, read from the script itself: one `,@('<source>', '<destination>')` line per entry.
+table=$tmp/table
+sed -n "s/^  ,@('\([^']*\)', '\([^']*\)')\$/\1 \2/p" "$root_dir/scripts/identity/install-host-tools.ps1" >"$table"
+entries=$(wc -l <"$table" | tr -d ' ')
+review_entries=$(grep -c ' review/' "$table" || true)
+check "install setup: the table has review-context rows" test "$review_entries" -gt 0
+# The ten review-context sources, at their own repo paths.
+while read -r srcpath dstpath; do
+  case $dstpath in review/*) mkdir -p "$src/$(dirname "$srcpath")"; cp "$root_dir/$srcpath" "$src/$srcpath" ;; esac
+done <"$table"
 git -C "$src" -c user.name=t -c user.email=t@t add -A
 git -C "$src" -c user.name=t -c user.email=t@t commit -q -m seed
 git -C "$src" remote add origin "$(wp "$origin")"
@@ -190,21 +253,27 @@ has_cr() { [ "$(tr -cd '\015' <"$1" | wc -c | tr -d ' ')" -gt 0 ]; }
 not_cr() { for p in "$@"; do ! has_cr "$p" || return 1; done; }
 # A CRLF working tree (autocrlf) that git still reports clean: only a blob export keeps the install LF.
 git -C "$src" config core.autocrlf true
-rm -f "$src"/scripts/identity/*; git -C "$src" checkout -q -- scripts/identity
+for f in $(git -C "$src" ls-files scripts/identity); do rm -f "$src/$f"; done; git -C "$src" checkout -q -- scripts/identity
 check "install setup: the source working tree really is CRLF" has_cr "$src/scripts/identity/mint.sh"
 reset; rm -rf "$home/bin"
 run_install
 check "install: exits 0" test "$rc" -eq 0
 check "install: broker and mint.sh land in bin" test -f "$home/bin/broker.ps1" -a -f "$home/bin/mint.sh"
 check "install: MANIFEST records the commit" grep -q "^commit $head\$" "$home/bin/MANIFEST"
-check "install: MANIFEST has one hash per file" test "$(grep -c '^[0-9a-f]\{64\}  ' "$home/bin/MANIFEST")" -eq 5
+check "install: MANIFEST has one hash per table entry" test "$(grep -c '^[0-9a-f]\{64\}  ' "$home/bin/MANIFEST")" -eq "$entries"
 ok_hash=1
-for f in broker.ps1 mint.sh wow-common.sh wow-review-mint wow-admin; do
-  want=$(git -C "$src" cat-file blob "HEAD:scripts/identity/$f" | sha256sum | cut -d' ' -f1)
-  grep -q "^$want  $f\$" "$home/bin/MANIFEST" || ok_hash=
-  [ "$(sha256sum <"$home/bin/$f" | cut -d' ' -f1)" = "$want" ] || ok_hash=
-done
-check "install: every installed file is the committed blob" test -n "$ok_hash"
+while read -r srcpath dstpath; do
+  want=$(git -C "$src" cat-file blob "HEAD:$srcpath" | sha256sum | cut -d' ' -f1)
+  grep -q "^$want  $dstpath\$" "$home/bin/MANIFEST" || ok_hash=
+  [ "$(sha256sum <"$home/bin/$dstpath" | cut -d' ' -f1)" = "$want" ] || ok_hash=
+done <"$table"
+check "install: every installed file is the committed blob, at its destination path" test -n "$ok_hash"
+review_ok=1
+while read -r srcpath dstpath; do
+  case $dstpath in review/*) [ -f "$home/bin/$dstpath" ] || review_ok= ;; esac
+done <"$table"
+check "install: every review-context file lands under bin/review" test -n "$review_ok"
+check "install: bin/review holds only table entries" test "$(find "$home/bin/review" -type f | wc -l | tr -d ' ')" -eq "$review_entries"
 check "install: files are LF" not_cr "$home/bin/mint.sh" "$home/bin/wow-admin" "$home/bin/broker.ps1"
 check "install: no staging left" test ! -e "$home/bin.new" -a ! -e "$home/bin.old"
 check "install: tokens/<repo> created for each repo" test -d "$home/tokens/alpha" -a -d "$home/tokens/beta"
@@ -216,6 +285,16 @@ check "install: an uncommitted change is refused" test "$rc" -ne 0
 check "install: ...for that reason" grep -q 'uncommitted changes' "$tmp/out"
 check "install: ...and bin is untouched" test "$(cat "$home/bin/MANIFEST")" = "$manifest"
 git -C "$src" checkout -q -- scripts/identity/mint.sh
+
+# An uncommitted change in any other source directory is refused too, before anything under $home changes.
+for dirty in .devcontainer/gh scripts/loop/inject.py scripts/identity/review/Dockerfile plugins/way-of-working/bin/token-check.sh; do
+  echo '# dirty' >>"$src/$dirty"
+  run_install
+  check "install: an uncommitted change in $dirty is refused" test "$rc" -ne 0
+  check "install: ...for that reason ($dirty)" grep -q 'uncommitted changes' "$tmp/out"
+  check "install: ...and bin is untouched ($dirty)" test "$(cat "$home/bin/MANIFEST")" = "$manifest" -a ! -e "$home/bin.new"
+  git -C "$src" checkout -q -- "$dirty"
+done
 
 git -C "$src" -c user.name=t -c user.email=t@t commit -q --allow-empty -m unpushed
 run_install

@@ -32,6 +32,15 @@
   deletes any $WowHome\review-tokens\<repo>\reviewer-token older than -ReviewTtlMinutes, for any
   repo, which covers a review session killed before it ran `review-token.sh discard`.
 
+  Review sessions and logs (#634). The sweep also removes, under $WowHome\review-sessions\,
+  each session directory whose name passes the repository-name rule, that is not a link or
+  junction and holds none at any depth (one that does is left, and logged once per broker
+  process), and whose session-token is older than -ReviewSessionMinutes (when that file is
+  absent, the directory itself is). It assumes a live session re-mints session-token, and its
+  run ends, well inside -ReviewSessionMinutes. In $WowHome\review-logs\, top level only, it
+  removes regular, non-link files older than -ReviewLogDays. The logs may hold secrets, and the
+  sweep is cleanup, not an exposure limit: a token expires on its own clock.
+
   One bad repo or one failed file operation is logged and retried; it never stops the others.
 
   One broker runs at a time (an exclusive lock on $WowHome\broker.lock). Tokens are never logged
@@ -40,6 +49,13 @@
 .PARAMETER Once
   One pass over every repo, then exit: 0 all current, 1 a mint failed, 2 bad configuration.
   Without it the broker loops every -PollSeconds until stopped.
+
+.PARAMETER ReviewSessionMinutes
+  Age past which a review session directory under $WowHome\review-sessions is removed (default
+  120), as -ReviewTtlMinutes is for reviewer tokens.
+
+.PARAMETER ReviewLogDays
+  Age in days past which a top-level file under $WowHome\review-logs is removed (default 7).
 
 .PARAMETER Sh
   The POSIX shell that runs mint.sh (Git for Windows' sh.exe). Default: the first sh on PATH.
@@ -63,7 +79,9 @@ param(
   [int]$RefreshMinutes = 30,
   [int]$PollSeconds = 5,
   [int]$RetrySeconds = 60,
-  [int]$ReviewTtlMinutes = 10
+  [int]$ReviewTtlMinutes = 10,
+  [int]$ReviewSessionMinutes = 120,
+  [int]$ReviewLogDays = 7
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -189,6 +207,54 @@ function Expire-ReviewTokens {
   }
 }
 
+# Test-HasLink <dir>: $true when the directory holds a link or junction at any depth. Never descends
+# into a link. Throws when something cannot be listed, which the caller treats as "leave it".
+function Test-HasLink([string]$dir) {
+  foreach ($c in @(Get-ChildItem -LiteralPath $dir -Force -ErrorAction Stop)) {
+    if ($c.LinkType) { return $true }
+    if ($c.PSIsContainer -and (Test-HasLink $c.FullName)) { return $true }
+  }
+  $false
+}
+
+$script:LinkLogged = @{}
+
+# Expire-ReviewSessions: remove review session directories whose session-token (or, with none, the
+# directory) is older than -ReviewSessionMinutes, and review logs older than -ReviewLogDays. A session
+# that is, or contains, a link or junction is left alone: Remove-Item must never be pointed through one.
+function Expire-ReviewSessions {
+  $root = Join-Path $WowHome 'review-sessions'
+  if ((Test-Path -LiteralPath $root -PathType Container) -and -not (Get-Item -LiteralPath $root -Force).LinkType) {
+    foreach ($d in @(Get-ChildItem -LiteralPath $root -Directory -Force -ErrorAction SilentlyContinue)) {
+      if ($d.LinkType -or -not (Test-RepoName $d.Name)) { continue }
+      try {
+        if (Test-HasLink $d.FullName) {
+          if (-not $script:LinkLogged[$d.Name]) {
+            $script:LinkLogged[$d.Name] = $true
+            Write-Log "review-session $($d.Name)`: holds a link or junction; left in place"
+          }
+          continue
+        }
+        $tok = Get-Item -LiteralPath (Join-Path $d.FullName 'session-token') -Force -ErrorAction SilentlyContinue
+        $stamp = if ($tok -and -not $tok.PSIsContainer) { $tok.LastWriteTimeUtc } else { $d.LastWriteTimeUtc }
+        if (([DateTime]::UtcNow - $stamp).TotalMinutes -gt $ReviewSessionMinutes) {
+          Remove-Item -LiteralPath $d.FullName -Recurse -Force
+          Write-Log "review-session $($d.Name)`: expired and removed"
+        }
+      } catch { Write-Log "review-session $($d.Name)`: $($_.Exception.Message)" }
+    }
+  }
+  $logs = Join-Path $WowHome 'review-logs'
+  if ((Test-Path -LiteralPath $logs -PathType Container) -and -not (Get-Item -LiteralPath $logs -Force).LinkType) {
+    foreach ($f in @(Get-ChildItem -LiteralPath $logs -File -Force -ErrorAction SilentlyContinue)) {
+      if ($f.LinkType) { continue }
+      if (([DateTime]::UtcNow - $f.LastWriteTimeUtc).TotalDays -gt $ReviewLogDays) {
+        try { Remove-Item -LiteralPath $f.FullName -Force } catch { Write-Log "review-log $($f.Name)`: $($_.Exception.Message)" }
+      }
+    }
+  }
+}
+
 # Get-ManifestCommit: the commit install-host-tools.ps1 recorded for this install, for the log. Never trusted for anything.
 function Get-ManifestCommit {
   $m = Join-Path $ScriptsDir 'MANIFEST'
@@ -267,6 +333,7 @@ try {
       }
     }
     try { Expire-ReviewTokens } catch { Write-Log "review: $($_.Exception.Message)" }
+    try { Expire-ReviewSessions } catch { Write-Log "review-sessions: $($_.Exception.Message)" }
     if ($Once) { if ($failed) { $exit = 1 }; break }
     Start-Sleep -Seconds $PollSeconds
   }

@@ -842,7 +842,7 @@ account including the dev App — an agent never trusts its own text — and `le
 agent's, which points at it), `bin/review-sandbox.sh trust`, `plan-sprint` (judging the login and
 id `bin/plan-gather.sh` prints), `spec-task` (the issue it drafts for) and `scripts/loop/preflight.sh github-dispatch`
 (`--identities`, the one reader that is its own implementation of the rule rather than a call
-to `gh-identity.sh`). Outside `token-check.sh` (below) and `architect-review` (which requires `reviewer_app` to be a map, `#389`), `reviewer_app` and `loop_app` are read only to
+to `gh-identity.sh`). Outside `token-check.sh` (below) and `architect-review` and `scripts/identity/review/entrypoint.sh` (which each require `reviewer_app` to be a map, `#389`, `#634`; the entrypoint checks it with its own `yq` read, as `architect-review` does), `reviewer_app` and `loop_app` are read only to
 refuse them (as authors, and by `classify` as the acting identity) and to catch a duplicate id.
 `plan-anchor.sh verify --maintainer-ids` (`#383`, `#497`; `architect-review` reads the same ids for `bin/spec-reaction.sh`, `#613`) takes the maintainers' numeric ids, for the reaction and the spec comment's author, from the
 caller, which reads them from the default branch's copy: `resume` passes them under a map and

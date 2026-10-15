@@ -243,8 +243,20 @@
 #
 # Malformed invocation (bad arity, a non-numeric <N>, a non-40-hex <sha>, a missing
 # `--` before <cmd>) is exit 2 throughout -- the question could not even be asked, the
-# same split review-base-anchor.sh uses. A real STOP (well-formed but refused) is
+# same split review-base-anchor.sh uses -- except inside a review container (below),
+# where the marker STOP comes first. A real STOP (well-formed but refused) is
 # exit 1, except `run`'s own pre-execution refusal, which is 111 (see above).
+#
+# The review-container marker. A review container holds a session token in reach, so
+# `make` and `run` must never build or execute PR code there. The image ships an empty,
+# root-owned file at a fixed path (REVIEW_CONTAINER_MARKER, below); when it exists, or is
+# a link of any kind, `make` STOPs (exit 1) and `run` refuses (111) before any argument
+# check, `gh` call or filesystem change. It is a fixed root-owned file, not an
+# environment variable, so a session cannot unset it. `trust` and `destroy` are
+# unchanged. In a review container the marker STOP therefore comes before the exit-2
+# argument checks. Residual: it guards this skill's own path only. A session can run PR
+# code by hand, or edit its installed plugin copy of this check, which lives in its
+# writable home. See #623.
 #
 # Permitted toolset: git, $REVIEW_SANDBOX_GH (default: gh), POSIX sh, `timeout`
 # (ships in Git for Windows' usr/bin, same as the rest of this toolset), `sha256sum`
@@ -271,6 +283,9 @@
 # Windows-specific path in this script (the leftover-process skip, the junction check
 # above) is exercised only on a maintainer's machine, never mechanically.
 set -eu
+
+# The review entrypoint matches this exact line as its plugin floor, so do not reformat it.
+REVIEW_CONTAINER_MARKER=/etc/way-of-working/review-container
 
 : "${REVIEW_SANDBOX_GH:=gh}"
 
@@ -442,6 +457,7 @@ case "$cmd" in
     ;;
 
   make)
+    if [ -e "$REVIEW_CONTAINER_MARKER" ] || [ -L "$REVIEW_CONTAINER_MARKER" ]; then stop "review container: make is refused here"; fi
     [ "$#" -eq 3 ] || usage
     N="$2"; CALLER_SHA="$3"
     is_digits "$N" || usage
@@ -544,6 +560,7 @@ case "$cmd" in
     ;;
 
   run)
+    if [ -e "$REVIEW_CONTAINER_MARKER" ] || [ -L "$REVIEW_CONTAINER_MARKER" ]; then stop_refuse "review container: run is refused here"; fi
     [ "$#" -ge 4 ] || usage
     PATH_ARG="$2"
     [ "$3" = "--" ] || usage

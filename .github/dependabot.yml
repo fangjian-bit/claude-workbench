@@ -3,17 +3,21 @@
 # SCOPE, stated because it is easy to assume this covers more than it does: this repo has
 # NO package manifests -- no package.json, no requirements.txt, no go.mod. The dependency
 # surface is the actions used by `ci.yml` and `release.yml`, plus the base image on the
-# `.devcontainer/Dockerfile` FROM line, so `github-actions` and `docker` are the only ecosystems that
-# apply. Adding another entry here would silently do nothing, which is worse than no entry:
-# it reads as coverage.
+# `.devcontainer/Dockerfile` FROM line and the one on `scripts/identity/review/Dockerfile`, so
+# `github-actions` and `docker` are the only ecosystems that apply. Adding another entry here
+# would silently do nothing, which is worse than no entry: it reads as coverage.
 #
 # NOT COVERED, named deliberately: `release.yml` installs the Claude CLI with
 # `npm install -g @anthropic-ai/claude-code@2.1.224`. A version pinned inside a `run:`
 # step is invisible to Dependabot -- it reads manifests and workflow `uses:` values, not
 # shell commands. **That pin is bumped by hand.** (`ci.yml` installs the same package
 # unpinned on purpose; only the release path needs reproducibility, and `release.yml` says
-# so at the step.) If that hand-bump is ever missed often enough to matter, the fix is a
-# real manifest for Dependabot to read, not another entry below.
+# so at the step.) The Dockerfile pins are bumped by hand too, for their own reason:
+# `scripts/loop/Dockerfile`'s `ARG BASE_IMAGE` (a templated `FROM`, and there is no
+# `/scripts/loop` entry below) and both images' `CLAUDE_VERSION` / `CLAUDE_SHA256` (a download
+# in a `RUN`, not a `FROM`), which `tests/review-image.test.sh` holds equal. If the
+# `release.yml` hand-bump is ever missed often enough to matter, the fix is a real manifest for
+# Dependabot to read, not another entry below.
 
 version: 2
 
@@ -71,6 +75,24 @@ updates:
   # bumped by Dependabot; the template owns it.
   - package-ecosystem: docker
     directory: /.devcontainer
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: ci
+      include: scope
+    labels:
+      - dependencies
+    open-pull-requests-limit: 3
+
+  # The review image's base image (#634), a literal tag-and-digest FROM line with no ARG before
+  # it. The same shape as the entry above, but a separate PR: nothing keeps the two pins equal.
+  # The base image's signed provenance is not verified for this directory, so a bump gets human
+  # review only; check the attestation by hand with the command in .devcontainer/Dockerfile.
+  - package-ecosystem: docker
+    directory: /scripts/identity/review
     schedule:
       interval: weekly
       day: monday

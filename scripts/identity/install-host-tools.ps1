@@ -1,7 +1,9 @@
 #Requires -Version 7.2
 <#
 .SYNOPSIS
-  Install the host identity scripts into $WowHome\bin, from committed code (WB-D24, issue #392).
+  Install the host identity scripts into $WowHome\bin, and the review image's build context into
+  $WowHome\bin\review, from committed code (WB-D24, issues #392, #634). The clean-tree check covers
+  every source directory of both.
 
 .DESCRIPTION
   The broker, mint.sh and the wow-* commands run on the host next to every App key. A dev
@@ -11,16 +13,20 @@
 
   What it does, in order, stopping at the first failure:
     1. Finds the source checkout (-SourceRepo, default the one holding this script).
-    2. Checks, changing nothing in $WowHome: scripts/identity has no uncommitted change, and HEAD
-       is an ancestor of refs/remotes/<Remote>/<Base> after a fetch (which does update that
+    2. Checks, changing nothing in $WowHome: no source directory in the table below
+       (scripts/identity, .devcontainer, scripts/loop, plugins/way-of-working/bin) has an
+       uncommitted change, and HEAD is an ancestor of refs/remotes/<Remote>/<Base> after a fetch (which does update that
        remote-tracking ref): reviewed, merged code, not a worktree or an unpushed branch. HEAD is
-       resolved once, and that commit is what is exported and recorded.
+       resolved once, and that commit is what is exported and recorded. Every table entry must
+       exist at that commit.
     3. Only then (and only past -WhatIf / -Confirm) stops the scheduled task named by -StopTask,
        if given, so a refusal above never leaves the broker down.
     4. Exports the files from that commit (git cat-file blob: the stored bytes, so no working-tree
        edit and no CRLF conversion) into $WowHome\bin.new, writes MANIFEST there (the commit, the
-       install time, each file's sha256, so the human can compare the commit with GitHub), and
-       swaps it in for $WowHome\bin. The old bin is kept as bin.old until the swap succeeds and is
+       install time, each file's sha256 and destination path relative to bin, so the human can
+       compare the commit with GitHub), and
+       swaps it in for $WowHome\bin. Besides the host scripts that is bin\review, the review image's
+       build context (#634): the Dockerfile plus exactly the files it copies, flat. The old bin is kept as bin.old until the swap succeeds and is
        put back if it fails; a leftover bin.old with no bin is restored on the next run.
     5. Creates $WowHome\tokens\<repo> for each repo in broker.json (a container mount whose source
        is missing fails to start). A bad broker.json is a warning here, not a failed install.
@@ -54,8 +60,28 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$files = 'broker.ps1', 'mint.sh', 'wow-common.sh', 'wow-review-mint', 'wow-admin'
-$srcDir = 'scripts/identity'
+# Committed source path -> destination path under bin/, one pair per line. The leading comma is
+# required: without it PowerShell flattens the lines inside @( ... ) into one list of bare strings
+# instead of pairs. bin/review/ is the review image's build context: the Dockerfile plus exactly the
+# files it copies (tests/review-image.test.sh holds the two lists equal).
+$table = @(
+  ,@('scripts/identity/broker.ps1', 'broker.ps1')
+  ,@('scripts/identity/mint.sh', 'mint.sh')
+  ,@('scripts/identity/wow-common.sh', 'wow-common.sh')
+  ,@('scripts/identity/wow-review-mint', 'wow-review-mint')
+  ,@('scripts/identity/wow-admin', 'wow-admin')
+  ,@('scripts/identity/review/Dockerfile', 'review/Dockerfile')
+  ,@('scripts/identity/review/entrypoint.sh', 'review/entrypoint.sh')
+  ,@('scripts/identity/review/outbox-read', 'review/outbox-read')
+  ,@('scripts/identity/review/managed-settings.json', 'review/managed-settings.json')
+  ,@('.devcontainer/dev-token', 'review/dev-token')
+  ,@('.devcontainer/gh', 'review/gh')
+  ,@('plugins/way-of-working/bin/token-check.sh', 'review/token-check.sh')
+  ,@('plugins/way-of-working/bin/gh-identity.sh', 'review/gh-identity.sh')
+  ,@('scripts/loop/inject.py', 'review/inject.py')
+  ,@('scripts/loop/proxy.py', 'review/proxy.py')
+)
+$srcDirs = @($table | ForEach-Object { $_[0].Substring(0, $_[0].LastIndexOf('/')) } | Select-Object -Unique)
 
 # One git, resolved once, as an application: an alias or function named git in a profile cannot shadow it.
 $found = Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -97,32 +123,38 @@ $script:repo = $SourceRepo
 $null = Invoke-Git @('rev-parse', '--git-dir')
 
 # --- checks: nothing under $WowHome changes until they all pass -----------------------------
-if (Invoke-Git @('status', '--porcelain', '--', $srcDir)) { throw "$srcDir has uncommitted changes; commit and merge them first" }
+foreach ($d in $srcDirs) {
+  if (Invoke-Git @('status', '--porcelain', '--', $d)) { throw "$d has uncommitted changes; commit and merge them first" }
+}
 $null = Invoke-Git @('fetch', '--quiet', $Remote, $Base)
 $head = Invoke-Git @('rev-parse', '--verify', 'HEAD^{commit}')
 $remoteRef = "refs/remotes/$Remote/$Base" # full name: a local branch or tag called origin/main must not win
 try { $null = Invoke-Git @('merge-base', '--is-ancestor', $head, $remoteRef) }
 catch { throw "HEAD ($($head.Substring(0, 12))) is not on $Remote/$Base; install from merged code" }
-foreach ($f in $files) { $null = Invoke-Git @('cat-file', '-e', "$($head):$srcDir/$f") }
+foreach ($e in $table) { $null = Invoke-Git @('cat-file', '-e', "$($head):$($e[0])") }
 
 # --- install ----------------------------------------------------------------------------------
 $bin = Join-Path $WowHome 'bin'
 $new = Join-Path $WowHome 'bin.new'
 $old = Join-Path $WowHome 'bin.old'
-if ($PSCmdlet.ShouldProcess($bin, "Install $($files.Count) host scripts from commit $($head.Substring(0, 12))")) {
+if ($PSCmdlet.ShouldProcess($bin, "Install $($table.Count) host files from commit $($head.Substring(0, 12))")) {
   if ($StopTask) { Stop-ScheduledTask -TaskName $StopTask -ErrorAction SilentlyContinue }
 
   # A crash mid-swap leaves bin.old and no bin: that is the last good copy, so put it back first.
   if (-not (Test-Path -LiteralPath $bin) -and (Test-Path -LiteralPath $old)) { Move-Item -LiteralPath $old -Destination $bin }
   if (Test-Path -LiteralPath $new) { Remove-Item -LiteralPath $new -Recurse -Force }
   $null = New-Item -ItemType Directory -Path $new
-  foreach ($f in $files) { Export-Blob "$($head):$srcDir/$f" (Join-Path $new $f) }
+  foreach ($e in $table) {
+    $dst = Join-Path $new $e[1]
+    $null = New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dst)
+    Export-Blob "$($head):$($e[0])" $dst
+  }
 
   $lines = @("commit $head", "installed $([DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ'))")
-  foreach ($f in $files) {
-    $p = Join-Path $new $f
-    if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { throw "$f missing after export" }
-    $lines += '{0}  {1}' -f (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant(), $f
+  foreach ($e in $table) {
+    $p = Join-Path $new $e[1]
+    if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { throw "$($e[1]) missing after export" }
+    $lines += '{0}  {1}' -f (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant(), $e[1]
   }
   [IO.File]::WriteAllText((Join-Path $new 'MANIFEST'), (($lines -join "`n") + "`n"))
 

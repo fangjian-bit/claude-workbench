@@ -1013,6 +1013,94 @@ assert_true "destroy: removes the workspace-side refs/review-sandbox/<N> when ru
 
 # =========================================================================================
 
+# =========================================================================================
+# --- the review-container marker (#634) -------------------------------------------------
+# =========================================================================================
+
+# The unmodified script has exactly one line matching the pattern the review entrypoint's plugin
+# floor greps for (scripts/identity/review/entrypoint.sh): reformatting it would silently lower the floor.
+n=$(grep -c '^REVIEW_CONTAINER_MARKER=/etc/way-of-working/review-container$' "$script" || true)
+assert_eq "marker line: exactly one line matches the entrypoint's floor pattern" "1" "$n"
+n=$(grep -c '^REVIEW_CONTAINER_MARKER=' "$script" || true)
+assert_eq "marker line: the variable is assigned once" "1" "$n"
+
+# A copy whose marker line points at a temp path, beside a copy of gh-identity.sh, run by path.
+mk_marker_copy() { # mk_marker_copy <dir> <marker-path>
+  mkdir -p "$1"
+  sed "s|^REVIEW_CONTAINER_MARKER=.*\$|REVIEW_CONTAINER_MARKER=$2|" "$script" >"$1/review-sandbox.sh"
+  chmod +x "$1/review-sandbox.sh"
+  cp "$root_dir/plugins/way-of-working/bin/gh-identity.sh" "$1/gh-identity.sh"
+  grep -q "^REVIEW_CONTAINER_MARKER=$2\$" "$1/review-sandbox.sh" || { echo "FAIL - marker: could not substitute the marker path" >&2; fail=1; }
+}
+marker_gh="$tmp/marker-gh.sh"
+cat > "$marker_gh" <<'STUB'
+#!/bin/sh
+printf '%s\n' "$*" >>"$MARKER_GH_LOG"
+exit 1
+STUB
+chmod +x "$marker_gh"
+
+ws="$(new_workspace marker)"
+sha="$(pr_ref "$ws" 31)"
+# The unmodified script builds a sandbox first, so `destroy` has something to remove below.
+make_trusted "$ws" 31 "$sha"
+assert_eq "marker setup: the unmodified script builds a sandbox" "0" "$st"
+built_sbx="$out"; built_root="$root"
+
+marker_file="$tmp/marker-present"; : >"$marker_file"
+mk_marker_copy "$tmp/marker-copy" "$marker_file"
+mcopy="$tmp/marker-copy/review-sandbox.sh"
+: >"$tmp/marker-gh-log"
+ran_flag="$tmp/marker-ran"
+mrun() { # mrun <args...>: run the marked copy from the workspace, capturing stdout+stderr and status
+  out="" st=0
+  out="$(cd "$ws" && MARKER_GH_LOG="$tmp/marker-gh-log" REVIEW_SANDBOX_ROOT="$tmp/marker-root" REVIEW_SANDBOX_GH="$marker_gh" "$@" 2>&1)" || st=$?
+}
+check_refused() { # check_refused <label> <status-wanted>
+  assert_eq "marker present: $1 exits $2" "$2" "$st"
+  case "$out" in STOP*) echo "ok - marker present: $1 prints a leading STOP" ;; *) echo "FAIL - marker present: $1 leading STOP, got [$out]" >&2; fail=1 ;; esac
+  assert_true "marker present: $1 makes no gh call" "$([ ! -s "$tmp/marker-gh-log" ] && echo 1 || echo 0)"
+  assert_true "marker present: $1 builds nothing" "$([ ! -e "$tmp/marker-root" ] && echo 1 || echo 0)"
+}
+mrun "$mcopy" make 31 "$sha";                                  check_refused "make" 1
+mrun "$mcopy" run "$built_sbx" -- sh -c ": >'$ran_flag'";      check_refused "run" 111
+assert_true "marker present: the wrapped command never ran" "$([ ! -e "$ran_flag" ] && echo 1 || echo 0)"
+# The marker STOP comes before the argument checks (the header says so).
+mrun "$mcopy" make not-a-number not-a-sha;                     check_refused "make with bad arguments" 1
+mrun "$mcopy" run;                                             check_refused "run with bad arguments" 111
+
+# `trust` behaves as without the marker.
+run_script "$ws" env FAKE_GH_REPO=acme/repo FAKE_GH_PULLS_7_SHA=deadbeefdeadbeefdeadbeefdeadbeefdeadbeef \
+  FAKE_GH_PULLS_7_HEAD_REPO=acme/repo FAKE_GH_PULLS_7_BASE=main FAKE_GH_PULLS_7_ASSOC=MEMBER "$script" trust 7
+plain_trust="$out/$st"
+run_script "$ws" env FAKE_GH_REPO=acme/repo FAKE_GH_PULLS_7_SHA=deadbeefdeadbeefdeadbeefdeadbeefdeadbeef \
+  FAKE_GH_PULLS_7_HEAD_REPO=acme/repo FAKE_GH_PULLS_7_BASE=main FAKE_GH_PULLS_7_ASSOC=MEMBER "$mcopy" trust 7
+assert_eq "marker present: trust behaves as without the marker" "$plain_trust" "$out/$st"
+
+# `destroy` removes a sandbox the unmodified script built under the same REVIEW_SANDBOX_ROOT.
+out="" st=0
+out="$(cd "$ws" && REVIEW_SANDBOX_ROOT="$built_root" "$mcopy" destroy "$built_sbx" 2>&1)" || st=$?
+assert_eq "marker present: destroy exits 0" "0" "$st"
+assert_true "marker present: destroy removes the sandbox" "$([ ! -e "$built_sbx" ] && echo 1 || echo 0)"
+
+# A dangling symlink at the marker path counts too (under the link guard).
+dangling="$tmp/marker-dangling"
+if ln -s "$tmp/no-such-target" "$dangling" 2>/dev/null && [ -L "$dangling" ]; then
+  mk_marker_copy "$tmp/marker-copy2" "$dangling"
+  mcopy="$tmp/marker-copy2/review-sandbox.sh"
+  rm -rf "$tmp/marker-root"; : >"$tmp/marker-gh-log"
+  mrun "$mcopy" make 31 "$sha";                                check_refused "a dangling marker link: make" 1
+  mrun "$mcopy" run "$built_sbx" -- true;                      check_refused "a dangling marker link: run" 111
+else
+  echo "SKIP - a symlink cannot be made here; the dangling-marker fixtures did not run" >&2
+fi
+
+# Marker absent: a copy pointing at a path that does not exist behaves as the unmodified script (the
+# existing fixtures above run the unmodified script, whose real marker path is absent on this machine).
+mk_marker_copy "$tmp/marker-copy3" "$tmp/no-such-marker"
+mrun "$tmp/marker-copy3/review-sandbox.sh" make not-a-number not-a-sha
+assert_eq "marker absent: bad arguments are still exit 2" "2" "$st"
+
 if [ "$fail" -ne 0 ]; then
   echo "review-sandbox.sh fixtures: FAILED" >&2
   exit 1
