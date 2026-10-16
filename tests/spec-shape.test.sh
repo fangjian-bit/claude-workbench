@@ -1,7 +1,7 @@
 #!/bin/sh
 # Fixture tests for plugins/way-of-working/bin/spec-shape.sh (#611).
 #
-# /way-of-working:spec-task prints its draft only when this predicate says `ok`: the required
+# /way-of-working:spec-task posts or holds its draft only when this predicate says `ok`: the required
 # sections, in order, each with a non-empty body.
 #
 # Permitted toolset: POSIX sh.

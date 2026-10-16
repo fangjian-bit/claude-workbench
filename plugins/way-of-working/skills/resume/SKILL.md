@@ -808,8 +808,7 @@ edited it. **Default to the full checklist whenever unsure.**
      pick-up summary, impossible to miss: `Spec approval: waiting — a maintainer reaction
      (👍, ❤️, 🎉 or 🚀) is needed on <comment URL>, after its last edit.` — or, with no
      spec comment anchored, `Spec approval: waiting — no spec comment is anchored; draft one with
-     /way-of-working:spec-task <N>, post it as a comment on #N, anchor it at handoff, and react
-     to it.` An edit to the
+     /way-of-working:spec-task <N>, which posts or holds the comment, react to it, then anchor it at handoff.` An edit to the
      comment after the reaction makes the reaction stale, and a comment alone never counts.
      **The dev App (`#660`).** Only under a map (under `legacy` both flags are omitted and
      `dev_app` is not read), in the same Bash call, from the same default-branch `$DEF_YML_FILE`

@@ -29,6 +29,12 @@ permissions (Issues write, Actions read), accepted by each installation. Repos w
 
 ### Added
 
+- **`bin/spec-post.sh`** (#661, `WB-D29`, supersedes `WB-D26`): `spec-task` now posts its checked draft as
+  one new comment on the issue when the session acts as the declared dev App, with a first-line marker
+  naming the issue, base and commit, and otherwise holds the composed comment for a human to post.
+  Approval is unchanged: a declared maintainer still reacts on GitHub. Tested by `tests/spec-post.test.sh`;
+  invariants check 18 now pins its two `gh` lines.
+
 - **`bin/review-outbox.sh`** (#636, `WB-D24` item 7): the one writer of the review container's
   outbox, and the one test for "is this a review container" (`where`). `outcome`, `body` and
   `findings` apply the launcher's own checks before writing, so a refusal reaches the session
@@ -37,6 +43,10 @@ permissions (Issues write, Actions read), accepted by each installation. Repos w
 
 ### Changed
 
+- **`spec-task` now publishes** (#661, `WB-D29`): as the declared dev App it posts the checked draft as a comment
+  on the backlog issue with no terminal stop, so it needs Issues write on `backlog.repo`; any other login, or a
+  repo with no `identities` map, gets the composed comment held for a human to post. Read the reaction rule
+  in `WB-D29` before bumping the pin.
 - **The declared dev App may author a spec comment** (#660). `bin/spec-comment.sh` judges the author by
   `gh-identity.sh role`, and `plan-anchor.sh verify` takes `--dev-app-id`. A dev-App spec is used only
   with a declared maintainer's approving reaction created after its last edit (`unreacted` otherwise),

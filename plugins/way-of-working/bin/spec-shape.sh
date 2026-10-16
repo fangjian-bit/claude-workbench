@@ -1,9 +1,9 @@
 #!/bin/sh
-# Does a drafted spec comment have the fixed shape? (#611, WB-D26)
+# Does a drafted spec comment have the fixed shape? (#611, WB-D26, WB-D29)
 #
-# /way-of-working:spec-task drafts a task's spec comment and stops: the maintainer posts it and
-# reacts, and /way-of-working:handoff anchors it. The drafter is a model writing prose, so the
-# shape is checked here, not trusted, and the skill prints the draft only on `ok`.
+# /way-of-working:spec-task drafts a task's spec comment, then posts or holds it once this says `ok`: a maintainer
+# reacts, and /way-of-working:handoff anchors it (WB-D29). The drafter is a model writing prose, so the
+# shape is checked here, not trusted, and the skill posts only on `ok`.
 #
 # Usage: spec-shape.sh check <file>
 # Prints exactly one of, and exits 0 (the caller decides policy):

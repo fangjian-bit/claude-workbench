@@ -5,7 +5,7 @@ holding `way-of-working`: a portable Claude Code session-handoff protocol
 (`/way-of-working:resume` → `/way-of-working:handoff` → `/way-of-working:critic-gate` → `/way-of-working:ship` → `/way-of-working:pr-checks` → `/way-of-working:archive-sprint`,
 plus `/way-of-working:retro`, `/way-of-working:plan-sprint` for triaging the backlog into
 milestones under `github_milestones` planning, `/way-of-working:spec-task` for drafting a
-task's spec comment (it drafts and stops; the maintainer posts it),
+task's spec comment (it posts as the dev App or holds the comment for a human, then stops),
 `/way-of-working:architect-review` for a repo
 that wires a fresh-session review gate, and `/way-of-working:park-sprint` /
 `/way-of-working:unpark-sprint` for
@@ -66,7 +66,7 @@ plugins/way-of-working/
               spawn-model.sh review-base-anchor.sh review-sandbox.sh review-outbox.sh
               milestone-close-line.sh plan-gather.sh milestone-desc.sh schema-complete.sh
               cursor-sync-pr.sh blocked-state.sh prune-verdict.sh review-step.sh critic-section.sh
-              plan-depends.sh driver-lock.sh auto-merge-arm.sh app-push.sh stall-merge.sh gh-identity.sh review-token.sh token-check.sh hitl-gate-closed.sh spec-reaction.sh spec-comment.sh spec-shape.sh blocking-criteria.sh spec-issue.sh
+              plan-depends.sh driver-lock.sh auto-merge-arm.sh app-push.sh stall-merge.sh gh-identity.sh review-token.sh token-check.sh hitl-gate-closed.sh spec-reaction.sh spec-comment.sh spec-shape.sh blocking-criteria.sh spec-issue.sh spec-post.sh
               — executables, added to the Bash
               tool's PATH
   hooks/      hooks.json + ai-cursor-banner.sh

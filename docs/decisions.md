@@ -1832,14 +1832,16 @@ take effect. Full reasoning and the task breakdown that implements them:
     maintainer's report, 2026-10-14; it is a per-account setting the dev App cannot read).
 
 - **WB-D26 (`#611`) — `/way-of-working:spec-task` drafts a task's spec comment and stops; the
-  maintainer posts it and reacts.** Decided by the maintainer in the issue's design, and
+  maintainer posts it and reacts.** *Superseded by `WB-D29` (`#661`), 2026-10-16: the skill now posts the
+  comment itself when the session acts as the declared dev App, and holds it for a human otherwise;
+  the dev App may author a spec comment (`#660`), used only with a declared maintainer's fresh
+  approving reaction. The text below is the record of what it did.* Decided by the maintainer in the issue's design, and
   recorded with the spec comment on `#611`. It follows `WB-D24`'s rule that a spec comment
   auto-starts a build only when a declared maintainer wrote it and a declared maintainer reacted to it.
   - **Why.**
     - **A comment the agent posts has the wrong author.** After cutover the agent acts as the
       dev App, so `plan-anchor.sh verify` reads its comment as `untrusted` and `resume` waits.
       The spec has to be the maintainer's own comment.
-      **Amendment (#660):** "the agent's comment reads as untrusted" is narrowed: the declared dev App may author a spec comment, which is used only with a declared maintainer's fresh approving reaction; #661 will supersede this decision.
     - **Posting makes approval a reflex.** The maintainer reading a draft before posting it is
       the review; a skill that posted and then asked for a reaction would turn that into a click.
     - **Planning time is too early.** A spec is checked against a tree, and the tree moves; the
@@ -1999,6 +2001,86 @@ take effect. Full reasoning and the task breakdown that implements them:
       `docs/proposals/V9-TEST-RESULTS.md` states the general rule that such allow rules do not
       cover a command that expands a variable. There is no evidence for auto mode or project
       rules; it matters if a rule is ever added.
+
+- **WB-D29 (`#661`) — `/way-of-working:spec-task` posts its draft as the declared dev App, and
+  holds it for a human otherwise.** Child (c) of `#627`; supersedes `WB-D26`. Built as
+  `bin/spec-post.sh post <N> <sha> <draft-file> <out-dir>`, the one place that composes the
+  comment, writes its marker and makes the write.
+  - **The decision.** The comment is posted only when `identities` is a map and the acting account
+    is the declared dev App (`gh-identity.sh role` says `dev_app` on the viewer read). In every
+    other case the composed comment is written to `<out-dir>/comment.md` and held, and a human
+    posts it verbatim. The posted comment's first line is a marker naming the issue, the base and
+    the full commit the draft was checked against.
+  - **Why.**
+    - **The author problem is closed for the dev App only.** `#660` lets the dev App author a spec
+      comment that readers use with a declared maintainer's fresh approving reaction, and every
+      reader at the time refuses it without one. Posting under any other trusted login would make
+      agent text "maintainer-authored", which `spec-comment.sh` and `architect-review` load
+      without a reaction.
+    - **"Approval as a reflex" is answered by the reaction.** The maintainer reads the posted
+      comment on GitHub before reacting, and an unreacted dev-App comment is never used. There is
+      no per-task terminal stop.
+  - **Binding rules for marker readers (`#662`, `#663`).**
+    - The marker confers nothing: it is a locator, never authority.
+    - A candidate's first line, after stripping one trailing CR, matches
+      `^spec-task: issue=[1-9][0-9]* base=[A-Za-z0-9._/][A-Za-z0-9._/-]* sha=[0-9a-f]{40}$`, and
+      no other line is a marker.
+    - `issue=` equals the issue fetched, and `base=` equals the default branch's `pr_base`.
+    - `sha=` is re-verified as an ancestor of the base before it is used in any `git` command.
+    - The author is a declared maintainer or the dev App, matched by numeric id.
+    - A declared maintainer reacted with approval strictly after `updated_at`, whoever the author.
+    - A candidate is a comment that passes every rule above, the fresh reaction included. A marker
+      comment with no fresh maintainer reaction is not a candidate.
+    - More than one candidate stops as ambiguous; a reader never picks one.
+    - To replace an approved spec, the maintainer removes the reaction from the old comment (or
+      deletes it) and reacts to the new one.
+  - **The rule.**
+    - `scripts/invariants-check.sh` check 18 flips from "no posting form" to "exactly one posting
+      form": the skill carries no `gh issue`/`gh pr` write verb, `gh label` or `gh api` write and must name `spec-post.sh post`;
+      `spec-post.sh` carries exactly two `gh` write lines, the viewer read and the POST (a new
+      comment on the issue named, body from a file on standard input), each once and spelled
+      exactly, and no `eval`. It is a regression guard; `tests/spec-post.test.sh` is the control for
+      a write spelled some other way.
+    - The script refuses on its own: a commit that is not on the base, a draft that fails the shape
+      check, carries a line beginning with the marker prefix, matches an obvious local-path or
+      secret shape, or makes the body longer than 65536 bytes; and an issue that is a pull request,
+      closed, locked, or authored by an untrusted login. The POST is never retried.
+    - An `architect` subagent only drafts; the parent writes the file and posts. An unconfirmed
+      model provenance line is posted inside the comment.
+  - **Rejected.**
+    - **Posting under any trusted login.** It makes agent text "maintainer-authored".
+    - **A `post` mode in `spec-issue.sh`.** That script keeps its GET-only contract.
+    - **A hidden HTML-comment marker.** The maintainer could not see all they approve.
+    - **A confirmation stop in the session.** The reaction on GitHub is the review.
+  - **Accepted residuals.**
+    - **The writer and the approver are kept apart only where the session holds no maintainer
+      credential,** which is the dev container. A host session given a dev-App token can still fall
+      back to the stored maintainer login (the incident `token-check.sh` records), then react as the
+      maintainer.
+    - **Publication now precedes review.** The text is public before anyone reads it, and an edit
+      leaves history.
+    - **`WB-D26`'s residual stands, with the reaction as its only mitigation.** A write-access
+      account can edit a trusted author's body, and text paraphrased from it is posted.
+    - **The `leak` shapes are a filter, not a boundary.**
+    - **Hidden text is not refused.** An HTML comment or zero-width text in a draft is not shown by
+      GitHub's rendered view, which is what the maintainer reacts to, while the builder reads the raw
+      body. Under `WB-D26` the maintainer read the raw draft. Open for a decision: a `hidden` stop
+      on `<!--` and bidi or zero-width characters.
+    - **A private code repo with a public backlog repo** publishes the drafted tree details with no
+      human read first. Open for a decision: hold when `backlog.repo` is public and `repo` is not.
+    - **A write by the wrong account is seen only after it is made.** If the POST ran as an account
+      other than the viewer read's, the comment exists and the response check reports
+      `posted-unreadable`; nothing deletes it. The dev container's `gh` fails closed on a missing
+      token, so this needs a host session with a changed credential.
+    - **Check 18 is a regression guard.** It misses a `#`-leading line inside a multi-line quoted
+      string or an unquoted heredoc, a write through `"$GH"` or a function wrapper, and a pinned line run twice by a loop;
+      `tests/spec-post.test.sh` counts every logged `gh` call that is not a known read and is the control.
+    - **Body-influenced `@mentions` and cross-references** notify and backlink under the dev App.
+    - **The default-branch reads** (`gh repo view`) take the host from the origin URL. The issue
+      read, the viewer read and the write pin `github.com`. The host residuals `spec-issue.sh`
+      records also apply.
+    - **A `gh` call has no per-call timeout.** A hang ends with no word, which the skill treats as
+      `post-unknown`.
 
 ## Status
 

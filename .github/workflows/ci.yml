@@ -122,6 +122,8 @@ jobs:
         run: sh tests/milestone-desc.test.sh
       - name: spec-issue.sh fixtures
         run: sh tests/spec-issue.test.sh
+      - name: spec-post.sh fixtures
+        run: sh tests/spec-post.test.sh
       - name: token-check.sh fixtures
         run: sh tests/token-check.test.sh
       - name: review image fixtures

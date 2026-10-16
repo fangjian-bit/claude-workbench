@@ -1,6 +1,6 @@
 #!/bin/sh
-# Fixture tests for scripts/invariants-check.sh's check 18: the spec-task skill drafts and
-# never posts -- its text carries no comment command and no `gh api` write (#611).
+# Fixture tests for scripts/invariants-check.sh's check 18: the spec-task skill carries no posting
+# form, and its one write is the two pinned `gh` lines of bin/spec-post.sh (#611, #661, WB-D29).
 #
 # Each case mutates a COPY of the real tree and asserts the check fires (or stays silent), so
 # a check that only passes on the real tree cannot hide. Only check 18's own message is
@@ -17,6 +17,11 @@ trap 'rm -rf "$tmp"' EXIT
 
 fail=0
 MSG="the spec-task skill contains a posting form"
+MSG_NAME="the spec-task skill does not name spec-post.sh post"
+MSG_MISSING="plugins/*/bin/spec-post.sh is missing"
+MSG_ODD="spec-post.sh carries a gh write line other than the two pinned"
+MSG_ONCE="spec-post.sh must carry each pinned gh line exactly once"
+MSG_EVAL="spec-post.sh uses eval"
 
 tree() {
   d="$tmp/$1"
@@ -27,8 +32,8 @@ tree() {
 
 run() { ( cd "$1" && bash "$script" 2>&1 >/dev/null ) || true; }
 
-assert_fires() { # <desc> <dir>
-  if run "$2" | grep -qF -- "$MSG"; then
+assert_fires() { # <desc> <dir> [message]
+  if run "$2" | grep -qF -- "${3:-$MSG}"; then
     echo "ok - $1"
   else
     echo "FAIL - $1: expected check 18 to fire" >&2
@@ -36,8 +41,8 @@ assert_fires() { # <desc> <dir>
   fi
 }
 
-assert_silent() { # <desc> <dir>
-  if run "$2" | grep -qF -- "$MSG"; then
+assert_silent() { # <desc> <dir> [message]
+  if run "$2" | grep -qF -- "${3:-$MSG}"; then
     echo "FAIL - $1: check 18 fired" >&2
     fail=1
   else
@@ -46,6 +51,9 @@ assert_silent() { # <desc> <dir>
 }
 
 skill() { ls "$1"/plugins/*/skills/spec-task/SKILL.md; }
+spost() { ls "$1"/plugins/*/bin/spec-post.sh; }
+pinned_post() { grep -F -e '--method POST' "$1" | head -n 1; }
+pinned_viewer() { grep -F -e 'graphql' "$1" | head -n 1; }
 
 # Control: the real tree is clean.
 d="$(tree control)"
@@ -154,5 +162,80 @@ assert_silent "reads and non-gh -f flags are legal" "$d"
 d="$(tree noskill)"
 rm -rf "$d"/plugins/*/skills/spec-task
 assert_fires "a missing spec-task skill fires" "$d"
+
+# The real tree trips none of the spec-post.sh messages.
+d="$(tree control2)"
+for m in "$MSG_NAME" "$MSG_MISSING" "$MSG_ODD" "$MSG_ONCE" "$MSG_EVAL"; do
+  assert_silent "real tree is silent on: $m" "$d" "$m"
+done
+
+# The skill must name the one posting command.
+d="$(tree noname)"
+sed -i 's/spec-post\.sh post/spec-post-x/g' "$(skill "$d")"
+assert_fires "a skill that does not name spec-post.sh post fires" "$d" "$MSG_NAME"
+
+# A missing script fails, never passes.
+d="$(tree noscript)"
+rm -f "$(spost "$d")"
+assert_fires "a missing spec-post.sh fires" "$d" "$MSG_MISSING"
+
+# In the script: the two pinned lines, exactly once each, spelled exactly.
+d="$(tree twopost)"
+pinned_post "$(spost "$d")" >>"$(spost "$d")"
+assert_fires "a second POST line fires" "$d" "$MSG_ONCE"
+
+d="$(tree twoviewer)"
+pinned_viewer "$(spost "$d")" >>"$(spost "$d")"
+assert_fires "a second viewer line fires" "$d" "$MSG_ONCE"
+
+d="$(tree nopost)"
+sed -i '/--method POST/d' "$(spost "$d")"
+assert_fires "a script with no POST line fires" "$d" "$MSG_ONCE"
+
+n=0
+for edit in \
+  's/-F body=@-/-F body=@- --input x/' \
+  's/-F body=@-/-F body=@- -f title=y/' \
+  's/--method POST/--method PATCH/' \
+  's#/comments"#/labels"#' \
+  's/-F body=@-/-f body=x/' \
+  's/--hostname github.com --method POST/--method POST/'; do
+  n=$((n + 1))
+  d="$(tree edit$n)"
+  sed -i "/--method POST/ $edit" "$(spost "$d")"
+  assert_fires "an altered POST line fires: $edit" "$d" "$MSG_ODD"
+done
+
+d="$(tree editviewer)"
+sed -i '/graphql/ s/databaseId } }/databaseId } } extra/' "$(spost "$d")"
+assert_fires "an altered viewer line fires" "$d" "$MSG_ODD"
+
+d="$(tree extrapost)"
+printf '%s\n' 'gh api --hostname github.com --method POST repos/o/r/issues/1/comments -F body=@-' >>"$(spost "$d")"
+assert_fires "another write line fires" "$d" "$MSG_ODD"
+
+d="$(tree extralabel)"
+printf '%s\n' 'gh issue comment 1 --body x' >>"$(spost "$d")"
+assert_fires "a gh issue comment line in the script fires" "$d" "$MSG_ODD"
+
+d="$(tree eval)"
+printf '%s\n' 'eval "$x"' >>"$(spost "$d")"
+assert_fires "an eval line fires" "$d" "$MSG_EVAL"
+
+d="$(tree evalword)"
+printf '%s\n' 'evaluate=1' 'retrieval=2' 'x=$((retrieval + 1))' >>"$(spost "$d")"
+assert_silent "an identifier merely containing eval does not fire" "$d" "$MSG_EVAL"
+
+d="$(tree commentwrap)"
+printf '%s\n' '# a comment that ends in a backslash \' 'gh api -X POST repos/o/r/issues/1/comments' >>"$(spost "$d")"
+assert_fires "a comment ending in a backslash does not hide the write line after it" "$d" "$MSG_ODD"
+
+d="$(tree commented)"
+printf '%s\n' '# gh api -X POST repos/o/r/issues/1/comments' '  # gh issue comment 1 --body x' >>"$(spost "$d")"
+assert_silent "a plain commented-out write line is ignored" "$d" "$MSG_ODD"
+
+d="$(tree contline)"
+printf '%s\n' 'x=a\' '# ; gh api --method POST repos/o/r/issues/1/comments -f body=x' >>"$(spost "$d")"
+assert_fires "a #-leading line joined by a continuation is not a comment" "$d" "$MSG_ODD"
 
 [ "$fail" -eq 0 ]
