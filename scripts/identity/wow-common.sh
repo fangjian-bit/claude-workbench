@@ -1,4 +1,4 @@
-# Shared helpers for wow-admin, wow-review and wow-review-mint (WB-D24, issues #374, #635). Sourced, not run.
+# Shared helpers for wow-admin, wow-review, wow-review-poll and wow-review-mint (WB-D24, issues #374, #635). Sourced, not run.
 #
 # Host layout, under $WOW_HOME (default ~/.config/glunk-identity):
 #   apps.json              {"admin": {app_id, client_id, installation_id, bot_user_id, key},
@@ -26,6 +26,10 @@
 #                          copies, every kept copy of the session token, and its read-token, post-token
 #                          and filing-token. Removed by the launcher's trap.
 #   review-state/          wow-review's lock and its dedupe ledger (<owner>/<name>/<N>/<sha>/).
+#   review-poll.json       {"repos": ["owner/name", ...]}, the repos wow-review-poll polls (the maintainer writes it).
+#   review-poll.log        wow-review-poll's decision log, rotated to review-poll.log.1 past 1 MiB.
+#   review-state/.poll-lock  wow-review-poll's own lock directory, separate from wow-review's .lock.
+#   review-host/poll-<id>/ wow-review-poll's working files and its session token, never mounted. Removed by its trap.
 #   claude-credential      the Claude setup-token credential, one line; read only by wow-review and
 #                          written only to the injector sidecar's stdin.
 #   review-logs/           review run logs; may hold secrets, swept by the broker by age.
@@ -37,7 +41,8 @@
 # reviewer-token (default review-tokens/<repo>/, or the path --out names), the session and filing
 # tokens (wow-review-mint --read / --file, written only to the path --out names), and the .mint.* file
 # mint.sh stages beside any token it writes. wow-review (the launcher) also writes its own review-sessions/,
-# review-host/, review-state/ and review-logs/ entries. Nothing else under $WOW_HOME is modified.
+# review-host/, review-state/ and review-logs/ entries. wow-review-poll writes review-poll.log (and .1),
+# review-state/.poll-lock and review-host/poll-<id>/. Nothing else under $WOW_HOME is modified.
 #
 # The caller sets $prog before sourcing. Toolset: POSIX sh, jq, plus what mint.sh needs.
 

@@ -40,6 +40,7 @@ sh tests/spawn-model.test.sh    # models.second_opinion provenance predicate fix
 sh tests/review-base-anchor.test.sh  # architect-review's preflight-chain script fixtures (not yet required)
 sh tests/review-sandbox.test.sh # architect-review's PR-execution sandbox fixtures (not yet required)
 sh tests/review-token.test.sh   # review-token.sh request/discard fixtures (no skill calls it since #636; not yet required)
+sh tests/review-poll.test.sh     # wow-review-poll launch decisions, exit-code policy, token revocation and cleanup vs stub gh and wow-review (not yet required)
 sh tests/review-outbox.test.sh  # review-outbox.sh where/outcome/body/findings fixtures and launcher agreement (not yet required)
 sh tests/milestone-close-line.test.sh  # archive-sprint's Milestone close: ledger-line predicate fixtures (not yet required)
 sh tests/schema-complete.test.sh  # WB-D17 .ai/project.yml completeness-checker fixtures (not yet required)

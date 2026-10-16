@@ -73,3 +73,11 @@ For each: run it, and record what happened, including the output that shows it.
     only the HTTP status and the time. Never paste a token into the results doc or a command that
     reaches shell history. A call still accepted after the revoke is the finding; record how long
     the token lived. Afterwards confirm `review-host/<id>/` is gone, and delete it if it is not.
+
+## After the live run: the poller (#626)
+
+Once every item above has passed, and not before, register the poller that launches `wow-review`
+for open PR heads without a human. Create `$WOW_HOME/review-poll.json`, shaped
+`{"repos": ["owner/name"]}`, then run `scripts/identity/register-review-poll-task.ps1` from a
+PowerShell 7.2+ prompt (`-IntervalMinutes` 2 to 60, default 5; pass `-Sh` as Git for Windows' `bin\sh.exe`, never `usr\bin\sh.exe`). Its decisions are in
+`$WOW_HOME/review-poll.log`. To stop it, run the same script with `-Unregister`.

@@ -24,7 +24,7 @@
 # running at once), WOW_REVIEW_TIMEOUT (seconds, 1 to 6000, default 5400), WOW_REVIEW_REFRESH
 # (seconds, 1 to 1500, default 1500, the session-token refresh interval).
 #
-# Exit codes (the interface #626's scheduled trigger builds on):
+# Exit codes (the interface wow-review-poll builds on):
 #    0  a review was posted and confirmed
 #    3  a failure review was posted and confirmed
 #    4  nothing to post: exempt or already reviewed, each verified on the host

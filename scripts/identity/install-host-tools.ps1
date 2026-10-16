@@ -71,6 +71,7 @@ $table = @(
   ,@('scripts/identity/wow-review-mint', 'wow-review-mint')
   ,@('scripts/identity/wow-admin', 'wow-admin')
   ,@('scripts/identity/wow-review', 'wow-review')
+  ,@('scripts/identity/wow-review-poll', 'wow-review-poll')
   ,@('plugins/way-of-working/bin/review-gate-state.sh', 'review-gate-state.sh')
   ,@('plugins/way-of-working/bin/token-check.sh', 'token-check.sh')
   ,@('plugins/way-of-working/bin/gh-identity.sh', 'gh-identity.sh')

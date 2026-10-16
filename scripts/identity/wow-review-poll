@@ -1,0 +1,294 @@
+#!/bin/sh
+# Host command: launch wow-review for the PR heads that need one, without a human (WB-D24, #626).
+#
+#   wow-review-poll          (no arguments; any argument exits 2)
+#
+# Run every few minutes by a per-user scheduled task (register-review-poll-task.ps1). For each
+# repo in $WOW_HOME/review-poll.json it finds the open, non-draft PRs whose head has no ledger
+# entry, whose review gate is not green, and whose other required checks have all passed, and
+# runs `wow-review <owner/repo> <N>` for each of those heads, one at a time. The poller decides
+# only whether to launch. It posts nothing: wow-review stays the one place that reviews, posts,
+# dedupes and caps. It never passes --rerun, so a head with a ledger entry is never repeated.
+#
+# Runs from the installed copy in $WOW_HOME/bin, never from a checkout (install-host-tools.ps1),
+# beside wow-common.sh, wow-review, wow-review-mint, token-check.sh, gh-identity.sh and
+# review-gate-state.sh. Needs docker, gh, jq, yq (mikefarah v4) and timeout on PATH, else exit 1 (timeout, find and sort must be the Unix ones, not Windows System32's).
+# POSIX sh, run under `set -f`, stdin closed, never prompts. Layout and toolset: wow-common.sh.
+#
+# Config: $WOW_HOME/review-poll.json, {"repos": ["owner/name", ...]}. A missing file is "nothing
+# to poll" (exit 0). A file that is not that shape exits 1. A bad entry is logged and skipped.
+#
+# Tunable (environment): WOW_REVIEW_TIMEOUT (seconds, 1 to 6000, default 5400), the same variable
+# wow-review reads; the poller bounds each launch at that plus 900 seconds.
+#
+# What a wow-review exit code does here:
+#   0, 3, 4, 5   logged; the next head
+#   6            not an App-mode gated repo: logged; the rest of that repo is skipped
+#   75           busy: logged; the whole run stops (the next tick tries again)
+#   103, 104     logged as UNCONFIRMED; the next head (wow-review keeps the ledger entry, so the
+#                head is not relaunched)
+#   1            logged; the next head
+#   2, 124 (the timeout fired), anything else: logged; the whole run stops
+#
+# Exit codes of this command: 0 the run completed (individual repos and heads that failed are in
+# the log), 1 an environment or config failure, 2 usage.
+#
+# Tokens. Each choice of the next head mints a fresh read-only session token (wow-review-mint --read), used for the pre-
+# filter reads only and revoked as soon as that choice is made, before the review it chose runs. An
+# EXIT trap revokes any still live and removes the run directory. A killed poller leaves its
+# review-host/poll-<id>/ behind and the tokens in it live until their own hour ends, the residual
+# wow-review states. No PR title, body, comment, diff or author text is read.
+set -eu
+set -f
+prog=wow-review-poll
+here=$(CDPATH= cd -P -- "$(dirname -- "$0")" && pwd)
+. "$here/wow-common.sh"
+
+[ "$#" -eq 0 ] || die "no arguments are accepted (usage: wow-review-poll)" 2
+
+in_range() { # in_range <value> <min> <max>
+  case $1 in ''|*[!0-9]*|0?*) return 1 ;; esac
+  [ "$1" -ge "$2" ] && [ "$1" -le "$3" ]
+}
+# ---- 1. environment ---------------------------------------------------------------------------
+case ${WOW_HOME:-} in
+  /*|[A-Za-z]:[\/]*) ;;
+  *) die "WOW_HOME must be set and absolute" 1 ;;
+esac
+HAVE_CYGPATH=$(command -v cygpath 2>/dev/null || :)
+wow_home=$WOW_HOME
+if [ -n "$HAVE_CYGPATH" ]; then wow_home=$(cygpath -u "$WOW_HOME"); fi
+wow_home=${wow_home%/}
+
+LOGF="$wow_home/review-poll.log"
+logp() {
+  mkdir -p -- "$wow_home" 2>/dev/null || :
+  if [ -f "$LOGF" ] && [ "$(wc -c <"$LOGF" 2>/dev/null || echo 0)" -gt 1048576 ]; then
+    mv -f "$LOGF" "$LOGF.1" 2>/dev/null || :
+  fi
+  l=$(printf '%s' "$1" | tr -c '[:print:]' ' ')
+  printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$l" >>"$LOGF" 2>/dev/null || :
+  return 0
+}
+# stop <code> <message>: log and exit; the trap cleans up.
+stop() { logp "$2"; printf '%s: %s
+' "$prog" "$2" >&2; exit "$1"; }
+
+TMO=${WOW_REVIEW_TIMEOUT:-5400}
+in_range "$TMO" 1 6000 || stop 1 "WOW_REVIEW_TIMEOUT must be 1 to 6000 seconds"
+LAUNCH_TMO=$((TMO + 900))
+
+exec </dev/null
+PATH="$here:$PATH"; export PATH
+for t in docker gh jq yq timeout; do command -v "$t" >/dev/null 2>&1 || stop 1 "$t is not on PATH"; done
+# On Windows the wrong sh puts System32's timeout, find and sort ahead of the Unix ones.
+for t in timeout find sort; do
+  "$t" --version 2>/dev/null | grep -qE "GNU|coreutils|findutils" || stop 1 "$t is not the Unix one (use Git for Windows' bin\sh.exe, not usr\bin\sh.exe)"
+done
+
+# gh must have no stored login to fall back to: a private empty config directory (made below).
+unset GH_HOST GH_ENTERPRISE_TOKEN GITHUB_TOKEN GITHUB_ENTERPRISE_TOKEN || :
+unset GH_TOKEN || :
+
+hp() { if [ -n "$HAVE_CYGPATH" ]; then cygpath -m "$1"; else printf '%s\n' "$1"; fi; }
+
+ID="$(date +%s)-$$"
+STATE="$wow_home/review-state"
+LOCK="$STATE/.poll-lock"
+RUN="$wow_home/review-host/poll-$ID"
+HAVELOCK=0 TOK=
+
+tc() { sh "$here/token-check.sh" "$@"; }
+gid() { sh "$here/gh-identity.sh" "$@"; }
+
+# gh_api <args...>: one gh api call with $TOK, on github.com, bounded. An empty token is never passed on.
+gh_api() {
+  [ -n "${TOK:-}" ] || { echo "$prog: no token for a gh call" >&2; return 1; }
+  GH_TOKEN="$TOK" timeout 60 gh api --hostname github.com "$@"
+}
+
+# ---- cleanup ----------------------------------------------------------------------------------
+# Revoke every token the run holds that is not yet revoked. Safe to call again.
+revoke_all() {
+  [ -d "$RUN" ] || return 0
+  f="$RUN/session-token"
+  [ -f "$f" ] || return 0
+  t=$(sed -n 1p "$f" 2>/dev/null | tr -d '\r') || t=
+  case $t in ghs_*) ;; *) return 0 ;; esac
+  if [ -f "$RUN/revoked" ] && printf '%s\n' "$t" | grep -qxFf - "$RUN/revoked"; then return 0; fi
+  if GH_TOKEN=$t timeout 60 gh api --hostname github.com -X DELETE installation/token >/dev/null 2>&1; then
+    printf '%s\n' "$t" >>"$RUN/revoked"
+    logp "revoked a session token"
+  else
+    logp "revocation FAILED for a session token; it lives out its hour"
+  fi
+  return 0
+}
+
+cleanup() {
+  rc=$?
+  trap '' HUP INT TERM
+  set +e +u
+  revoke_all
+  [ -z "$RUN" ] || rm -rf "$RUN"
+  if [ "$HAVELOCK" = 1 ] && [ "$(cat "$LOCK/id" 2>/dev/null)" = "$ID" ]; then rm -rf "$LOCK"; fi
+  exit "$rc"
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+# ---- 2. poll lock -----------------------------------------------------------------------------
+(umask 077 && mkdir -p -- "$STATE") || die "cannot create $STATE" 1
+take_lock() {
+  if mkdir "$LOCK" 2>/dev/null; then printf '%s\n' "$ID" >"$LOCK/id"; HAVELOCK=1; return 0; fi
+  return 1
+}
+if ! take_lock; then
+  if [ -n "$(find "$LOCK" -prune -mmin +240 2>/dev/null)" ]; then
+    mv "$LOCK" "$LOCK.stale.$ID" 2>/dev/null && rm -rf "$LOCK.stale.$ID"
+    logp "cleared a stale poll lock"
+    take_lock || { logp "a poll is running"; exit 0; }
+  else
+    logp "a poll is running"
+    exit 0
+  fi
+fi
+
+# ---- 3. repo list -----------------------------------------------------------------------------
+CONF="$wow_home/review-poll.json"
+if [ ! -e "$CONF" ]; then logp "no review-poll.json; nothing to poll"; exit 0; fi
+jq -e '(.repos | type) == "array" and all(.repos[]; type == "string")' <"$CONF" >/dev/null 2>&1 \
+  || stop 1 "review-poll.json is not valid JSON of the shape {\"repos\": [\"owner/name\", ...]}"
+# A control character in an entry (a newline would split it in two) becomes '?', which check_repo refuses.
+
+(umask 077 && mkdir -p -- "$wow_home/review-host" && mkdir -- "$RUN" "$RUN/gh-config") || stop 1 "cannot create $RUN"
+GH_CONFIG_DIR=$(hp "$RUN/gh-config"); export GH_CONFIG_DIR
+jq -r '[.repos[] | gsub("[[:cntrl:]]"; "?")] | unique | .[]' <"$CONF" | tr -d '\r' >"$RUN/repos" || stop 1 "cannot read review-poll.json"
+logp "poll start id=$ID"
+
+ref_ok() { # a ref name: [A-Za-z0-9._/-], no leading '-', no leading/trailing '/', no '..' segment
+  case $1 in
+    ''|-*|/*|*/|*[!A-Za-z0-9._/-]*) return 1 ;;
+    ..|../*|*/..|*/../*) return 1 ;;
+  esac
+  return 0
+}
+enc_ref() { printf '%s' "$1" | jq -Rr 'split("/") | map(@uri) | join("/")' | tr -d '\r'; }
+tab=$(printf '\t')
+nl='
+'
+STOPALL=0
+
+# ---- 4-7. one repo: choose the heads to launch, into $RUN/heads ---------------------------------
+# Every failure logs and returns 0 (this repo is skipped for this tick); a return never aborts the run.
+gather_repo() { # gather_repo <owner/name>
+  repo=$1
+  : >"$RUN/heads"
+  owner=${repo%%/*} name=${repo#*/}
+  sh "$here/wow-review-mint" "$name" --read --out "$RUN/session-token" >/dev/null 2>&1 \
+    || { logp "$repo: the session-token mint failed"; return 0; }
+  tc file "$RUN/session-token" >/dev/null 2>&1 || { logp "$repo: the session token failed token-check.sh file"; return 0; }
+  TOK=$(tc token "$RUN/session-token" 2>/dev/null) && [ -n "$TOK" ] || { logp "$repo: cannot read the session token"; return 0; }
+  gh_api --paginate installation/repositories --jq '.repositories[].full_name' >"$RUN/installation" 2>/dev/null \
+    || { logp "$repo: installation/repositories failed"; return 0; }
+  reached=$(gid reach "$repo" <"$RUN/installation" 2>/dev/null) || { logp "$repo: the reach check could not read the installation records"; return 0; }
+  [ "$reached" = reached ] || { logp "$repo: the session token's installation does not reach it"; return 0; }
+
+  # Is the repo App-mode gated? A pre-filter only: wow-review decides again (its exit 6).
+  gh_api -H 'Accept: application/vnd.github.raw+json' "repos/$repo/contents/.ai/project.yml" >"$RUN/def.yml" 2>/dev/null \
+    || { logp "$repo: cannot read the default branch's .ai/project.yml"; return 0; }
+  yq_s() { yq -r "$1" <"$RUN/def.yml" 2>/dev/null | tr -d '\r'; }
+  if [ "$(yq_s '.identities | tag')" != '!!map' ] || [ "$(yq_s '.identities.reviewer_app | tag')" != '!!map' ] \
+     || [ "$(yq_s '.review.ci_gate.check | tag')" != '!!str' ]; then
+    logp "$repo: not App-mode gated"; return 0
+  fi
+  GATE=$(yq -er '.review.ci_gate.check' <"$RUN/def.yml" 2>/dev/null) || { logp "$repo: not App-mode gated"; return 0; }
+  case $GATE in ''|*"$nl"*) logp "$repo: not App-mode gated"; return 0 ;; esac
+
+  # Open PRs, projected: number, draft, head sha, base ref. No title, body or author text.
+  gh_api --paginate "repos/$repo/pulls?state=open" --jq '.[] | [.number, .draft, .head.sha, .base.ref] | @tsv' >"$RUN/prs" 2>/dev/null \
+    || { logp "$repo: cannot list the open PRs"; return 0; }
+  while IFS="$tab" read -r num draft sha base <&3 || [ -n "${num:-}" ]; do
+    num=$(printf '%s' "$num" | tr -d '\r'); draft=$(printf '%s' "$draft" | tr -d '\r')
+    sha=$(printf '%s' "$sha" | tr -d '\r'); base=$(printf '%s' "$base" | tr -d '\r')
+    case $num in ''|0*|*[!0-9]*) logp "$repo: a PR row with a bad number was skipped"; continue ;; esac
+    case $sha in *[!0-9a-f]*) logp "$repo#$num: a PR row with a bad head was skipped"; continue ;; esac
+    [ "${#sha}" = 40 ] || { logp "$repo#$num: a PR row with a bad head was skipped"; continue; }
+    ref_ok "$base" || { logp "$repo#$num: a PR row with a bad base ref was skipped"; continue; }
+    [ "$draft" = false ] || { continue; }
+    s12=$(printf '%s' "$sha" | cut -c1-12)
+    who="$repo#$num $s12"
+    if [ -d "$STATE/$owner/$name/$num/$sha" ]; then logp "$who: skip, ledger entry exists"; continue; fi
+    if grep -qxF "$num $sha" "$RUN/done" 2>/dev/null; then continue; fi
+    benc=$(enc_ref "$base")
+    if ! gh_api --paginate "repos/$repo/commits/$sha/status" --jq '.statuses[] | ["status", .context, .state] | @tsv' >"$RUN/g-status" 2>/dev/null \
+       || ! gh_api --paginate "repos/$repo/commits/$sha/check-runs" --jq '.check_runs[] | ["check-run", .name, .status, (.conclusion // "")] | @tsv' >"$RUN/g-runs" 2>/dev/null \
+       || ! gh_api --paginate "repos/$repo/rules/branches/$benc" \
+            --jq '.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context' >"$RUN/required" 2>/dev/null; then
+      logp "$who: skip, a read failed"; continue
+    fi
+    cat "$RUN/g-status" "$RUN/g-runs" >"$RUN/g-all"
+    gs=$(sh "$here/review-gate-state.sh" "$GATE" <"$RUN/g-all" 2>/dev/null) || { logp "$who: skip, the gate is unreadable"; continue; }
+    if [ "$gs" = success ]; then logp "$who: skip, the gate is green"; continue; fi
+    blocked=
+    while IFS= read -r ctx || [ -n "$ctx" ]; do
+      ctx=$(printf '%s' "$ctx" | tr -d '\r')
+      [ -n "$ctx" ] || continue
+      [ "$ctx" != "$GATE" ] || continue
+      st=$(sh "$here/review-gate-state.sh" "$ctx" <"$RUN/g-all" 2>/dev/null) || st=unreadable
+      if [ "$st" != success ]; then blocked="a required check is $st"; break; fi
+    done <"$RUN/required"
+    if [ -n "$blocked" ]; then logp "$who: skip, $blocked"; continue; fi
+    logp "$who: qualifies (gate $gs)"
+    printf '%s %s\n' "$num" "$sha" >>"$RUN/heads"
+  done 3<"$RUN/prs"
+  return 0
+}
+
+# ---- 8. launch, one at a time -----------------------------------------------------------------
+# launch_first <owner/name>: record the first chosen head as done for this run, then launch it.
+# The caller chooses again before the next launch, so a head is never launched on stale reads (a
+# review can run for an hour and a half). Sets REPODONE=1 to skip the rest of the repo, STOPALL=1 to stop the run.
+launch_first() {
+  repo=$1
+  owner=${repo%%/*} name=${repo#*/}
+  read -r num sha <"$RUN/heads"
+  printf '%s %s\n' "$num" "$sha" >>"$RUN/done"
+  # A ledger entry made since the gather (a human's run, say) is never relaunched.
+  if [ -d "$STATE/$owner/$name/$num/$sha" ]; then logp "$repo#$num: skip, a ledger entry appeared"; return 0; fi
+  s12=$(printf '%s' "$sha" | cut -c1-12)
+  [ -d "$LOCK" ] && touch -c "$LOCK" 2>/dev/null || :
+  logp "$repo#$num $s12: launching wow-review"
+  rc=0
+  WOW_HOME=$WOW_HOME timeout "$LAUNCH_TMO" sh "$here/wow-review" "$repo" "$num" </dev/null >>"$LOGF" 2>&1 || rc=$?
+  [ -d "$LOCK" ] && touch -c "$LOCK" 2>/dev/null || :
+  case $rc in
+    0|3|4|5) logp "$repo#$num $s12: wow-review exit $rc" ;;
+    6) logp "$repo#$num $s12: wow-review exit 6, not an App-mode gated repo; the rest of $repo is skipped"; REPODONE=1 ;;
+    75) logp "$repo#$num $s12: wow-review exit 75, busy; stopping the run"; STOPALL=1 ;;
+    103|104) logp "$repo#$num $s12: wow-review exit $rc, UNCONFIRMED; the ledger entry is kept" ;;
+    1) logp "$repo#$num $s12: wow-review exit 1" ;;
+    *) logp "$repo#$num $s12: wow-review exit $rc; stopping the run"; STOPALL=1 ;;
+  esac
+  return 0
+}
+
+while IFS= read -r entry <&4; do
+  [ "$STOPALL" = 0 ] || break
+  case $entry in */*/*|/*|*/|*/) logp "bad repo entry skipped: $entry"; continue ;; */*) ;; *) logp "bad repo entry skipped: $entry"; continue ;; esac
+  o=${entry%%/*} n=${entry#*/}
+  if ! (check_repo "$o" && check_repo "$n") >/dev/null 2>&1; then logp "bad repo entry skipped: $entry"; continue; fi
+  REPODONE=0
+  : >"$RUN/done"
+  while [ "$REPODONE" = 0 ] && [ "$STOPALL" = 0 ]; do
+    gather_repo "$entry"
+    revoke_all
+    [ -s "$RUN/heads" ] || break
+    launch_first "$entry"
+  done
+done 4<"$RUN/repos"
+
+logp "poll done"
+exit 0
