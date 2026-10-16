@@ -21,6 +21,31 @@ the GitHub release notes.
 
 ## [Unreleased]
 
+**⚠️ Migration** — after this release, a map repo's in-session review posts nothing:
+`/way-of-working:architect-review` on a host prints the `wow-review` command and stops, and App-mode
+review needs the host tools (`install-host-tools.ps1`, `wow-review`) and the reviewer App's new
+permissions (Issues write, Actions read), accepted by each installation. Repos with
+`identities: null` are unchanged.
+
+### Added
+
+- **`bin/review-outbox.sh`** (#636, `WB-D24` item 7): the one writer of the review container's
+  outbox, and the one test for "is this a review container" (`where`). `outcome`, `body` and
+  `findings` apply the launcher's own checks before writing, so a refusal reaches the session
+  while it can still fix the text. Tested by `tests/review-outbox.test.sh`.
+- **`docs/identity/REVIEW-LIVE-RUN.md`**: the maintainer's one-time live-run checklist.
+
+### Changed
+
+- **`/way-of-working:architect-review` has a container mode** (#636). Inside the review container
+  it reviews with no local execution and writes the launcher's outbox; it never posts, files or
+  mints a token. On a host or in a dev container under a map it prints the launcher command and
+  stops. The in-session App-mode post is gone. The legacy post under `identities: null` is
+  unchanged.
+- **`/way-of-working:pr-checks` in the review container** never runs `gh run rerun`, polls or
+  reschedules; STALE-RED is reported as the verdict.
+- `bin/review-token.sh` is no longer called by any skill; it is kept until a later cleanup.
+
 - **`ship` and `archive-sprint` read a milestone description only through `bin/blocking-criteria.sh`** (`#640`).
   Under `planning.kind: github_milestones`, `ship`'s blocking-precondition step, `archive-sprint`'s
   precondition 5 and its close step's display each captured the whole, author-editable description

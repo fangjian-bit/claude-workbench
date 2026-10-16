@@ -19,6 +19,13 @@ that `url` is under `{repo}`: a checkout whose remote is a fork or mirror would 
 resolve a different PR than the one every later call reads (`gh pr view --repo` cannot
 resolve a PR without a number).
 
+**In the App-mode review container** (`review-outbox.sh where` prints `container`; run it once,
+first): the session token is read-only, so `gh run rerun` would get a 403. There this skill
+reports once. It never runs `gh run rerun`, in any context (`/loop` and scheduled runs
+included), never polls and never reschedules, and STALE-RED is reported as the verdict. It
+is called there by `/way-of-working:architect-review`, which maps the per-check states it
+prints to an outcome itself.
+
 ## The required checks
 
 **Read `.ai/project.yml` first.** The required checks are the **union** of every declared
@@ -242,7 +249,7 @@ what is actually enforced.
    **re-run the stale failed run** — `gh run rerun <old_failed_run_id>` (the run id is in
    the failed check-run's URL) — and **never a new push**: a push changes the SHA and
    re-arms the trap. Re-running a stale CI check is not merging, approving, or
-   force-pushing; it is the one sanctioned write this skill makes, only on this exact,
+   force-pushing; it is the one sanctioned write this skill makes (never in the review container, above), only on this exact,
    confirmed signature, and only a run id reached from a check-run whose name is
    `{review.ci_gate.check}` or in `{ruleset.required_checks}` — a rerun re-executes that
    whole workflow run, so the name pins which run you may pick, not what runs.
@@ -277,7 +284,7 @@ what is actually enforced.
      status-shaped gate, its required runner job) on the head SHA — that step's signature.
      This is not a real failure.
      Offer to `gh run rerun <old_failed_run_id>` (or, in a `/loop`/scheduled context, do it
-     and re-poll); it clears to READY (or AWAITING APPROVAL, once the checks are green) with no
+     and re-poll; in the review container do neither, and report this verdict as it stands); it clears to READY (or AWAITING APPROVAL, once the checks are green) with no
      push. Say clearly this is the stale-run
      workaround, not a merge.
    - **NOT READY (red)** — a *genuine* failure (any red that is not the stale-red above).
@@ -290,7 +297,8 @@ what is actually enforced.
    - **PENDING** — name which checks are still running; or, when `blocked-state.sh`
      printed `lag` and nothing is running, say GitHub is still re-evaluating the merge
      state — or that a rule type the predicate ignores is holding it.
-     If invoked from a `/loop` or a scheduled run, reschedule
+     If invoked from a `/loop` or a scheduled run (not in the review container, which
+     reports once), reschedule
      another poll, but **bound it**: after a few polls with nothing changing, say so and
      stop rescheduling rather than waiting on a state that will not clear. Otherwise tell
      the user it's still running and offer to re-check.
@@ -354,7 +362,8 @@ what is actually enforced.
    hand it back — the merge is theirs, or auto-merge's once it is approved; and approving is
    a human reviewer's, never this skill's. This skill never names a bypass in any verdict.
    The **only** sanctioned write is `gh run rerun <old_failed_run_id>` on a **confirmed** stale review
-   run (the *Read the review gate on both surfaces it can post to* step).
+   run (the *Read the review gate on both surfaces it can post to* step), and never in the
+   review container, where the read-only token gets a 403 and STALE-RED is the verdict.
 
 ## Report shape
 

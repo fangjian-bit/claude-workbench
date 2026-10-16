@@ -19,7 +19,7 @@
   hashes) and registers the task against those copies, so a container editing a bind-mounted
   checkout cannot change what runs beside the App keys. Re-run this to upgrade; it stops the
   task, reinstalls and restarts it. Run it from a clone no container opens.
-  A $WOW_HOME in MSYS form (/c/Users/...), as review-token.sh needs, is converted with cygpath.
+  A $WOW_HOME in MSYS form (/c/Users/...), as the host shell scripts need, is converted with cygpath.
 
   Run it from a PowerShell 7.2+ prompt on the host, once. The sh it records is resolved now (or
   -Sh), because a task does not search the same PATH an interactive shell does; openssl, curl

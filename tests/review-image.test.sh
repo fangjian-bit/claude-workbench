@@ -220,6 +220,12 @@ if [ "${MARKER:-yes}" = yes ]; then
 else
   printf '#!/bin/sh\n# an older release\nset -eu\n' >"$real/bin/review-sandbox.sh"
 fi
+case "${WRITER:-yes}" in
+  yes) printf '#!/bin/sh\n# a stand-in\nREVIEW_OUTBOX=/review-out\nset -eu\n' >"$real/bin/review-outbox.sh" ;;
+  wrongline) printf '#!/bin/sh\n# an older release\nREVIEW_OUTBOX=/elsewhere\nset -eu\n' >"$real/bin/review-outbox.sh" ;;
+  link) ln -s review-sandbox.sh "$real/bin/review-outbox.sh" ;;
+  missing) ;;
+esac
 if [ "${LINK:-no}" = yes ]; then mkdir -p "$(dirname "$ipath")"; ln -s "$real" "$ipath"; fi
 entry=$(printf '{"scope": "%s", "installPath": "%s", "gitCommitSha": "%s"}' "${SCOPE:-user}" "$ipath" "${SHA:-@COMMIT@}")
 if [ "${ENTRIES:-1}" = 2 ]; then arr="[$entry, $entry]"; else arr="[$entry]"; fi
@@ -400,9 +406,15 @@ stop_case "an installPath outside the cache" plugin inst "IPABS=$tmp/outside"
 check "...(the cache floor check, not a missing directory)" grep -q 'outside the plugin cache' "$REC/stderr"
 stop_case "an installed review-sandbox.sh without the marker line" plugin inst MARKER=no
 check "...names the floor" grep -q 'predates the review-container marker' "$REC/stderr"
+stop_case "an installed plugin with no review-outbox.sh" plugin inst WRITER=missing
+check "...names the writer" grep -q 'has no review-outbox.sh' "$REC/stderr"
+stop_case "an installed review-outbox.sh without the outbox line" plugin inst WRITER=wrongline
+check "...names the floor" grep -q 'predates the outbox writer' "$REC/stderr"
 if ln -s "$tmp/linktarget" "$tmp/linkprobe" 2>/dev/null && [ -L "$tmp/linkprobe" ]; then
   stop_case "an installPath through a link" plugin inst LINK=yes
   check "...for the link" grep -q 'runs through a link' "$REC/stderr"
+  stop_case "a linked review-outbox.sh" plugin inst WRITER=link
+  check "...is not accepted as the writer" grep -q 'has no review-outbox.sh' "$REC/stderr"
 else
   echo "SKIP - a symlink cannot be made here; the installPath link fixture did not run" >&2
 fi

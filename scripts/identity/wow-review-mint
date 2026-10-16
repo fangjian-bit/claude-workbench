@@ -6,8 +6,9 @@
 #   wow-review-mint <repo> --file --out FILE
 #
 # Mints from the reviewer App with fixed permission sets, scoped to <repo>. Three shapes:
-#   post (the default)  contents, checks, statuses read; pull_requests write. review-token.sh's
-#                       shape (the in-session App-mode review). Not strict. Written to --out,
+#   post (the default)  contents, checks, statuses read; pull_requests write. The shape review-token.sh
+#                       once asked for; the launcher mints its own post token the same way, unattended
+#                       (#635). Kept until the later cleanup. Not strict. Written to --out,
 #                       default $WOW_HOME/review-tokens/<repo>/reviewer-token, a tree no dev
 #                       container mounts.
 #   --read              the session token: contents, pull_requests, checks, statuses, issues and
@@ -24,7 +25,7 @@
 # Minting again to the same --out replaces the earlier token; the file then holds the token whose
 # set was checked. Repository names must be in GitHub's canonical case or a strict mint is refused.
 #
-# No passphrase: the reviewer key (review.pem) is unencrypted so the reviewing session can ask for a token unattended, after its sandbox is destroyed (review-token.sh, #389).
+# No passphrase: the reviewer key (review.pem) is unencrypted so the host launcher, `wow-review`, can mint its tokens unattended (#635).
 # --out may name any path the caller can write; a broker forwarding sandbox input must not pass it.
 # The token is never printed. Run by path, not via a symlink. Layout and toolset: wow-common.sh.
 # Exit 0 / 1 / 2 as mint.sh; every usage error exits 2 before any mint. There is no revoke here: a reviewer token lives out its hour.

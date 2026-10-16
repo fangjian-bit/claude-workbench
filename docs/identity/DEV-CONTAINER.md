@@ -29,11 +29,16 @@ template. A session in it reaches GitHub only as the dev App, provided the host 
 ## Opening it
 
 - Open a **full clone** that is not the one `install-host-tools.ps1` installs from, runs git in,
-  or runs host-side reviews in, and not a worktree of any of those (a worktree shares that clone's `.git`, hooks and
+  or runs host-side reviews in (a host session still runs git in its review clone, under a map
+  too), and not a worktree of any of those (a worktree shares that clone's `.git`, hooks and
   config, and its `.git` file points at a host path git cannot follow in the container). A
   container-writable source clone is host code execution beside the App keys.
 - Start VS Code from PowerShell, cmd or the Start menu, not Git Bash.
-- Reviewer tokens never enter this container. Where App-mode review runs is tracked separately.
+- Reviewer tokens never enter this container. App-mode review runs on the host through
+  `wow-review`, run from `$WOW_HOME/bin` and never from a checkout. The review session clones from
+  GitHub into its own tmpfs volume. Neither the session token nor the post token ever enters a
+  dev container, and `/way-of-working:architect-review` run here, under an `identities` map,
+  posts nothing and prints the launcher command.
 
 ## Hazards that remain
 

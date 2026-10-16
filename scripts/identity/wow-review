@@ -10,9 +10,10 @@
 # host-minted filing token. The session writes the outbox and its text is shaped by the PR it
 # reviews, so every label the launcher acts on is checked here on the host first.
 #
-# STATUS: built against stubs only, not yet live-verified. No real session writes the outbox until
-# #636 cuts architect-review over; the live run, and its checklist, are #636's. Until then
-# architect-review keeps its in-session App-mode flow.
+# STATUS: built against stubs only, not yet live-verified. The session side is built (#636):
+# the review skill writes the outbox through bin/review-outbox.sh inside the container and posts
+# nothing. The live run, and its checklist (docs/identity/REVIEW-LIVE-RUN.md), are the
+# maintainer's.
 #
 # Runs from the installed copy in $WOW_HOME/bin, never from a checkout (install-host-tools.ps1),
 # beside wow-common.sh, wow-review-mint, token-check.sh, gh-identity.sh and review-gate-state.sh.

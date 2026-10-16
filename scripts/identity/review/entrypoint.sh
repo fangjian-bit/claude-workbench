@@ -2,7 +2,7 @@
 # The review container's entrypoint (#623 child b, #634): run
 # `/way-of-working:architect-review <N> --pin <sha>` unattended, after checking its
 # environment, the session token, that the token is the declared reviewer App, and the
-# plugin pin. Nothing starts this image yet; the launcher is #635.
+# plugin pin. The host launcher, `wow-review` (#635), starts this image.
 #
 # Inputs (from the launcher, validated in step 1): WOW_REVIEW_PR, WOW_REVIEW_SHA,
 # WOW_REVIEW_REPO, WOW_REVIEW_MODEL, ANTHROPIC_BASE_URL, exactly one placeholder credential
@@ -38,13 +38,13 @@
 # Timeouts: gh calls 60 s, git clone and git ls-remote 120 s, each `claude plugin` call 300 s.
 # A timeout is that step's failure.
 #
-# Identity (step 4) is the chain in architect-review's App-mode block, with one difference.
+# Identity (step 4) is token-check.sh's verify chain, with one difference.
 # token-check.sh asks its caller to make both gh calls with the same token value it acts with.
 # Here the gh shim reads the token file on every call, so a refresh between the calls can swap
 # the token. That is accepted because only the host's minter writes the file, always for the
 # same App: the identity is proven once, and later re-mints are trusted to the host.
-# scripts/identity/review checks `identities.reviewer_app` is a map with its own yq read, as
-# architect-review does (reference/project-schema.md).
+# scripts/identity/review checks `identities.reviewer_app` is a map with its own yq read
+# (reference/project-schema.md).
 #
 # What the plugin pin (step 5) rests on. The pin and the floor bind the code that runs only
 # while the marketplace repository's `v*` tags cannot be moved. Today two tag rulesets hold
@@ -269,6 +269,10 @@ floor=$ipath/bin/review-sandbox.sh
 { [ -f "$floor" ] && [ ! -L "$floor" ]; } || stop entry-plugin "the installed plugin has no review-sandbox.sh"
 cenv grep -qxF 'REVIEW_CONTAINER_MARKER=/etc/way-of-working/review-container' "$floor" \
   || stop entry-plugin "the installed plugin predates the review-container marker"
+outbox_writer=$ipath/bin/review-outbox.sh
+{ [ -f "$outbox_writer" ] && [ ! -L "$outbox_writer" ]; } || stop entry-plugin "the installed plugin has no review-outbox.sh"
+cenv grep -qxF 'REVIEW_OUTBOX=/review-out' "$outbox_writer" \
+  || stop entry-plugin "the installed plugin predates the outbox writer"
 
 # --- step 6: run ---------------------------------------------------------------------------------
 cd "$WORK" || stop entry-clone "cannot enter the clone"

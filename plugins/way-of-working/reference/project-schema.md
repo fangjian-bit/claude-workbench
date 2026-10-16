@@ -846,14 +846,14 @@ account including the dev App — an agent never trusts its own text — and `le
 agent's, which points at it), `bin/review-sandbox.sh trust`, `plan-sprint` (judging the login and
 id `bin/plan-gather.sh` prints), `spec-task` (the issue it drafts for) and `scripts/loop/preflight.sh github-dispatch`
 (`--identities`, the one reader that is its own implementation of the rule rather than a call
-to `gh-identity.sh`). Outside `token-check.sh` (below) and `architect-review` and `scripts/identity/review/entrypoint.sh` (which each require `reviewer_app` to be a map, `#389`, `#634`; the entrypoint checks it with its own `yq` read, as `architect-review` does), `reviewer_app` and `loop_app` are read only to
+to `gh-identity.sh`). Outside `token-check.sh` (below) and `scripts/identity/review/entrypoint.sh` (which requires `reviewer_app` to be a map, `#634`, checking it with its own `yq` read), `reviewer_app` and `loop_app` are read only to
 refuse them (as authors, and by `classify` as the acting identity) and to catch a duplicate id.
 `plan-anchor.sh verify --maintainer-ids` (`#383`, `#497`; `architect-review` reads the same ids for `bin/spec-reaction.sh`, `#613`) takes the maintainers' numeric ids, for the reaction and the spec comment's author, from the
 caller, which reads them from the default branch's copy: `resume` passes them under a map and
 omits the flag under `null`. `bin/token-check.sh verify` (`#436`) is the exception: a consumer of a minted token runs it before
 acting, and for a `dev_app`, `reviewer_app` or `loop_app` role it requires the token's actor and
 matches it against that declared entry through `gh-identity.sh role`; the actor must come from a GitHub
-response obtained with the token (measured in `#380`: the `user` of an issue or PR it created, so only after a first write; or, before any write, GraphQL `viewer { login databaseId }`, measured in `#476`). `/way-of-working:architect-review` acts as `reviewer_app` under a map (`#389`, `bin/review-token.sh`); nothing yet acts as `loop_app`, which is the same stated, temporary state as `orchestration`'s.
+response obtained with the token (measured in `#380`: the `user` of an issue or PR it created, so only after a first write; or, before any write, GraphQL `viewer { login databaseId }`, measured in `#476`). Under a map the host launcher `wow-review` posts as `reviewer_app` (`#635`). The session in the review container acts with a read-only token of that App and posts nothing itself (`#636`), and `/way-of-working:architect-review` on a host posts nothing under a map. Nothing yet acts as `loop_app`, which is the same stated, temporary state as `orchestration`'s.
 
 **`ship` reads `dev_app` in App mode** (`#464`). Before pushing it requires the default branch's
 copy to declare a `dev_app` map and passes the token's GraphQL `viewer` login and id (`#476`) to

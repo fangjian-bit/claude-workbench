@@ -88,6 +88,8 @@ jobs:
         run: sh tests/review-sandbox.test.sh
       - name: review-token.sh fixtures
         run: sh tests/review-token.test.sh
+      - name: review-outbox.sh fixtures
+        run: sh tests/review-outbox.test.sh
       - name: cursor-sync-pr.sh fixtures
         run: sh tests/cursor-sync-pr.test.sh
       - name: blocked-state.sh fixtures

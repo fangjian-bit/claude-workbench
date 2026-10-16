@@ -39,8 +39,8 @@
   control is to run this from a clone no container opens; #393's container must open a different
   clone or a volume. "Ancestor of main" also accepts an older merged commit (a downgrade).
 
-  Put $WowHome/bin on Git Bash's PATH to run wow-admin, wow-review and wow-review-mint (review-token.sh finds
-  wow-review-mint there) from the installed copy. Run on its own it does not stop a running
+  Put $WowHome/bin on Git Bash's PATH to run wow-admin, wow-review and wow-review-mint from the
+  installed copy (wow-review finds wow-review-mint beside itself). Run on its own it does not stop a running
   broker unless -StopTask is given; a held file then fails the swap cleanly.
 
 .PARAMETER SourceRepo

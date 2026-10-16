@@ -751,7 +751,11 @@ take effect. Full reasoning and the task breakdown that implements them:
   - this repo or a consuming one opens to fork PRs whose claims a reviewer needs to
     witness locally rather than through CI;
   - reviews start running unattended (headless or cloud sessions) against PRs the
-    maintainer did not write;
+    maintainer did not write. **This has fired for App-mode repos (#636).** They answer it
+    by containerising the reviewer session, not the PR. The skill runs no PR code there,
+    every App-mode PR (trusted included) takes C, and A's local reproduction is gone for
+    them. B itself stays unbuilt, and legacy repos stay on A + C + D under the remaining
+    triggers;
   - anyone else installs this plugin in a repo whose trusted authors are not its
     reviewer — for them, this acceptance never applied.
 
@@ -1559,7 +1563,11 @@ take effect. Full reasoning and the task breakdown that implements them:
          checks. Measured in #376 with CODEOWNERS covering `*`: its APPROVE does not
          satisfy the code-owner rule, and merge and push are refused. "Only posts" is
          intent, not capability: Pull requests write also reaches other review and PR
-         metadata actions, which #435 measured (see the accepted residuals)
+         metadata actions, which #435 measured (see the accepted residuals).
+         **Amendment (#636):** it also takes Issues write and Actions read, accepted by each
+         installation. Mirroring the #435 caveat, "files findings" is intent, not capability:
+         Issues write reaches every issue write in each installed repo, including comments on
+         PRs. It is held only by the host-minted filing token and the host key.
        - an *admin* App, used only in admin mode (item 5)
 
        They are kept separate from the loop Apps (`orchestration.loop_identity`). Tokens are
@@ -1611,29 +1619,34 @@ take effect. Full reasoning and the task breakdown that implements them:
        maintainer-login key. Unattended `/resume` auto-start also requires the
        maintainer's **reaction** on the exact spec comment, created after its last edit.
        An App can edit comments but cannot react as another user.
-    7. **Reviewer tokens never enter a dev container; App-mode review runs on the host
-       (#514, decided 2026-10-14).** The reviewer must be a different identity from the PR's
-       author, and a container that held the token would share the author session's home
-       volume, Claude login and anything the authoring session planted, so "reviewer" would
-       be a label. #509's request channel was removed in #513 for that reason, and
-       `review-tokens/` stays out of every dev container.
-       - **Now:** the human starts a fresh review session on the host, from a clone no
-         container opens. `review-token.sh` is the plugin's own script; it runs
-         `wow-review-mint`, which the host installs into `$WOW_HOME/bin`. No reviewer key is
-         mounted in a dev container, so no mint can succeed there, and `token-check.sh verify`
-         rejects a token from any other App before a post; in practice `request` stops
-         earlier, because `wow-review-mint` is not on `PATH`.
-       - **Later (#623, revisiting #158):** a review container the host launches per review,
-         with the reviewer token mounted into that container only.
-       - **Open: the host review session's read credential.** Once the host logins are
-         removed (#400) it needs one for its GitHub reads across the review, and the
-         reviewer token as minted does not cover them: it has no Issues or Actions access
-         (the task-spec load, the CI witness reads, filing a finding), reaches one repo only,
-         and nothing keeps its token file away from `review-sandbox.sh make` or `run`. Until
-         #623 settles this, the host session keeps the credential it has today, which
-         sandboxed PR code can reach just as it could a reviewer token (`review-sandbox.sh`'s
-         "does NOT close" list); #623 is the boundary. So #400 (removing the host's admin
-         `gh` logins) must not land before #623 settles the host review session's credential.
+    7. **App-mode review runs in a per-review container the host launches with `wow-review`
+       (#514, decided 2026-10-14; built in #634, #635 and #636, not yet live-verified).** The
+       reviewer must be a different identity from the PR's author, and a dev container that
+       held a reviewer token would share the author session's home volume, Claude login and
+       anything the authoring session planted, so "reviewer" would be a label. #509's request
+       channel was removed in #513 for that reason, and `review-tokens/` stays out of every
+       dev container.
+       - **The flow.** The human runs `wow-review <repo> <N>` on the host. It starts a review
+         container (#634); inside it `/way-of-working:architect-review` reviews with no local
+         execution and writes an outbox through `bin/review-outbox.sh` (#636): one outcome
+         line, the review body and up to five findings. The launcher reads the outbox,
+         checks every file mechanically, and posts and files from the host. On a host or in a
+         dev container, under an `identities` map, the skill posts nothing and prints the
+         launcher command.
+       - **Tokens.** The session holds only a read-only session token (contents, pull
+         requests, checks, statuses, issues and actions read), never a post or filing token.
+         The launcher posts with a host-minted post token and files with a filing token. No
+         dev container sees any of them.
+       - **The Claude credential never enters the container.** `ANTHROPIC_BASE_URL` points at
+         the `inject.py` sidecar, which holds it; no `setup-token` is mounted.
+       - **Replaces an open question.** "The host review session's read credential" is
+         answered by the session token above. #400 (removing the host's admin `gh` logins)
+         still waits, now on the live run and on the later cleanup that deletes
+         `review-token.sh`, the broker's `review-tokens/` sweep and `wow-review-mint`'s
+         post-shaped default path.
+       - **Status.** Built and not yet live-verified. Until the maintainer's live run
+         (`docs/identity/REVIEW-LIVE-RUN.md`) passes, this item describes a design, and #636
+         stays open for it.
   - **Rejected.**
     - **Keeping `--admin` for cursor-sync only.** It needs a bypass-capable login in the
       agent's shell, which is the exposure itself.
@@ -1656,7 +1669,46 @@ take effect. Full reasoning and the task breakdown that implements them:
       approver can meet. Cutover has `CODEOWNERS` cover `*`.
     - The Claude login credential lives in each container's home volume.
     - Admin mode elevates the whole container.
-    - The reviewer token exists for a few minutes after the review sandbox is destroyed.
+    - **Session tokens (#636).** Session tokens are re-minted every 1500 seconds at most for
+      the whole run, and all are revoked when the wait ends. That revocation is not yet
+      verified for the stateless token format. A failed revocation, or a killed launcher,
+      leaves one live for the rest of its hour. A leaked one reaches the private contents,
+      pull requests, issues, Actions logs and artifacts of the reviewed repo and of a
+      same-owner backlog.
+    - **Network.** The session reaches only the proxy (github.com and api.github.com, any
+      account there) and the injector. The two sidecars' external network, a user-defined
+      network rather than the default bridge, can reach the host and the LAN. Both sidecars
+      refuse non-global targets, so the session cannot steer them there. The session's
+      isolation rests on Docker's `--internal` and isolated-gateway behaviour, which the
+      launcher checks by configuration, not by a reachability probe each run.
+    - **Moving data between repos.** Through the launcher's own posts, the session can move
+      data from the more private of the two repos to the more public one: the review body is
+      posted on the PR, and findings are filed in the backlog. The checks are mechanical, not
+      a confidentiality filter.
+    - **The launcher's own residuals.** A misleading pass can post; the maintainer's
+      code-owner approval is the backstop. The session can spend the Claude credential's
+      quota on any model for the whole timeout. Logs may hold secrets. The complete list is
+      `wow-review`'s Residuals header.
+    - **The host stop is skill text, not a boundary.** Until the cleanup and #400, any host
+      process running as the maintainer can still mint a post-shaped reviewer token
+      (`wow-review-mint`'s default shape, `review-token.sh`, the unencrypted `review.pem`)
+      and post a review that satisfies the gate.
+    - **The review-container marker** guards the skill's own path only. A session can run PR
+      code by hand, or edit its installed plugin copy of the check.
+    - **The session's permission rules.** It runs with `--setting-sources user
+      --permission-mode bypassPermissions` (`--restricted` refuses `bypassPermissions`). The
+      first flag keeps the PR's settings files out. It does not constrain the session.
+    - **Instruction files.** The default branch's root and nested `CLAUDE.md`, and its
+      `.claude/rules/`, can load. Whether the root file does is a live-run item.
+      `strictPluginOnlyCustomization` does not cover them, and this rests on the default
+      branch's code-owner rule, which neither the launcher nor the session checks. The skill
+      refuses migration bases in the container (`base-override`) and never stays on one. A
+      session working by hand can still check one out, the marker residual again.
+    - **STALE-RED.** It reads as `already-reviewed`. The launcher exits 4 and posts nothing
+      once the host confirms the existing reviewer-App review; otherwise it posts a failure
+      review. Either way the stale gate run stays red until a human reruns it. Likewise, a
+      gate `success` that came from a review not posted by the reviewer App reads as
+      `already-reviewed`, and the launcher answers it with a failure review.
     - Prefix deny rules stay a seatbelt.
     - The reviewer App's `pull_requests: write` reaches more than a COMMENT review (#435, item 4):
       it can dismiss a human approval, edit a PR's title, body and base, and close and reopen a
@@ -1678,8 +1730,9 @@ take effect. Full reasoning and the task breakdown that implements them:
     (`review-step.sh login app`); a `null`, absent or malformed `dev_app` derives nothing. The
     drift that choice guarded against returns in App mode, because which App holds the token is
     unproven and the loop-identity guard then sees only the declared App. So App mode is capped
-    at `show <M> app-mode`: it derives, it never reaches `auto`, and a human's "go" runs the
-    review.
+    at `show <M> app-mode`: it derives, it never reaches `auto`, and a human's "go" lands on
+    the `wow-review` stop (#636): under a map the skill prints the launcher command and stops,
+    and the human runs it on the host.
   - **Cost.**
     - Approve replaces Merge, and Dependabot PRs need an approval, with a `GITHUB_TOKEN`
       workflow arming their auto-merge.

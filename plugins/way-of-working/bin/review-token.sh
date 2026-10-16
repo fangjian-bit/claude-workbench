@@ -1,16 +1,23 @@
 #!/bin/sh
-# Request and discard the short-lived reviewer token the Compose-and-post step posts with
-# (WB-D24, #389). The host broker, `wow-review-mint`, is asked only AFTER the review sandbox
-# for this PR is gone, so no reviewer token file exists on this host while sandboxed PR code
-# runs, and the file is deleted once the post has been attempted. The mint command and its
-# token layout are host config (scripts/identity/wow-review-mint, wow-common.sh), never read
-# from the repo.
+# Request and discard a short-lived reviewer token on the host (WB-D24, #389).
+#
+# NO SKILL CALLS THIS SCRIPT since #636. App-mode review runs through the host launcher
+# `wow-review`, which mints its own post token, and a read-only session token for the review
+# container, unattended; a session never holds a post token, and `/way-of-working:architect-review`
+# no longer posts under an identities map. This script is kept, with its fixtures, until a later
+# cleanup removes it together with the broker review-tokens/ sweep and the post-shaped default
+# path of `wow-review-mint`. The code below is unchanged.
+#
+# What it did: ask the host broker, `wow-review-mint`, only AFTER the review sandbox for a PR
+# was gone, so no reviewer token file existed on this host while sandboxed PR code ran, and
+# delete the file once the post had been attempted. The mint command and its token layout are
+# host config (scripts/identity/wow-review-mint, wow-common.sh), never read from the repo.
 #
 # What this does NOT close: the sandbox runs PR code as this user (review-sandbox.sh's own
 # "does NOT close" list). That code can read the reviewer App's unencrypted key in $WOW_HOME,
 # leave a process or a PATH plant that survives `destroy`, and so reach a token minted
 # afterwards or mint its own. The order keeps the token FILE from existing during `run`; it is
-# not a credential boundary. The real boundary is a separate uid or container (#158).
+# not a credential boundary. The boundary that replaced it is the launcher's review container (#635).
 #
 # Usage:
 #   review-token.sh request <owner/repo>

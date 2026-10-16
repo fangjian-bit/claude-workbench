@@ -1,6 +1,6 @@
 # The App-mode review image (#623, child b; #634): the shared dev-container base plus the
 # `claude` CLI and a root-owned managed-settings file. `gh` and git act only through a mounted
-# session token, read on every call. Nothing starts this image yet: the launcher is #635.
+# session token, read on every call. The host launcher `wow-review` (#635) starts it.
 #
 # Maintenance, stated so nobody assumes more than holds:
 #   - Dependabot opens a separate PR for this directory, so nothing keeps the FROM pin equal

@@ -25,12 +25,12 @@
   -RetrySeconds. Docker Desktop may hold a token file open and make the move fail with a sharing
   violation; that is logged and retried, not an error to chase.
 
-  Reviewer tokens. The broker mints none: review-token.sh (the host review flow) calls
+  Reviewer tokens. The broker mints none: the review launcher (`wow-review`, the host review flow) calls
   wow-review-mint itself, and a reviewer token never reaches a dev container (WB-D24; reviewer and
   author are separate identities). There is deliberately no request channel for containers, so
   nothing under $WowHome is container-writable. The broker's only part is cleanup: every pass it
   deletes any $WowHome\review-tokens\<repo>\reviewer-token older than -ReviewTtlMinutes, for any
-  repo, which covers a review session killed before it ran `review-token.sh discard`.
+  repo, which covers an old review-token.sh flow (no skill runs it since #636) that was killed before it ran `discard`.
 
   Review sessions and logs (#634). The sweep also removes, under $WowHome\review-sessions\,
   each session directory whose name passes the repository-name rule, that is not a link or
@@ -66,7 +66,7 @@
 
 .PARAMETER WowHome
   The identity directory (default $env:WOW_HOME, else ~/.config/glunk-identity). A value in MSYS
-  form (/c/Users/...), as review-token.sh needs, is converted with the shell's cygpath. One home
+  form (/c/Users/...), as the host shell scripts need, is converted with the shell's cygpath. One home
   holds one org's Apps (apps.json has one "dev" entry); a second org needs a second home, a second
   broker.json and a second task (-TaskName in register-broker-task.ps1).
 #>
