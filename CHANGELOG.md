@@ -43,6 +43,9 @@ permissions (Issues write, Actions read), accepted by each installation. Repos w
   so an agent can write the spec it obeys but never approve it. Readers that call `spec-comment.sh`
   under an `identities` map (`resume`, the `coder` agent, `architect-review`) now fetch the comment's
   reactions first and pass them as an optional last argument. Check 16 pins the new call line.
+- **The loop's dispatch preflight accepts a declared dev-App spec comment** (#666) that a declared
+  maintainer reacted to after its last edit, through a new optional `--spec-reactions` file judged by
+  `bin/spec-reaction.sh`. Check 16 pins its call. The task issue's author stays maintainer-only.
 - **`/way-of-working:architect-review` has a container mode** (#636). Inside the review container
   it reviews with no local execution and writes the launcher's outbox; it never posts, files or
   mints a token. On a host or in a dev container under a map it prints the launcher command and

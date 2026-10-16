@@ -138,7 +138,7 @@ to exercise them. Tests: `sh tests/driver-core.test.sh`.
 ```
 bash scripts/loop/preflight.sh container --session F --network F --expect-network NAME --proxy F...
 bash scripts/loop/preflight.sh github-dispatch --rules F --identities F --issue F --issue-number N \
-  (--spec-comment F --spec-comment-id N | --no-spec-comment)
+  (--spec-comment F --spec-comment-id N | --no-spec-comment) [--spec-reactions F]
 bash scripts/loop/preflight.sh github-push --installation F --repo OWNER/NAME --rules F --rulesets F \
   --app F --loop-identity LOGIN
 ```
@@ -151,7 +151,8 @@ approval gate is on `pr_base` -- a `pull_request` rule with `required_approving_
 `require_code_owner_review` and `require_last_push_approval`, each satisfied by some rule that applies, as
 GitHub takes the strictest of overlapping rulesets; an `update` rule is neither required nor enough
 (`WB-D24`) -- and the task issue and spec comment authors are trusted: by `identities` once the repo has
-cut over, by `author_association` before); `github-push` runs once the token exists (it reaches exactly the
+cut over, by `author_association` before; a spec comment by the declared dev App passes only with a declared
+maintainer's reaction after its last edit, from `--spec-reactions`, judged by `spec-reaction.sh`); `github-push` runs once the token exists (it reaches exactly the
 dispatched repo, every ruleset on `pr_base` reads `current_user_can_bypass: never` -- the App's own view,
 the only bypass read, since `bypass_actors` is hidden from a non-admin -- the App's bot login
 is `orchestration.loop_identity`). stdout is `pass` (exit 0) or one `refused <rule>: <detail>` /

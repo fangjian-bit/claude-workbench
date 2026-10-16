@@ -1,6 +1,7 @@
 #!/bin/sh
 # Fixture tests for scripts/invariants-check.sh's check 16: one spec-reaction rule, one
-# implementation -- plan-anchor.sh, spec-comment.sh and architect-review call spec-reaction.sh and no other bin/ script matches an
+# implementation -- plan-anchor.sh, spec-comment.sh, architect-review and the loop's dispatch
+# preflight (scripts/loop/preflight.sh, #666) call spec-reaction.sh and no other bin/ script matches an
 # approving reaction content itself (#613).
 #
 # Each case mutates a COPY of the real tree and asserts the check fires (or stays silent), so
@@ -23,6 +24,8 @@ tree() {
   d="$tmp/$1"
   mkdir -p "$d"
   cp -R "$root_dir/plugins" "$d/plugins"
+  mkdir -p "$d/scripts/loop"
+  cp "$root_dir/scripts/loop/preflight.sh" "$d/scripts/loop/preflight.sh"
   echo "$d"
 }
 
@@ -109,5 +112,32 @@ assert_fires "a missing architect-review skill fires" "$d"
 d="$(tree noanchor)"
 rm -f "$d"/plugins/*/bin/plan-anchor.sh
 assert_fires "a missing plan-anchor.sh fires" "$d"
+
+# The loop's dispatch preflight (#666) is held to the same rule from outside plugins/*/bin/.
+pf=scripts/loop/preflight.sh
+d="$(tree pfnocall)"
+grep -v 'sh "\$sr" "\$c_updated" "\$maint_ids"' "$d/$pf" >"$d/$pf.new" && mv "$d/$pf.new" "$d/$pf"
+assert_fires "preflight.sh without its spec-reaction.sh call line fires" "$d"
+
+d="$(tree pfinlineplus)"
+printf '%s\n' 'x=$(jq -r ".[] | select(.content | IN(\"+1\",\"heart\",\"hooray\",\"rocket\"))" f)' >>"$d/$pf"
+assert_fires "preflight.sh with a non-comment IN(...) reaction match fires" "$d"
+
+d="$(tree pfinlineeq)"
+printf '%s\n' 'x=$(jq -r "select(.content == \"hooray\")" f)' >>"$d/$pf"
+assert_fires "preflight.sh with a non-comment == hooray comparison fires" "$d"
+
+d="$(tree pfcommentcall)"
+sed 's#sh "\$sr" "\$c_updated" "\$maint_ids" <"\$reactions"#true#' "$d/$pf" >"$d/$pf.new" && mv "$d/$pf.new" "$d/$pf"
+printf '%s\n' '# sh "$sr" "$c_updated" "$maint_ids" <"$reactions"' >>"$d/$pf"
+assert_fires "preflight.sh with the call line only in a comment fires" "$d"
+
+d="$(tree pfgone)"
+rm -f "$d/$pf"
+assert_fires "a missing preflight.sh fires" "$d"
+
+d="$(tree pfcommentok)"
+printf '%s\n' '# hooray and rocket are named in this header and in the jq comments' >>"$d/$pf"
+assert_silent "preflight.sh naming the contents in a comment is silent" "$d"
 
 [ "$fail" -eq 0 ]

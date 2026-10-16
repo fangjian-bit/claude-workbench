@@ -691,12 +691,16 @@ fi
 #
 # Whether a declared maintainer reacted to a spec comment after its last edit is asked by
 # plan-anchor.sh (resume's auto-start), by architect-review's Map branch, and by spec-comment.sh
-# for a dev-App-authored comment (#660). Two
+# for a dev-App-authored comment (#660), and by the loop's dispatch preflight (scripts/loop/preflight.sh)
+# for the same case (#666). Two
 # implementations would let the approval rule drift between the gate that starts work and the
 # review that labels it. Four things are the invariant: plan-anchor.sh and spec-comment.sh carry their
 # spec-reaction.sh call line (the invocation, not the name, which a header alone would satisfy),
 # architect-review's SKILL.md calls spec-reaction.sh, and no other file under plugins/*/bin/ matches an approving reaction
-# content itself (the `heart | hooray` case pattern, or a `== "hooray"` comparison).
+# content itself (the `heart | hooray` case pattern, or a `== "hooray"` comparison). The preflight
+# is held to the same rule by a different test, since it is not under plugins/*/bin/: it must carry
+# its call line (`sh "$sr" "$c_updated" "$maint_ids" <"$reactions"`) on a non-comment line, and no
+# non-comment line of it may contain `hooray` or `rocket`.
 # A tree with no spec-reaction.sh, plan-anchor.sh or architect-review skill fails: a check
 # that cannot look must not pass (#243's stance).
 reaction_hits=""
@@ -718,6 +722,15 @@ for f in plugins/*/skills/architect-review/SKILL.md; do
   grep -Fq 'spec-reaction.sh' "$f" || reaction_hits+="$f (does not call spec-reaction.sh)"$'\n'
 done
 [ "$reaction_seen" -eq 1 ] || reaction_hits+="(no plugins/*/skills/architect-review/SKILL.md found)"$'\n'
+if [ -f scripts/loop/preflight.sh ]; then
+  grep -Eq '^[[:space:]]*[^#[:space:]].*sh "\$sr" "\$c_updated" "\$maint_ids" <"\$reactions"' scripts/loop/preflight.sh \
+    || reaction_hits+="scripts/loop/preflight.sh (does not call spec-reaction.sh)"$'\n'
+  if grep -Ev '^[[:space:]]*#' scripts/loop/preflight.sh | grep -Eq 'hooray|rocket'; then
+    reaction_hits+="scripts/loop/preflight.sh (matches an approving reaction itself)"$'\n'
+  fi
+else
+  reaction_hits+="(no scripts/loop/preflight.sh found)"$'\n'
+fi
 for f in plugins/*/bin/*; do
   [ -f "$f" ] || continue
   case "$f" in */spec-reaction.sh) continue ;; esac
@@ -728,7 +741,7 @@ done
 if [ -n "$reaction_hits" ]; then
   report "a second spec-reaction implementation, or a caller no longer calls it (#613)" \
     "$reaction_hits" \
-    "plan-anchor.sh, spec-comment.sh and architect-review's SKILL.md must all call bin/spec-reaction.sh, not restate the rule."
+    "plan-anchor.sh, spec-comment.sh, architect-review's SKILL.md and scripts/loop/preflight.sh must all call bin/spec-reaction.sh, not restate the rule."
 fi
 
 # --- 17. The anchored spec comment is printed only after its checks pass (#614) ----------------
