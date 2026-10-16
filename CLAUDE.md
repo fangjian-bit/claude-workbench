@@ -46,6 +46,7 @@ sh tests/milestone-close-line.test.sh  # archive-sprint's Milestone close: ledge
 sh tests/schema-complete.test.sh  # WB-D17 .ai/project.yml completeness-checker fixtures (not yet required)
 sh tests/plan-gather.test.sh    # plan-sprint's read-only gather-step fixtures (not yet required)
 sh tests/milestone-desc.test.sh  # milestone-desc.sh write: scratch-file, repository and read-back fixtures vs a stub gh (not yet required)
+sh tests/spec-issue.test.sh     # spec-issue.sh fetch: argument, out-dir, trust and stop-word fixtures vs a stub gh (not yet required)
 sh tests/plan-depends.test.sh   # plan-sprint's depends_on marker read-back, plus order, frame and items, fixtures (not yet required)
 sh tests/invariants-reach-order.test.sh  # invariants-check.sh check 3 (reach precedes ruleset) fixtures (not yet required)
 sh tests/invariants-null-repo.test.sh  # invariants-check.sh check 12 (null backlog.repo means {repo}) fixtures (not yet required)
@@ -91,6 +92,6 @@ sh tests/identity-review.test.sh  # scripts/identity/wow-review launcher fixture
 
 `scripts/lint.sh` needs the `claude` CLI and `jq` on PATH. `scripts/invariants-check.sh` needs
 `yq` (mikefarah v4) on PATH too — it fails the gate, never skips it, when `yq` is missing.
-`tests/review-base-anchor.test.sh`, `tests/schema-complete.test.sh` and `tests/milestone-desc.test.sh` need `yq` on PATH as
+`tests/review-base-anchor.test.sh`, `tests/schema-complete.test.sh`, `tests/milestone-desc.test.sh` and `tests/spec-issue.test.sh` need `yq` on PATH as
 well (each skips itself, loudly, if absent). `tests/review-image.test.sh` needs `jq` and `yq`,
 and skips itself loudly without them.

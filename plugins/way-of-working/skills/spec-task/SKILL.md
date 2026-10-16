@@ -56,47 +56,39 @@ the time it is built.
    here as the digits themselves (`N=611`), never as an expansion.
    ```bash
    N=<digits> &&
-   T=$(mktemp -d) &&
-   { fold() { printf '%s' "$1" | tr 'A-Z' 'a-z' | sed 's/\[bot\]$//'; } &&
-   TOPLEVEL=$(git rev-parse --show-toplevel) &&
-   U=$(git -C "$TOPLEVEL" remote get-url origin) &&
-   R=$(gh repo view "$U" --json nameWithOwner --jq .nameWithOwner) &&
-   D=$(gh repo view "$U" --json defaultBranchRef --jq '.defaultBranchRef.name // ""') &&
-   [ -n "$D" ] &&
-   git -C "$TOPLEVEL" fetch -q origin "+refs/heads/$D:refs/remotes/origin/$D" &&
-   git -C "$TOPLEVEL" show "refs/remotes/origin/$D:./.ai/project.yml" >"$T/def.yml" &&
-   [ "$(fold "$(yq -r '.repo // ""' "$T/def.yml")")" = "$(fold "$R")" ] &&
-   B=$(yq -r '.backlog.repo // ""' "$T/def.yml") && B=${B:-$R} &&
-   case "$B" in ''|*[!A-Za-z0-9._/-]*|*/*/*|/*|*/|./*|../*|*/.|*/..) false ;; */*) ;; *) false ;; esac &&
-   BASE=$(yq -r '.pr_base // ""' "$T/def.yml") &&
-   case "$BASE" in ''|-*|*[!A-Za-z0-9._/-]*) false ;; esac &&
-   gh api "repos/$B" --jq .permissions &&
-   gh api "repos/$B/issues/$N" >"$T/issue.json" &&
-   { jq -e 'has("pull_request") | not' "$T/issue.json" >/dev/null || { echo not-an-issue >&2; false; }; } &&
-   LOGIN=$(jq -r '.user.login' "$T/issue.json") &&
-   LOOPID=$(yq -r '.orchestration.loop_identity // ""' "$T/def.yml") &&
-   { [ -z "$LOOPID" ] || [ "$(fold "$LOGIN")" != "$(fold "$LOOPID")" ] || { echo loop-identity >&2; false; }; } &&
-   VERDICT=$(gh-identity.sh author "$LOGIN" "$(jq -r '.user.id' "$T/issue.json")" "$T/def.yml") &&
-   ASSOC=$(jq -r '.author_association' "$T/issue.json") &&
-   case "$VERDICT/$ASSOC" in trusted/*|legacy/OWNER|legacy/MEMBER|legacy/COLLABORATOR) ;; *) echo "not-trusted: $VERDICT" >&2; false ;; esac &&
-   printf 'T=%s B=%s BASE=%s VERDICT=%s ASSOC=%s\n' "$T" "$B" "$BASE" "$VERDICT" "$ASSOC"; } ||
-   { rm -rf "$T"; echo stopped >&2; false; }
+   D= T= L= &&
+   D=$(mktemp -d) && [ -n "$D" ] && [ -d "$D" ] &&
+   T=$(cd -P "$D" && pwd -P) && [ -n "$T" ] && [ -d "$T" ] &&
+   L=$(spec-issue.sh fetch "$N" "$T") &&
+   case "$L" in 'ok B='*) ;; *) false ;; esac &&
+   printf 'T=%s %s\n' "$T" "${L#ok }" ||
+   { echo "stopped: ${L:-no word}" >&2; if [ -n "$D" ] && [ -d "$D" ]; then rm -rf "$D"; fi; false; }
    ```
-   - **Reach.** A repo this identity cannot reach fails the `.permissions` read or the issue
-     fetch, and that failure is the stop, reported as *"couldn't read the issue (as
-     `<actor>`)"* (`reference/conventions.md` § *Acting identity and reach*, which also covers
-     an all-`false` `.permissions` under an installation token).
+   `bin/spec-issue.sh` makes the reads and checks and prints one `ok` line or one stop word; its
+   header is the contract. It relies on no word splitting, so it runs under zsh as well as sh and
+   bash. **Never resolve inside a command substitution whose input may be empty:** `cd -P ""`
+   succeeds and stays in the current directory under dash, so `$(cd -P "$(mktemp -d)" && pwd -P)`
+   can set `T` to the checkout. That is why `D` is captured and checked first, and why the stop
+   branch removes only the non-empty `D` that `mktemp -d` printed, never `T`. Each stop prints
+   `stopped: <word>`, the word being one of the following, or `no word` when the script printed
+   none (a usage error, or `mktemp` failed):
+   - **Reach** (`unreachable`). A repo this identity cannot reach fails the `.permissions` read or
+     the issue fetch, and that failure is the stop, reported as *"couldn't read the issue (as
+     `<actor>`)"* (`reference/conventions.md` § *Acting identity and reach*, which also covers an all-`false` `.permissions` under an installation token).
+   - **`unreadable`, `repo-mismatch`, `bad-backlog`, `bad-base`** stop: a read or a shape check
+     failed; `repo-mismatch` is the default branch's copy naming another repository, and `bad-backlog` and `bad-base` are a malformed value there.
    - **A pull request** (`not-an-issue`) stops: this skill drafts for issues.
    - **The loop's own login** (`loop-identity`, from `orchestration.loop_identity`) stops, before
      the allowlist: a machine user's `MEMBER` or `COLLABORATOR` association would otherwise pass it
      on a repo still on `identities: null`.
    - **`trusted`** — a declared `identities.maintainer` matched on `id` — passes. `gh-identity.sh
-     author` itself stops (exit 2) on an `identities` that is absent or neither `null` nor a map.
+     author` cannot judge an `identities` that is absent or neither `null` nor a map, and that is `untrusted` here.
    - **`legacy`** (`identities: null`) — fall back to the allowlist on `ASSOC`: `OWNER`, `MEMBER`
      or `COLLABORATOR` passes; anything else stops.
-   - **`untrusted`** stops, with no draft and the body never read. The block decides all of this
-     itself, so it prints its line only for an author that passed, and every stop (it prints
-     `stopped` and returns non-zero) has already removed `$T`.
+   - **`untrusted`** stops, with no draft and the body never read. It also covers a config
+     `gh-identity.sh` could not judge (a malformed `identities`, an id declared twice), so it can
+     mean a broken config, not only a hostile author. The script decides all of this itself and
+     prints its `ok` line only for an author that passed, and every stop has already removed `$D`.
 
    The check is on the issue's **author**, not on whoever last edited the body: an account with
    write access to the backlog can edit a trusted author's text. That is accepted (`WB-D26`):

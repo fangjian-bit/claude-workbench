@@ -844,7 +844,7 @@ account including the dev App — an agent never trusts its own text — and `le
 `identities` is `null`, where the reader keeps its `author_association` allowlist (`OWNER`,
 `MEMBER`, `COLLABORATOR`). The readers are `resume`'s author-trust check (and the `coder`
 agent's, which points at it), `bin/review-sandbox.sh trust`, `plan-sprint` (judging the login and
-id `bin/plan-gather.sh` prints), `spec-task` (the issue it drafts for) and `scripts/loop/preflight.sh github-dispatch`
+id `bin/plan-gather.sh` prints), `spec-task` (the issue it drafts for, read through `bin/spec-issue.sh`) and `scripts/loop/preflight.sh github-dispatch`
 (`--identities`, the one reader that is its own implementation of the rule rather than a call
 to `gh-identity.sh`). Outside `token-check.sh` (below) and `scripts/identity/review/entrypoint.sh` (which requires `reviewer_app` to be a map, `#634`, checking it with its own `yq` read), `reviewer_app` and `loop_app` are read only to
 refuse them (as authors, and by `classify` as the acting identity) and to catch a duplicate id.

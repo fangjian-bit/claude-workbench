@@ -172,7 +172,7 @@ nwo= def=
 IFS= read -r nwo <"$tmp/nwo" || [ -n "$nwo" ] || true
 IFS= read -r def <"$tmp/def" || [ -n "$def" ] || true
 
-valid_repo() { # valid_repo <s> -- owner/name, the rule spec-task's Fetch and check block applies
+valid_repo() { # valid_repo <s> -- owner/name, the rule spec-issue.sh applies
   case "$1" in
     '' | *[!A-Za-z0-9._/-]* | */*/* | /* | */ | ./* | ../* | */. | */..) return 1 ;;
     */*) return 0 ;;

@@ -120,6 +120,8 @@ jobs:
         run: sh tests/gh-identity.test.sh
       - name: milestone-desc.sh fixtures
         run: sh tests/milestone-desc.test.sh
+      - name: spec-issue.sh fixtures
+        run: sh tests/spec-issue.test.sh
       - name: token-check.sh fixtures
         run: sh tests/token-check.test.sh
       - name: review image fixtures
