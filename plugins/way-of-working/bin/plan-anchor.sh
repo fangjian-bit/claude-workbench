@@ -12,7 +12,7 @@
 #   plan-anchor.sh write  <repo> <milestone> <N|-> [<comment-id|->]
 #     Prints the anchor JSON (one line, compact, fixed key order) on stdout,
 #     or `unreadable`.
-#   plan-anchor.sh verify [--plan] [--loop-identity <login>] [--maintainer-ids <id,id,...>] <repo> <pointer-url> <anchor-json>
+#   plan-anchor.sh verify [--plan] [--loop-identity <login>] [--maintainer-ids <id,id,...>] [--dev-app-id <id>] <repo> <pointer-url> <anchor-json>
 #     Prints exactly one of `match | drift | unreadable | untrusted | unreacted`.
 #
 # Both modes always exit 0 -- the verdict is stdout, exactly like
@@ -48,7 +48,7 @@
 # is an approving one (`+1`, `heart`, `hooray`, `rocket`; `-1`, `confused`, `eyes` and
 # `laugh` never count). Otherwise it prints `unreacted`, which a caller treats as a wait,
 # exactly like `drift`. Before the reactions are read, the anchored comment's own author
-# (numeric `user.id`, never the login) must also be on the list (`#497`), else `untrusted`:
+# (numeric `user.id`, never the login) must also be on the list (`#497`; or, with `--dev-app-id`, be the dev App, below), else `untrusted`:
 # a reaction approves the text, not who wrote it. That check follows the drift checks. The ids arrive as an ARGUMENT, read by the caller from the
 # default branch's `identities.maintainer` (this script forbids `yq`); an empty or
 # non-numeric list is a caller bug and prints `unreadable`. A caller whose repo has not
@@ -56,6 +56,17 @@
 # NO spec comment anchored the verdict is `unreacted`: the issue body alone is editable text
 # whose author stays the maintainer, so it is never an approval. `--plan` mode validates
 # the list but otherwise ignores it, as it ignores the spec comment. A failed reactions read is `unreadable`. The rule itself is bin/spec-reaction.sh (an exit 2 from it, or a missing or slash-less sibling path, is `unreadable`), and the comment's updated_at is re-read after the reactions: a change prints `drift`.
+#
+# `--dev-app-id <id>` (`#660`) lets the declared dev App (`identities.dev_app.id`, read by the
+# caller from the default branch's copy) author the spec comment. In full mode the `#497`
+# author check then passes when the comment's numeric `user.id` is on the maintainer list OR
+# equals this id (whole-string comparison). The reactions are still judged against the
+# maintainer list only (spec-reaction.sh is called with the maintainer ids only), so the dev App's own reaction
+# never approves: it can write a spec, never approve one. It needs `--maintainer-ids` and is a
+# positive integer with no leading zero that is not itself a maintainer id (a dev App that is a
+# maintainer could approve its own text); without `--maintainer-ids`, with no value, malformed
+# or overlapping, `verify` prints `unreadable`. `--plan` validates it and ignores it. A caller
+# whose `identities.dev_app` is `null` omits the flag.
 #
 # `verify` (full) checks: the milestone is open, its number equals the anchor's
 # and the pointer's; `#N` is open, a true issue (no `pull_request` key), its
@@ -163,7 +174,7 @@ case "$mode" in
   write | verify) shift ;;
   *)
     echo "plan-anchor.sh: usage: plan-anchor.sh write <repo> <milestone> <N|-> [<comment-id|->]" >&2
-    echo "                       plan-anchor.sh verify [--plan] [--loop-identity <login>] [--maintainer-ids <id,id,...>] <repo> <pointer-url> <anchor-json>" >&2
+    echo "                       plan-anchor.sh verify [--plan] [--loop-identity <login>] [--maintainer-ids <id,id,...>] [--dev-app-id <id>] <repo> <pointer-url> <anchor-json>" >&2
     echo unreadable
     exit 0
     ;;
@@ -216,6 +227,8 @@ loop_login=
 have_loop=0
 maint_ids=
 have_ids=0
+dev_id=
+have_dev=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --plan) plan_only=1; shift ;;
@@ -225,12 +238,15 @@ while [ "$#" -gt 0 ]; do
     --maintainer-ids)
       [ "$#" -ge 2 ] || { echo unreadable; exit 0; }
       have_ids=1; maint_ids="$2"; shift 2 ;;
+    --dev-app-id)
+      [ "$#" -ge 2 ] || { echo unreadable; exit 0; }
+      have_dev=1; dev_id="$2"; shift 2 ;;
     *) break ;;
   esac
 done
 
 if [ "$#" -ne 3 ]; then
-  echo "plan-anchor.sh: verify needs [--plan] [--loop-identity <login>] [--maintainer-ids <id,id,...>] <repo> <pointer-url> <anchor-json>" >&2
+  echo "plan-anchor.sh: verify needs [--plan] [--loop-identity <login>] [--maintainer-ids <id,id,...>] [--dev-app-id <id>] <repo> <pointer-url> <anchor-json>" >&2
   echo unreadable
   exit 0
 fi
@@ -250,6 +266,16 @@ if [ "$have_ids" -eq 1 ]; then
   done
   case "$maint_ids" in *,,* | ,* | *,) echo unreadable; exit 0 ;; esac
   set -- "$repo" "$pointer" "$anchor"
+fi
+
+# The dev App's id (`#660`): needs the maintainer ids, a positive integer with no leading zero,
+# and must not be one of them -- a dev App that is also a maintainer could approve its own text.
+# Checked after the flag loop, so flag order does not matter.
+if [ "$have_dev" -eq 1 ]; then
+  [ "$have_ids" -eq 1 ] || { echo unreadable; exit 0; }
+  is_digits "$dev_id" || { echo unreadable; exit 0; }
+  case "$dev_id" in 0*) echo unreadable; exit 0 ;; esac
+  case ",$maint_ids," in *",$dev_id,"*) echo unreadable; exit 0 ;; esac
 fi
 
 # The pointer must be exactly https://github.com/<repo>/milestone/<digits> --
@@ -398,9 +424,14 @@ if [ "$a_comment" != null ]; then
   if [ "$have_ids" -eq 1 ]; then
     # The author half (`#497`): a reaction approves the comment's text, not who wrote it, so
     # an outsider's comment a maintainer reacted to must not match. Numeric id against the
-    # same list, never the login; an empty id is not on it.
+    # same list, never the login; an empty id is not on it. The declared dev App's id
+    # (`--dev-app-id`, `#660`) may author too, compared as a whole string; the reactions below
+    # are still judged against the maintainer list only, so its own reaction never approves.
     is_digits "$cm_author_id" || { echo untrusted; exit 0; }
-    case ",$maint_ids," in *",$cm_author_id,"*) : ;; *) echo untrusted; exit 0 ;; esac
+    case ",$maint_ids," in
+      *",$cm_author_id,"*) : ;;
+      *) [ "$have_dev" -eq 1 ] && [ "$cm_author_id" = "$dev_id" ] || { echo untrusted; exit 0; } ;;
+    esac
     # c_updated equals the live value (checked above), so it is the spec's last edit.
     case "$c_updated" in
       [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) : ;;

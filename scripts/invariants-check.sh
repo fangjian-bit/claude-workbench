@@ -690,10 +690,12 @@ fi
 # --- 16. One spec-reaction rule, one implementation (#613) --------------------------------
 #
 # Whether a declared maintainer reacted to a spec comment after its last edit is asked by
-# plan-anchor.sh (resume's auto-start) and by architect-review's Map branch. Two
+# plan-anchor.sh (resume's auto-start), by architect-review's Map branch, and by spec-comment.sh
+# for a dev-App-authored comment (#660). Two
 # implementations would let the approval rule drift between the gate that starts work and the
-# review that labels it. Three things are the invariant: plan-anchor.sh and architect-review's
-# SKILL.md call spec-reaction.sh, and no other file under plugins/*/bin/ matches an approving reaction
+# review that labels it. Four things are the invariant: plan-anchor.sh and spec-comment.sh carry their
+# spec-reaction.sh call line (the invocation, not the name, which a header alone would satisfy),
+# architect-review's SKILL.md calls spec-reaction.sh, and no other file under plugins/*/bin/ matches an approving reaction
 # content itself (the `heart | hooray` case pattern, or a `== "hooray"` comparison).
 # A tree with no spec-reaction.sh, plan-anchor.sh or architect-review skill fails: a check
 # that cannot look must not pass (#243's stance).
@@ -702,7 +704,12 @@ ls plugins/*/bin/spec-reaction.sh >/dev/null 2>&1 || reaction_hits+="(no plugins
 ls plugins/*/bin/plan-anchor.sh >/dev/null 2>&1 || reaction_hits+="(no plugins/*/bin/plan-anchor.sh found)"$'\n'
 for f in plugins/*/bin/plan-anchor.sh; do
   [ -f "$f" ] || continue
-  grep -Fq 'sh "$sr" "$c_updated"' "$f" || reaction_hits+="$f (does not call spec-reaction.sh)"$'\n'
+  grep -Fq 'sh "$sr" "$c_updated" "$maint_ids"' "$f" || reaction_hits+="$f (does not call spec-reaction.sh)"$'\n'
+done
+ls plugins/*/bin/spec-comment.sh >/dev/null 2>&1 || reaction_hits+="(no plugins/*/bin/spec-comment.sh found)"$'\n'
+for f in plugins/*/bin/spec-comment.sh; do
+  [ -f "$f" ] || continue
+  grep -Fq 'sh "$sr" "$updated" "$ids" <"$rx"' "$f" || reaction_hits+="$f (does not call spec-reaction.sh)"$'\n'
 done
 reaction_seen=0
 for f in plugins/*/skills/architect-review/SKILL.md; do
@@ -721,7 +728,7 @@ done
 if [ -n "$reaction_hits" ]; then
   report "a second spec-reaction implementation, or a caller no longer calls it (#613)" \
     "$reaction_hits" \
-    "plan-anchor.sh and architect-review's SKILL.md must both call bin/spec-reaction.sh, not restate the rule."
+    "plan-anchor.sh, spec-comment.sh and architect-review's SKILL.md must all call bin/spec-reaction.sh, not restate the rule."
 fi
 
 # --- 17. The anchored spec comment is printed only after its checks pass (#614) ----------------

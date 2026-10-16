@@ -1839,6 +1839,7 @@ take effect. Full reasoning and the task breakdown that implements them:
     - **A comment the agent posts has the wrong author.** After cutover the agent acts as the
       dev App, so `plan-anchor.sh verify` reads its comment as `untrusted` and `resume` waits.
       The spec has to be the maintainer's own comment.
+      **Amendment (#660):** "the agent's comment reads as untrusted" is narrowed: the declared dev App may author a spec comment, which is used only with a declared maintainer's fresh approving reaction; #661 will supersede this decision.
     - **Posting makes approval a reflex.** The maintainer reading a draft before posting it is
       the review; a skill that posted and then asked for a reaction would turn that into a click.
     - **Planning time is too early.** A spec is checked against a tree, and the tree moves; the

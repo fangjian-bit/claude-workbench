@@ -1,6 +1,7 @@
 #!/bin/sh
 # Fixture tests for plugins/way-of-working/bin/spec-comment.sh: the anchored spec comment's
-# checks (id, edit, issue, author trust), shared by resume, the coder and architect-review (#614).
+# checks (id, edit, issue, author trust, and a dev-App author's fresh maintainer reaction), shared by
+# resume, the coder and architect-review (#614, #660).
 #
 # Runs the real gh-identity.sh beside the script over fixture project.yml files, so the trust
 # word each case relies on is the one production produces. Needs yq (mikefarah v4); skips,
@@ -42,6 +43,14 @@ identities:
   reviewer_app: null
   loop_app: null
 EOF
+cat >"$tmp/apps.yml" <<'EOF'
+identities:
+  maintainer:
+    - { login: alice-dev, id: 1001 }
+  dev_app: { login: "acme-dev[bot]", id: 2001 }
+  reviewer_app: { login: "acme-review[bot]", id: 2002 }
+  loop_app: { login: "acme-loop[bot]", id: 2003 }
+EOF
 printf 'identities: null\n' >"$tmp/null.yml"
 
 # mk <name> <login> <uid> <assoc> [body-json-string]: write $tmp/<name>.json, a comment on ISSUE.
@@ -51,10 +60,10 @@ mk() {
     "$CID" "$UPD" "$REPO" "$ISSUE" "$2" "$3" "$4" "$b" >"$tmp/$1.json"
 }
 
-# run <mode> <file> <yml> [id] [updated] [issue] [repo]: sets rc, out (stdout) and err (stderr).
+# run <mode> <file> <yml> [id] [updated] [issue] [repo] [reactions]: sets rc, out (stdout) and err (stderr).
 run() {
   rc=0
-  out="$(sh "$script" "$1" "$2" "${7:-$REPO}" "${6:-$ISSUE}" "${4:-$CID}" "${5:-$UPD}" "$3" 2>"$tmp/err")" || rc=$?
+  out="$(sh "$script" "$1" "$2" "${7:-$REPO}" "${6:-$ISSUE}" "${4:-$CID}" "${5:-$UPD}" "$3" ${8:+"$8"} 2>"$tmp/err")" || rc=$?
   err="$(cat "$tmp/err")"
 }
 expect_check() { # <desc> <word>
@@ -106,11 +115,71 @@ run check "$tmp/good.json" "$tmp/map.yml" "$CID" 2026-10-14T19:17:40Z 615
 expect_check "moved and wrong issue names moved" moved
 
 # -- author trust ---------------------------------------------------------------------------------
+# The dev App may author, but only with a declared maintainer's reaction strictly after the
+# last edit (#660). rx <name> <rows...>: write $tmp/<name>.tsv, one TAB-separated row each.
+rx() { n="$1"; shift; : >"$tmp/$n.tsv"; for r in "$@"; do printf '%s\n' "$r" >>"$tmp/$n.tsv"; done; }
+T="$(printf '\t')"
+rx fresh "1001${T}heart${T}2026-10-14T19:20:00Z"
+rx own "2001${T}heart${T}2026-10-14T19:20:00Z"
+rx stale "1001${T}heart${T}2026-10-14T19:17:38Z"
+rx equal "1001${T}heart${T}$UPD"
+rx wrongkind "1001${T}eyes${T}2026-10-14T19:20:00Z"
+: >"$tmp/emptyrx.tsv"
+
 mk dev 'acme-dev[bot]' 2001 NONE
-run check "$tmp/dev.json" "$tmp/map.yml"
-expect_check "the dev App wrote it, under a map" untrusted
-run body "$tmp/dev.json" "$tmp/map.yml"
-expect_body_refused "the dev App wrote it, under a map" untrusted
+run check "$tmp/dev.json" "$tmp/map.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/fresh.tsv"
+expect_check "the dev App wrote it, fresh maintainer reaction" ok
+run body "$tmp/dev.json" "$tmp/map.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/fresh.tsv"
+assert_eq "dev App with a reaction: body printed" "$(printf '## Spec\n\nline two')" "$out"
+assert_eq "dev App with a reaction: rc 0" 0 "$rc"
+for r in none: empty:"$tmp/emptyrx.tsv" own:"$tmp/own.tsv" stale:"$tmp/stale.tsv" equal:"$tmp/equal.tsv" wrongkind:"$tmp/wrongkind.tsv" missing:"$tmp/nofile.tsv"; do
+  name="${r%%:*}" f="${r#*:}"
+  run check "$tmp/dev.json" "$tmp/map.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$f"
+  expect_check "the dev App wrote it, reactions: $name" unreacted
+  run body "$tmp/dev.json" "$tmp/map.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$f"
+  expect_body_refused "the dev App wrote it, reactions: $name" unreacted
+done
+# unreacted comes after the earlier checks.
+run check "$tmp/dev.json" "$tmp/map.yml" "$CID" 2026-10-14T19:17:40Z "$ISSUE" "$REPO" "$tmp/fresh.tsv"
+expect_check "dev App edited after the anchor, fresh reaction" moved
+# Maintainer ids unusable in the file: unreacted, never ok.
+printf 'identities:\n  maintainer:\n    - { login: alice-dev, id: "1001" }\n  dev_app: { login: "acme-dev[bot]", id: 2001 }\n' >"$tmp/strid.yml"
+run check "$tmp/dev.json" "$tmp/strid.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/fresh.tsv"
+expect_check "maintainer id not an int" unreacted
+printf 'identities:\n  maintainer:\n    - { login: alice-dev, id: 1001 }\n    - { login: bob, id: x }\n  dev_app: { login: "acme-dev[bot]", id: 2001 }\n' >"$tmp/mixid.yml"
+run check "$tmp/dev.json" "$tmp/mixid.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/fresh.tsv"
+expect_check "one maintainer id not an int" unreacted
+# A malformed maintainer entry naming the dev App's id must not let the dev App approve itself.
+printf 'identities:\n  maintainer:\n    - { login: alice-dev, id: 1001 }\n    - { id: 2001 }\n  dev_app: { login: "acme-dev[bot]", id: 2001 }\n' >"$tmp/selfapp.yml"
+run check "$tmp/dev.json" "$tmp/selfapp.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/own.tsv"
+expect_check "dev App id on a malformed maintainer entry, own reaction" unreacted
+printf 'identities:\n  maintainer:\n    - { login: alice-dev, id: 1001 }\n    - { login: "acme-dev[bot]", id: 2001 }\n  dev_app: { login: "acme-dev[bot]", id: 2001 }\n' >"$tmp/dupapp.yml"
+run check "$tmp/dev.json" "$tmp/dupapp.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/own.tsv"
+expect_check "dev App id also declared a maintainer" untrusted
+
+# A maintainer's word never depends on the reactions argument.
+run check "$tmp/good.json" "$tmp/map.yml"
+expect_check "maintainer, no reactions file" ok
+run check "$tmp/good.json" "$tmp/map.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/emptyrx.tsv"
+expect_check "maintainer, empty reactions file" ok
+run check "$tmp/good.json" "$tmp/map.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/nofile.tsv"
+expect_check "maintainer, missing reactions file" ok
+
+# The dev App's login on another id, or its id under another login, is no dev App.
+mk devlogin 'acme-dev[bot]' 2099 NONE
+run check "$tmp/devlogin.json" "$tmp/map.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/fresh.tsv"
+expect_check "the dev App's login on another id" untrusted
+mk devid other-bot 2001 NONE
+run check "$tmp/devid.json" "$tmp/map.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/fresh.tsv"
+expect_check "the dev App's id under another login" untrusted
+
+# The reviewer and loop Apps stay untrusted, reactions or not.
+mk rev 'acme-review[bot]' 2002 NONE
+run check "$tmp/rev.json" "$tmp/apps.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/fresh.tsv"
+expect_check "the reviewer App wrote it" untrusted
+mk loop 'acme-loop[bot]' 2003 NONE
+run body "$tmp/loop.json" "$tmp/apps.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/fresh.tsv"
+expect_body_refused "the loop App wrote it" untrusted
 
 mk stranger stranger 9999 OWNER
 run check "$tmp/stranger.json" "$tmp/map.yml"
@@ -191,7 +260,7 @@ bad() { # <desc> <args...>
 G="$tmp/good.json"; Y="$tmp/map.yml"
 bad "unknown mode" show "$G" $REPO $ISSUE $CID $UPD "$Y"
 bad "too few arguments" check "$G" $REPO $ISSUE $CID $UPD
-bad "too many arguments" check "$G" $REPO $ISSUE $CID $UPD "$Y" extra
+bad "too many arguments" check "$G" $REPO $ISSUE $CID $UPD "$Y" "$tmp/fresh.tsv" extra
 bad "repo without a slash" check "$G" acme $ISSUE $CID $UPD "$Y"
 bad "repo with two slashes" check "$G" acme/a/b $ISSUE $CID $UPD "$Y"
 bad "repo with a space" check "$G" "acme/a b" $ISSUE $CID $UPD "$Y"
@@ -208,10 +277,43 @@ bad "bad arguments in body mode too" body "$G" $REPO x $CID $UPD "$Y"
 # A slash-less $0 could find a gh-identity.sh a branch under review planted in the cwd.
 mkdir "$tmp/plant"
 cp "$script" "$tmp/plant/spec-comment.sh"
-printf '#!/bin/sh\necho trusted\n' >"$tmp/plant/gh-identity.sh"
+printf '#!/bin/sh\necho dev_app\n' >"$tmp/plant/gh-identity.sh"
+printf '#!/bin/sh\necho approved\n' >"$tmp/plant/spec-reaction.sh"
 rc=0
 out="$(cd "$tmp/plant" && sh spec-comment.sh check "$tmp/dev.json" $REPO $ISSUE $CID $UPD "$tmp/map.yml" 2>/dev/null)" || rc=$?
 assert_eq "slash-less invocation refuses (stdout)" "" "$out"
 assert_eq "slash-less invocation refuses (rc)" 2 "$rc"
+
+# -- siblings ---------------------------------------------------------------------------------------
+# A missing spec-reaction.sh is exit 2 with nothing on stdout for a dev-App author, never
+# `unreacted`; a maintainer's word does not depend on it (#660).
+sib="$tmp/sib"
+mkdir "$sib"
+cp "$script" "$sib/spec-comment.sh"
+cp "$(dirname "$script")/gh-identity.sh" "$sib/gh-identity.sh"
+for m in check body; do
+  rc=0
+  out="$(sh "$sib/spec-comment.sh" $m "$tmp/dev.json" $REPO $ISSUE $CID $UPD "$tmp/map.yml" "$tmp/fresh.tsv" 2>/dev/null)" || rc=$?
+  assert_eq "no spec-reaction.sh, dev App, $m (stdout)" "" "$out"
+  assert_eq "no spec-reaction.sh, dev App, $m (rc)" 2 "$rc"
+done
+rc=0
+out="$(sh "$sib/spec-comment.sh" check "$tmp/good.json" $REPO $ISSUE $CID $UPD "$tmp/map.yml" 2>/dev/null)" || rc=$?
+assert_eq "no spec-reaction.sh, maintainer (stdout)" ok "$out"
+assert_eq "no spec-reaction.sh, maintainer (rc)" 0 "$rc"
+
+# A spec-reaction.sh that exits 2 (a bad argument) is `unreacted`; the sibling's word decides.
+printf '#!/bin/sh\nexit 2\n' >"$sib/spec-reaction.sh"
+rc=0
+out="$(sh "$sib/spec-comment.sh" check "$tmp/dev.json" $REPO $ISSUE $CID $UPD "$tmp/map.yml" "$tmp/fresh.tsv" 2>/dev/null)" || rc=$?
+assert_eq "spec-reaction.sh exiting 2 is unreacted (stdout)" unreacted "$out"
+assert_eq "spec-reaction.sh exiting 2 is unreacted (rc)" 0 "$rc"
+printf '#!/bin/sh\necho approved\n' >"$sib/spec-reaction.sh"
+out="$(sh "$sib/spec-comment.sh" check "$tmp/dev.json" $REPO $ISSUE $CID $UPD "$tmp/map.yml" "$tmp/own.tsv" 2>/dev/null)"
+assert_eq "the sibling's approved decides, not this script" ok "$out"
+
+# Eight arguments with a reactions file are accepted (the nine-argument refusal is above).
+run check "$tmp/good.json" "$tmp/map.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/fresh.tsv"
+assert_eq "eight arguments accepted (rc)" 0 "$rc"
 
 [ "$fail" -eq 0 ]

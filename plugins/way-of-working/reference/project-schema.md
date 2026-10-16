@@ -430,10 +430,10 @@ accepted, stated trade, not a silent one (rule 2 no longer covers the milestone 
 
 `bin/plan-anchor.sh` is the deterministic predicate over it, mirroring `cursor-drift.sh`'s
 shape: `write <repo> <milestone> <N|-> [<comment-id|->]` produces the anchor; `verify [--plan]
-[--loop-identity <login>] [--maintainer-ids <id,id,...>] <repo> <pointer-url> <anchor-json>` compares it against the live
+[--loop-identity <login>] [--maintainer-ids <id,id,...>] [--dev-app-id <id>] <repo> <pointer-url> <anchor-json>` compares it against the live
 milestone/issue/comment and answers `match | drift | unreadable | untrusted | unreacted` (`untrusted`:
-the loop's own login authored one of them, § `orchestration`, or, with `--maintainer-ids`, the anchored spec comment's author is not a declared maintainer (`#497`); `unreacted`: with `--maintainer-ids`,
-no declared maintainer has reacted approvingly on the anchored spec comment since its last edit, or no spec comment is anchored at all,
+the loop's own login authored one of them, § `orchestration`, or, with `--maintainer-ids`, the anchored spec comment's author is neither a declared maintainer nor, with `--dev-app-id`, the declared dev App (`#497`, `#660`); `unreacted`: with `--maintainer-ids`,
+no declared maintainer has reacted approvingly on the anchored spec comment since its last edit (the dev App's own reaction never counts), or no spec comment is anchored at all,
 § `identities` — `WB-D24`, `#383`), always exiting 0 — the verdict is stdout, the caller
 decides policy. `--plan` mode checks only the milestone's state and number (and, with `--loop-identity`, its
 creator) and ignores `task_issue`/`spec_comment` — `/way-of-working:handoff`'s baseline re-anchor check uses
@@ -781,7 +781,7 @@ LOOP=$(printf '%s' "$YML" | yq -r '.orchestration.loop_identity // ""')
 ```
 `plan-anchor.sh verify` prints `untrusted` when the milestone's creator, the task issue's
 author, or the anchored spec comment's author (the last two in full mode only) is that
-login (with `--maintainer-ids` it also prints it for a spec comment no declared maintainer wrote, `#497`). Every caller treats `untrusted` as a refusal: it is never `match`, and it is not
+login (with `--maintainer-ids` it also prints it for a spec comment neither a declared maintainer nor the dev App (`--dev-app-id`) wrote, `#497`, `#660`). Every caller treats `untrusted` as a refusal: it is never `match`, and it is not
 `drift` either, since no re-anchor or approval by the session itself repairs it.
 
 **What `complete` does and does not establish.** It means every key is present and well-formed
@@ -801,7 +801,7 @@ like `orchestration`:
 
 ```yaml
 identities:
-  maintainer:                       # non-empty: every account whose reaction or authorship is trusted
+  maintainer:                       # non-empty: every account whose reaction is trusted, and whose authorship is trusted without one
     - { login: example-maintainer, id: 1001 }
     - { login: example-maintainer-2, id: 1002 }
   dev_app: { login: "example-dev[bot]", id: 2001 }       # or null until the App exists
@@ -840,17 +840,17 @@ the **default branch's** committed copy, never the working tree's.
 **Who reads it.** `bin/gh-identity.sh classify` answers the acting identity's mode (`#379`).
 `gh-identity.sh author` answers whether the author of an issue, a comment or a PR is trusted
 (`#382`): `trusted` for a declared `maintainer` (matched on `id`), `untrusted` for any other
-account including the dev App — an agent never trusts its own text — and `legacy` when
+account including the dev App, which `author` never trusts (it also judges issue and PR authors) — and `legacy` when
 `identities` is `null`, where the reader keeps its `author_association` allowlist (`OWNER`,
-`MEMBER`, `COLLABORATOR`). The readers are `resume`'s author-trust check (and the `coder`
+`MEMBER`, `COLLABORATOR`). A spec comment's author is the one exception, judged by `bin/spec-comment.sh` through `gh-identity.sh role` (`#660`): the dev App may write a spec comment, never approves one, and a dev-App spec comment is used only with a declared maintainer's approving reaction after its last edit, wherever it is read (`plan-anchor.sh verify --dev-app-id`, and the reactions file each reader passes `spec-comment.sh` under a map). The readers are `resume`'s author-trust check (and the `coder`
 agent's, which points at it), `bin/review-sandbox.sh trust`, `plan-sprint` (judging the login and
 id `bin/plan-gather.sh` prints), `spec-task` (the issue it drafts for, read through `bin/spec-issue.sh`) and `scripts/loop/preflight.sh github-dispatch`
 (`--identities`, the one reader that is its own implementation of the rule rather than a call
 to `gh-identity.sh`). Outside `token-check.sh` (below) and `scripts/identity/review/entrypoint.sh` (which requires `reviewer_app` to be a map, `#634`, checking it with its own `yq` read), `reviewer_app` and `loop_app` are read only to
 refuse them (as authors, and by `classify` as the acting identity) and to catch a duplicate id.
-`plan-anchor.sh verify --maintainer-ids` (`#383`, `#497`; `architect-review` reads the same ids for `bin/spec-reaction.sh`, `#613`) takes the maintainers' numeric ids, for the reaction and the spec comment's author, from the
+`plan-anchor.sh verify --maintainer-ids` (`#383`, `#497`; `architect-review` reads the same ids for `bin/spec-reaction.sh`, `#613`) takes the maintainers' numeric ids, for the reaction and the spec comment's author (and, with `--dev-app-id <id>`, the dev App's id as a second accepted author, never an approver and never also a maintainer), from the
 caller, which reads them from the default branch's copy: `resume` passes them under a map and
-omits the flag under `null`. `bin/token-check.sh verify` (`#436`) is the exception: a consumer of a minted token runs it before
+omits the flags under `null`. `bin/token-check.sh verify` (`#436`) is a separate use of `role`: a consumer of a minted token runs it before
 acting, and for a `dev_app`, `reviewer_app` or `loop_app` role it requires the token's actor and
 matches it against that declared entry through `gh-identity.sh role`; the actor must come from a GitHub
 response obtained with the token (measured in `#380`: the `user` of an issue or PR it created, so only after a first write; or, before any write, GraphQL `viewer { login databaseId }`, measured in `#476`). Under a map the host launcher `wow-review` posts as `reviewer_app` (`#635`). The session in the review container acts with a read-only token of that App and posts nothing itself (`#636`), and `/way-of-working:architect-review` on a host posts nothing under a map. Nothing yet acts as `loop_app`, which is the same stated, temporary state as `orchestration`'s.

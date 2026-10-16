@@ -37,6 +37,12 @@ permissions (Issues write, Actions read), accepted by each installation. Repos w
 
 ### Changed
 
+- **The declared dev App may author a spec comment** (#660). `bin/spec-comment.sh` judges the author by
+  `gh-identity.sh role`, and `plan-anchor.sh verify` takes `--dev-app-id`. A dev-App spec is used only
+  with a declared maintainer's approving reaction created after its last edit (`unreacted` otherwise),
+  so an agent can write the spec it obeys but never approve it. Readers that call `spec-comment.sh`
+  under an `identities` map (`resume`, the `coder` agent, `architect-review`) now fetch the comment's
+  reactions first and pass them as an optional last argument. Check 16 pins the new call line.
 - **`/way-of-working:architect-review` has a container mode** (#636). Inside the review container
   it reviews with no local execution and writes the launcher's outbox; it never posts, files or
   mints a token. On a host or in a dev container under a map it prints the launcher command and

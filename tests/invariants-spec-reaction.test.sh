@@ -1,6 +1,6 @@
 #!/bin/sh
 # Fixture tests for scripts/invariants-check.sh's check 16: one spec-reaction rule, one
-# implementation -- plan-anchor.sh and architect-review call spec-reaction.sh and no other bin/ script matches an
+# implementation -- plan-anchor.sh, spec-comment.sh and architect-review call spec-reaction.sh and no other bin/ script matches an
 # approving reaction content itself (#613).
 #
 # Each case mutates a COPY of the real tree and asserts the check fires (or stays silent), so
@@ -67,6 +67,23 @@ d="$(tree nocallanchor)"
 f="$(ls "$d"/plugins/*/bin/plan-anchor.sh)"
 sed 's#sh "\$sr" "\$c_updated"#true "\$c_updated"#' "$f" >"$f.new" && mv "$f.new" "$f"
 assert_fires "plan-anchor.sh without a spec-reaction.sh call fires" "$d"
+
+# spec-comment.sh no longer calling the predicate (the call line mutated) fires (#660).
+d="$(tree nocallcomment)"
+f="$(ls "$d"/plugins/*/bin/spec-comment.sh)"
+sed 's#sh "\$sr" "\$updated" "\$ids" <"\$rx"#true "\$updated" "\$ids" <"\$rx"#' "$f" >"$f.new" && mv "$f.new" "$f"
+assert_fires "spec-comment.sh without a spec-reaction.sh call fires" "$d"
+
+# plan-anchor.sh passing another id list than the maintainers' fires (#660).
+d="$(tree anchorarg)"
+f="$(ls "$d"/plugins/*/bin/plan-anchor.sh)"
+sed 's#sh "\$sr" "\$c_updated" "\$maint_ids"#sh "\$sr" "\$c_updated" "\$dev_id"#' "$f" >"$f.new" && mv "$f.new" "$f"
+assert_fires "plan-anchor.sh passing another id list fires" "$d"
+
+# A tree with no spec-comment.sh fails, never passes.
+d="$(tree nocommentscript)"
+rm -f "$d"/plugins/*/bin/spec-comment.sh
+assert_fires "a missing spec-comment.sh fires" "$d"
 
 # Another bin/ script matching the content in awk form fires too.
 d="$(tree inlineawk)"

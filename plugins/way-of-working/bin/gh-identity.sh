@@ -71,9 +71,11 @@
 # account, a reviewer or loop App, or a `[bot]` under null, which are `untrusted` / `legacy`
 # here. It prints exactly one word:
 #   trusted    -- the id and login match an `identities.maintainer` entry. Only a maintainer's
-#                 authorship is trusted (the schema: "every account whose reaction or
-#                 authorship is trusted"); the dev App's own text is NOT, so an agent cannot
-#                 write the spec it later obeys.
+#                 authorship is trusted by this predicate, which also judges issue and PR authors.
+#                 The dev App's text is not trusted by `author`; a dev-App spec comment is
+#                 accepted only by spec-comment.sh (through `role`) and plan-anchor.sh (through
+#                 `--dev-app-id`), and only with a fresh maintainer reaction, so an agent can
+#                 write the spec it obeys but never approve it (#660).
 #   untrusted  -- identities is a map and the account is the dev, reviewer or loop App, or is
 #                 not declared at all. A hostile account is a normal input, not an error.
 #   legacy     -- identities is null: this repo has not cut over, and the CALLER falls back
@@ -81,7 +83,7 @@
 # A caller that gets exit 2 treats it as neither trusted nor untrusted, and waits.
 #
 # role is the lookup itself, for a caller that needs WHICH declared account is acting
-# (token-check.sh, #436). It prints maintainer, dev_app, reviewer_app or loop_app; undeclared
+# (token-check.sh, #436; spec-comment.sh, #660). It prints maintainer, dev_app, reviewer_app or loop_app; undeclared
 # when identities is a map and the account is not in it; legacy when identities is null.
 # Exit 2 only on bad input (the cases author shares: a bad login or id, an unreadable or absent
 # file or key, a non-map identities, an id declared twice or under another login). Unlike

@@ -1,7 +1,8 @@
 #!/bin/sh
 # Has a declared maintainer reacted to a spec comment since its last edit? One rule, one
-# implementation, for both callers that ask it: plan-anchor.sh's `verify` (resume's auto-start
-# check) and /way-of-working:architect-review's *Task spec* paragraph (Map branch), which labels the spec it loaded (#613).
+# implementation, for the three callers that ask it: plan-anchor.sh's `verify` (resume's auto-start
+# check), /way-of-working:architect-review's *Task spec* paragraph (Map branch), which labels the spec it loaded (#613),
+# and spec-comment.sh, for a dev-App-authored comment (#660).
 # Before this, plan-anchor.sh carried the rule inline and /way-of-working:architect-review could only say
 # "approval not re-verified".
 #

@@ -628,4 +628,59 @@ assert_eq "verify --maintainer-ids: the flag with no value is unreadable" "unrea
 out="$(FAKE_REACTIONS="$(rx 1001 +1 2026-10-01T00:00:00Z)\n" FAKE_COMMENT_AUTHOR='loop-app[bot]' lrun verify --loop-identity 'loop-app[bot]' --maintainer-ids "$M" "$REPO" "$POINTER" "$spec_anchor")"
 assert_eq "verify: --loop-identity still wins over a fresh reaction" "untrusted" "$out"
 
+echo "# the dev App as spec author: --dev-app-id (#660) -- it may write the spec, never approve it"
+
+D=2001
+FRESH="$(rx 1001 +1 2026-10-01T00:00:00Z)\n"
+
+out="$(FAKE_COMMENT_AUTHOR_ID=$D FAKE_REACTIONS="$FRESH" lrun verify --maintainer-ids "$M" --dev-app-id "$D" "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --dev-app-id: a dev-App comment with a fresh maintainer reaction matches" "match" "$out"
+
+out="$(FAKE_COMMENT_AUTHOR_ID=$D FAKE_REACTIONS= lrun verify --maintainer-ids "$M" --dev-app-id "$D" "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --dev-app-id: a dev-App comment with no reaction is unreacted" "unreacted" "$out"
+
+out="$(FAKE_COMMENT_AUTHOR_ID=$D FAKE_REACTIONS="$(rx $D +1 2026-10-01T00:00:00Z)\n" lrun verify --maintainer-ids "$M" --dev-app-id "$D" "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --dev-app-id: only the dev App's own reaction is unreacted" "unreacted" "$out"
+
+out="$(FAKE_COMMENT_AUTHOR_ID=$D FAKE_REACTIONS="$(rx 1001 +1 2026-09-21T08:59:59Z)\n" lrun verify --maintainer-ids "$M" --dev-app-id "$D" "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --dev-app-id: a reaction older than the comment's last edit is unreacted" "unreacted" "$out"
+
+out="$(FAKE_COMMENT_AUTHOR_ID=$D FAKE_REACTIONS="$FRESH" lrun verify --maintainer-ids "$M" "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify: a dev-App comment without --dev-app-id is untrusted, as before" "untrusted" "$out"
+
+out="$(FAKE_COMMENT_AUTHOR_ID=$D FAKE_REACTIONS="$FRESH" lrun verify --dev-app-id "$D" --maintainer-ids "$M" "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --dev-app-id: given before --maintainer-ids it behaves the same" "match" "$out"
+
+out="$(FAKE_COMMENT_AUTHOR_ID=1001 FAKE_REACTIONS="$FRESH" lrun verify --maintainer-ids "$M" --dev-app-id "$D" "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --dev-app-id: a maintainer's comment still matches" "match" "$out"
+
+out="$(FAKE_COMMENT_AUTHOR_ID=7777 FAKE_REACTIONS="$FRESH" lrun verify --maintainer-ids "$M" --dev-app-id "$D" "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --dev-app-id: an outsider's comment is untrusted" "untrusted" "$out"
+
+out="$(FAKE_COMMENT_AUTHOR_ID=20010 FAKE_REACTIONS="$FRESH" lrun verify --maintainer-ids "$M" --dev-app-id "$D" "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --dev-app-id: an author id that merely contains the dev-App id is untrusted" "untrusted" "$out"
+
+out="$(FAKE_COMMENT_AUTHOR_ID=1 FAKE_REACTIONS="$FRESH" lrun verify --maintainer-ids "$M" --dev-app-id 20010 "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --dev-app-id: an author id contained in the dev-App id is untrusted" "untrusted" "$out"
+
+out="$(lrun verify --dev-app-id "$D" "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --dev-app-id without --maintainer-ids is unreadable" "unreadable" "$out"
+
+out="$(lrun verify --maintainer-ids "$M" --dev-app-id)"
+assert_eq "verify --dev-app-id with no value is unreadable" "unreadable" "$out"
+
+for bad in '' '0' '-1' '012' '12a' '1001' '1002' '2001,2002' ' 2001'; do
+  out="$(lrun verify --maintainer-ids "$M" --dev-app-id "$bad" "$REPO" "$POINTER" "$spec_anchor")"
+  assert_eq "verify --dev-app-id: [$bad] is unreadable" "unreadable" "$out"
+done
+
+out="$(lrun verify --plan --maintainer-ids "$M" --dev-app-id "$D" "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --plan with --dev-app-id is match" "match" "$out"
+
+out="$(lrun verify --plan --maintainer-ids "$M" --dev-app-id 012 "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --plan validates --dev-app-id too" "unreadable" "$out"
+
+out="$(FAKE_COMMENT_AUTHOR_ID=$D FAKE_COMMENT_AUTHOR='loop-app[bot]' FAKE_REACTIONS="$FRESH" lrun verify --loop-identity 'loop-app[bot]' --maintainer-ids "$M" --dev-app-id "$D" "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --dev-app-id: the loop-identity rule still prints untrusted for the loop's login" "untrusted" "$out"
+
 exit "$fail"

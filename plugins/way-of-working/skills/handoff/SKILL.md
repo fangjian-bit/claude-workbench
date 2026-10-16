@@ -162,7 +162,7 @@ names `{backlog.repo}` takes `{repo}` then (the derive line below passes `-` ins
    on `#N` itself** — refuse to anchor a spec-comment URL that names a different issue, and
    say so, rather than writing an anchor that would silently verify against the wrong text.
    Under a map (`identities` is `!!map`; `reference/project-schema.md` § `identities`), `/way-of-working:resume`
-   auto-starts only on an anchored spec comment a maintainer wrote and a maintainer reacted to (`WB-D24`, `#383`, `#497`), so an
+   auto-starts only on an anchored spec comment a maintainer or the declared dev App wrote and a maintainer reacted to (`WB-D24`, `#383`, `#497`), so an
    anchor with no `<comment-id>` there leaves resume waiting on `unreacted`;
    `/way-of-working:spec-task <N>` drafts the comment for the maintainer to post and react to
    (`WB-D26`). Under that same
@@ -183,7 +183,7 @@ names `{backlog.repo}` takes `{repo}` then (the derive line below passes `-` ins
      write. It does not depend on what this session's `/way-of-working:resume` printed
      (`#360`): the `verify --plan` run below is the check, it runs later than resume's and reads
      the baseline as it stands at handoff, and resume's full-mode word also moves on a comment on the task, a
-     spec comment no declared maintainer wrote or a missing maintainer reaction, which say nothing about the milestone. Approval of the
+     spec comment neither a declared maintainer nor the declared dev App wrote or a missing maintainer reaction, which say nothing about the milestone. Approval of the
      spec, the task and the reaction is enforced at auto-start, not here. An anchor restored by
      `/way-of-working:unpark-sprint` counts: a `match` shows only that the milestone is still open and still the one named — whether
      that anchor was ever approved is the human's call at unpark's gate. A milestone switch invalidates the baseline outright — treat it as **no baseline
