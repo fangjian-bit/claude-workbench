@@ -29,6 +29,10 @@ permissions (Issues write, Actions read), accepted by each installation. Repos w
 
 ### Added
 
+- **`bin/spec-find.sh`** (#662, part 1): finds the one approved spec comment on a task issue and
+  prints its id and `updated_at`, or a word that means wait. Not yet called by any skill; the
+  readers switch to it in part 2. Tested by `tests/spec-find.test.sh`; invariants checks 16 and 17
+  now cover it.
 - **`bin/spec-post.sh`** (#661, `WB-D29`, supersedes `WB-D26`): `spec-task` now posts its checked draft as
   one new comment on the issue when the session acts as the declared dev App, with a first-line marker
   naming the issue, base and commit, and otherwise holds the composed comment for a human to post.

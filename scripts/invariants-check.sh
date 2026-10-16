@@ -692,16 +692,19 @@ fi
 # Whether a declared maintainer reacted to a spec comment after its last edit is asked by
 # plan-anchor.sh (resume's auto-start), by architect-review's Map branch, and by spec-comment.sh
 # for a dev-App-authored comment (#660), and by the loop's dispatch preflight (scripts/loop/preflight.sh)
-# for the same case (#666). Two
+# for the same case (#666), and by bin/spec-find.sh, which finds the approved spec comment on a
+# task issue (#662). Two
 # implementations would let the approval rule drift between the gate that starts work and the
-# review that labels it. Four things are the invariant: plan-anchor.sh and spec-comment.sh carry their
+# review that labels it. Five things are the invariant: plan-anchor.sh, spec-comment.sh and spec-find.sh carry their
 # spec-reaction.sh call line (the invocation, not the name, which a header alone would satisfy),
 # architect-review's SKILL.md calls spec-reaction.sh, and no other file under plugins/*/bin/ matches an approving reaction
-# content itself (the `heart | hooray` case pattern, or a `== "hooray"` comparison). The preflight
+# content itself (the `heart | hooray` case pattern, or a `== "hooray"` comparison). bin/spec-find.sh
+# must carry its call line (`sh "$sr" "$c_updated" "$maint_ids" <"$rx"`) on a non-comment line, the form
+# the preflight test below also uses. The preflight
 # is held to the same rule by a different test, since it is not under plugins/*/bin/: it must carry
 # its call line (`sh "$sr" "$c_updated" "$maint_ids" <"$reactions"`) on a non-comment line, and no
 # non-comment line of it may contain `hooray` or `rocket`.
-# A tree with no spec-reaction.sh, plan-anchor.sh or architect-review skill fails: a check
+# A tree with no spec-reaction.sh, plan-anchor.sh, spec-comment.sh, spec-find.sh, preflight.sh or architect-review skill fails: a check
 # that cannot look must not pass (#243's stance).
 reaction_hits=""
 ls plugins/*/bin/spec-reaction.sh >/dev/null 2>&1 || reaction_hits+="(no plugins/*/bin/spec-reaction.sh found)"$'\n'
@@ -714,6 +717,12 @@ ls plugins/*/bin/spec-comment.sh >/dev/null 2>&1 || reaction_hits+="(no plugins/
 for f in plugins/*/bin/spec-comment.sh; do
   [ -f "$f" ] || continue
   grep -Fq 'sh "$sr" "$updated" "$ids" <"$rx"' "$f" || reaction_hits+="$f (does not call spec-reaction.sh)"$'\n'
+done
+ls plugins/*/bin/spec-find.sh >/dev/null 2>&1 || reaction_hits+="(no plugins/*/bin/spec-find.sh found)"$'\n'
+for f in plugins/*/bin/spec-find.sh; do
+  [ -f "$f" ] || continue
+  grep -Eq '^[[:space:]]*[^#[:space:]].*sh "\$sr" "\$c_updated" "\$maint_ids" <"\$rx"' "$f" \
+    || reaction_hits+="$f (does not call spec-reaction.sh)"$'\n'
 done
 reaction_seen=0
 for f in plugins/*/skills/architect-review/SKILL.md; do
@@ -741,7 +750,7 @@ done
 if [ -n "$reaction_hits" ]; then
   report "a second spec-reaction implementation, or a caller no longer calls it (#613)" \
     "$reaction_hits" \
-    "plan-anchor.sh, spec-comment.sh, architect-review's SKILL.md and scripts/loop/preflight.sh must all call bin/spec-reaction.sh, not restate the rule."
+    "plan-anchor.sh, spec-comment.sh, spec-find.sh, architect-review's SKILL.md and scripts/loop/preflight.sh must all call bin/spec-reaction.sh, not restate the rule."
 fi
 
 # --- 17. The anchored spec comment is printed only after its checks pass (#614) ----------------
@@ -771,10 +780,31 @@ for pat in 'skills/resume/SKILL.md' 'skills/architect-review/SKILL.md' 'agents/c
   done
   [ "$speccomment_seen" -eq 1 ] || speccomment_hits+="(no plugins/*/$pat found)"$'\n'
 done
+# bin/spec-find.sh (#662) lists a task issue's comments itself and must keep the marker test in
+# the listing's own --jq: exactly one non-comment line names an issue-comment listing
+# (`issues/<x>/comments`), that line carries both `split("\n")[0]` and `test(`, and no other
+# non-comment line reads a `.body`. This is a regression guard, not a proof: a second column on the
+# listing line would pass these rules, and tests/spec-find.test.sh's sentinel projection fixture
+# is the real control.
+ls plugins/*/bin/spec-find.sh >/dev/null 2>&1 || speccomment_hits+="(no plugins/*/bin/spec-find.sh found)"$'\n'
+for f in plugins/*/bin/spec-find.sh; do
+  [ -f "$f" ] || continue
+  nc_lines=$(grep -Ev '^[[:space:]]*#' "$f" || true)
+  listing=$(printf '%s\n' "$nc_lines" | grep -E 'issues/[^/[:space:]]+/comments' || true)
+  if [ -z "$listing" ] || [ "$(printf '%s\n' "$listing" | wc -l)" -ne 1 ]; then
+    speccomment_hits+="$f (does not have exactly one issue-comment listing line)"$'\n'
+  else
+    printf '%s\n' "$listing" | grep -Fq 'split("\n")[0]' || speccomment_hits+="$f (the listing line has no split(\"\\n\")[0] first-line projection)"$'\n'
+    printf '%s\n' "$listing" | grep -Fq 'test(' || speccomment_hits+="$f (the listing line has no test( marker match)"$'\n'
+    if printf '%s\n' "$nc_lines" | grep -vFx -e "$listing" | grep -Fq '.body'; then
+      speccomment_hits+="$f (a .body is read outside the listing line)"$'\n'
+    fi
+  fi
+done
 if [ -n "$speccomment_hits" ]; then
   report "the anchored spec comment may reach context before its checks pass (#614)" \
     "$speccomment_hits" \
-    "Fetch the comment into a file and print it with bin/spec-comment.sh body; never to the transcript."
+    "Fetch the comment into a file and print it with bin/spec-comment.sh body; never to the transcript. In bin/spec-find.sh keep the one listing line with its projection, and read no .body elsewhere."
 fi
 
 # --- 18. The spec-task skill carries no posting form; its one write lives in spec-post.sh (#611, #661, WB-D29) --

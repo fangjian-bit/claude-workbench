@@ -140,4 +140,22 @@ d="$(tree pfcommentok)"
 printf '%s\n' '# hooray and rocket are named in this header and in the jq comments' >>"$d/$pf"
 assert_silent "preflight.sh naming the contents in a comment is silent" "$d"
 
+
+# bin/spec-find.sh (#662) is held to the preflight's rule: its call line on a non-comment line.
+sf=plugins/way-of-working/bin/spec-find.sh
+d="$(tree sfnocall)"
+f="$d/$sf"
+sed 's#sh "\$sr" "\$c_updated" "\$maint_ids" <"\$rx"#true "\$c_updated" "\$maint_ids" <"\$rx"#' "$f" >"$f.new" && mv "$f.new" "$f"
+assert_fires "spec-find.sh without its spec-reaction.sh call line fires" "$d"
+
+d="$(tree sfcommentcall)"
+f="$d/$sf"
+sed 's#sh "\$sr" "\$c_updated" "\$maint_ids" <"\$rx"#true#' "$f" >"$f.new" && mv "$f.new" "$f"
+printf '%s\n' '# sh "$sr" "$c_updated" "$maint_ids" <"$rx"' >>"$f"
+assert_fires "spec-find.sh with the call line only in a comment fires" "$d"
+
+d="$(tree sfgone)"
+rm -f "$d/$sf"
+assert_fires "a missing spec-find.sh fires" "$d"
+
 [ "$fail" -eq 0 ]

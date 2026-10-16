@@ -60,6 +60,7 @@ sh tests/invariants-spec-comment.test.sh  # invariants-check.sh check 17 (resume
 sh tests/spec-shape.test.sh    # spec-shape.sh ok/missing-section/wrong-order/empty-restated/unreadable/bad-argument fixtures (not yet required)
 sh tests/invariants-spec-task-post.test.sh  # invariants-check.sh check 18 (the skill carries no posting form; spec-post.sh pins exactly two gh lines) fixtures (not yet required)
 sh tests/spec-post.test.sh      # spec-post.sh post/hold/stop/response fixtures vs a stub gh (not yet required)
+sh tests/spec-find.test.sh      # spec-find.sh projection fixtures (jq) and find/found/unreacted/none/ambiguous/moved/unreadable fixtures vs a stub gh (not yet required)
 sh tests/blocking-criteria.test.sh  # blocking-criteria.sh criterion projection, sanitizing, caps and the conventions.md worked example (not yet required)
 sh tests/invariants-milestone-jq.test.sh  # invariants-check.sh check 19 (every milestone read projected, description reads go through blocking-criteria.sh) fixtures (not yet required)
 sh tests/hitl-gate-closed.test.sh  # hitl-gate-closed.sh canonical closed form vs bare, OPEN, parked, appended clause, empty fixtures (not yet required)

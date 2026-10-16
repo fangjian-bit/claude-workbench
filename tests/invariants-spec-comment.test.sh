@@ -109,4 +109,44 @@ d="$(tree nocoder)"
 rm -f "$d"/plugins/*/agents/coder.md
 assert_fires "a missing coder agent fires" "$d"
 
+
+# bin/spec-find.sh (#662): the listing must keep its projection and stay one line.
+sf=plugins/way-of-working/bin/spec-find.sh
+d="$(tree sfcontrol)"
+assert_silent "spec-find.sh as shipped passes" "$d"
+
+d="$(tree sfnoprojection)"
+f="$d/$sf"
+sed 's#split("\\n")\[0\]#split("\\n")[1]#' "$f" >"$f.new" && mv "$f.new" "$f"
+assert_fires "a listing without the first-line projection fires" "$d"
+
+d="$(tree sfnotest)"
+f="$d/$sf"
+sed 's#select(\$l | test(#select($l | contains(#' "$f" >"$f.new" && mv "$f.new" "$f"
+assert_fires "a listing without the test( marker match fires" "$d"
+
+d="$(tree sftwolistings)"
+f="$d/$sf"
+printf '%s\n' 'gh api --paginate "repos/$backlog/issues/$issue/comments" --jq ".[] | .id" >"$tmp/second.tsv"' >>"$f"
+assert_fires "two listings fire" "$d"
+
+d="$(tree sfsplit)"
+f="$d/$sf"
+awk '{ i = index($0, " --jq "); if (index($0, "issues/$issue/comments") && i) { print substr($0, 1, i) "\\"; print substr($0, i + 1) } else print }' "$f" >"$f.new" && mv "$f.new" "$f"
+assert_fires "a listing split over a continuation line fires" "$d"
+
+d="$(tree sfbody)"
+f="$d/$sf"
+printf '%s\n' 'x="$(gh api "repos/$backlog/issues/comments/1" --jq .body)"' >>"$f"
+assert_fires "a .body read on another line fires" "$d"
+
+d="$(tree sfcommentbody)"
+f="$d/$sf"
+printf '%s\n' '# never read .body here' >>"$f"
+assert_silent "a .body named in a comment is silent" "$d"
+
+d="$(tree sfgone)"
+rm -f "$d/$sf"
+assert_fires "a missing spec-find.sh fires" "$d"
+
 [ "$fail" -eq 0 ]
