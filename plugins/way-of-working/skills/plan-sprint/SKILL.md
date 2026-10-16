@@ -440,7 +440,8 @@ If any precondition fails, stop and report why — do not proceed.
        two files. The one exception is an item whose token the human asked to strip: its line
        must equal the before line with only that ` [depends_on: …]` suffix removed.
      - **Pre-existing items that carry `BLOCKING:`.** `ship` and `archive-sprint` read
-       `BLOCKING:` line by line, so for any pre-existing item whose before text contains
+       each criterion with its item header and continuation lines through
+       `blocking-criteria.sh`, so for any pre-existing item whose before text contains
        `BLOCKING:`, the item's raw lines in the check copy must be byte-identical to the
        before file's, with no re-wrapping, whatever the whitespace allowance above. Extract
        them by command (an `awk` over each file: the item's first line without its leading

@@ -407,7 +407,9 @@ accepted, stated trade, not a silent one (rule 2 no longer covers the milestone 
    adopted as the skill's finding.
 2. **The plan anchor (below) binds the task and its spec comment**: the task issue `#N` and
    `#N`'s spec comment. The milestone description is consumed unbound: `/way-of-working:ship`
-   reads it in full, unattended, to find its `BLOCKING:` lines (`WB-D27`). The anchor
+   reads only the lines `bin/blocking-criteria.sh` selects, unattended, to find its
+   `BLOCKING:` lines (`#640`). The description stays unbound, and whoever edits it chooses
+   those lines (`WB-D27`). The anchor
    deliberately does **not** bind the rest of the task list either — see *Anchor scope* below.
 3. **`/way-of-working:critic-gate` on a `planning`-kind build proposes `security-critic`** for
    the new read surface, not only the `gh` plumbing.

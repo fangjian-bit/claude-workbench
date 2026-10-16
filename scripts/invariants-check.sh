@@ -799,6 +799,115 @@ if [ -n "$spectask_hits" ]; then
     "The maintainer posts the draft and reacts to it. See docs/decisions.md WB-D26."
 fi
 
+# --- 19. A milestone read is projected, and a description read goes through the script (#640) ----
+#
+# `ship` (unattended) and `archive-sprint` read a milestone description with no projection, so
+# all of it, author-editable and unbound since WB-D27, entered the session. bin/blocking-
+# criteria.sh is the one projection: the description goes to a file and only the script's
+# output is printed. Per skill, appendix and agent (plan-sprint is out: it reads descriptions
+# in full by design), after CRs are stripped and backslash-continued lines joined as check 18
+# does (the next line is never joined unless this one ends in a backslash):
+#   - every joined line that names `milestones/` or `milestones?` carries a `--jq` filter
+#     (at least one per mention) that names a field (`.name`) and is not `.`, nor contains
+#     `..`, `.[]`, `tojson`, `tostring`, `to_entries` or `@json`;
+#   - a line whose filter names `description` also redirects stdout to a file (a `>` not
+#     preceded by a digit or `&`, and not aimed at /dev/stdout, /dev/stderr or /dev/tty),
+#     names blocking-criteria.sh, and has no `cat`;
+#   - ship and archive-sprint each name blocking-criteria.sh.
+# A missing file or script is reported, like checks 15 to 17.
+# Residual: a prose mention wrapped across two lines without a backslash is not seen, and a
+# line with two milestone calls is checked by count, not by pairing each call to its filter.
+# Also unseen: a read that never spells `milestones/` or `milestones?` (`gh issue view --json
+# milestone`, GraphQL, the bare list endpoint), and a filter that names a field yet still
+# prints more (`del(.creator)`, `. as $x | .`); the filter rule is a regression guard.
+mjq_hits=""
+mjq_prog='
+BEGIN { SQ = sprintf("%c", 39); DQ = sprintf("%c", 34) }
+function has_redirect(s,    i, n, prev, t) {
+  n = length(s)
+  for (i = 1; i <= n; i++) {
+    if (substr(s, i, 1) != ">") continue
+    prev = (i > 1) ? substr(s, i - 1, 1) : ""
+    if (prev ~ /[0-9&>]/) continue
+    t = substr(s, i + 1)
+    sub(/^[>|]?[ \t]*/, "", t)
+    if (t ~ /^"?\/dev\/(stdout|stderr|tty)/ || t ~ /^&/) continue
+    return 1
+  }
+  return 0
+}
+function bad(msg) { printf "  line %d: %s: %s\n", NR, msg, substr($0, 1, 110) }
+{
+  nm = 0
+  s = $0
+  while ((p = index(s, "milestones/")) > 0) { nm++; s = substr(s, p + 11) }
+  s = $0
+  while ((p = index(s, "milestones?")) > 0) { nm++; s = substr(s, p + 11) }
+  if (nm == 0) next
+  rest = $0; bare = ""; nj = 0; desc = 0
+  while ((p = index(rest, "--jq")) > 0) {
+    bare = bare substr(rest, 1, p - 1)
+    after = substr(rest, p + 4)
+    lead = match(after, /^[ \t=]+/) ? RLENGTH : 0
+    t = substr(after, lead + 1)
+    c = substr(t, 1, 1)
+    if (c == SQ) {
+      r = substr(t, 2); e = index(r, SQ)
+      f = e ? substr(r, 1, e - 1) : r; used = lead + 1 + (e ? e : length(r))
+    } else if (c == DQ) {
+      r = substr(t, 2); e = 0
+      for (q = 1; q <= length(r); q++) {
+        ch = substr(r, q, 1)
+        if (ch == "\\") q++
+        else if (ch == DQ) { e = q; break }
+      }
+      f = e ? substr(r, 1, e - 1) : r; used = lead + 1 + (e ? e : length(r))
+    } else {
+      match(t, /[ \t;&|)]/)
+      f = RSTART ? substr(t, 1, RSTART - 1) : t; used = lead + length(f)
+    }
+    nj++
+    if (f !~ /[.][A-Za-z_]/) bad("a --jq filter that names no field")
+    else if (index(f, "..") || index(f, ".[]") || index(f, "tojson") || index(f, "tostring") || index(f, "to_entries") || index(f, "@json")) bad("a --jq filter that passes whole objects through")
+    if (index(f, "description")) desc = 1
+    rest = substr(after, used + 1)
+  }
+  bare = bare rest
+  if (nj < nm) bad("a milestone read without a --jq filter")
+  if (desc) {
+    if (!has_redirect(bare)) bad("a description read that does not redirect stdout to a file")
+    if (index($0, "blocking-criteria.sh") == 0) bad("a description read that does not go through blocking-criteria.sh")
+    if ($0 ~ /(^|[^A-Za-z0-9_-])cat([^A-Za-z0-9_-]|$)/) bad("a description read that is also cat")
+  }
+}'
+ls plugins/*/bin/blocking-criteria.sh >/dev/null 2>&1 || mjq_hits+="(no plugins/*/bin/blocking-criteria.sh found)"$'\n'
+for f in "${SKILLS[@]}" "${AGENTS[@]}"; do
+  [ -f "$f" ] || continue
+  case "$f" in */skills/plan-sprint/*) continue ;; esac
+  joined=$(tr -d '\r' <"$f" | sed -e ':a' -e '/\\$/N; s/\\\n[[:space:]]*/ /; ta')
+  mrc=0
+  h=$(printf '%s\n' "$joined" | awk "$mjq_prog") || mrc=$?
+  if [ "$mrc" -ne 0 ]; then
+    mjq_hits+="$f (the matcher itself failed, status $mrc)"$'\n'
+  elif [ -n "$h" ]; then
+    mjq_hits+="$f"$'\n'"$h"$'\n'
+  fi
+done
+for pat in skills/ship/SKILL.md skills/archive-sprint/SKILL.md; do
+  mjq_seen=0
+  for f in plugins/*/$pat; do
+    [ -f "$f" ] || continue
+    mjq_seen=1
+    grep -Fq 'blocking-criteria.sh' "$f" || mjq_hits+="$f (does not name blocking-criteria.sh)"$'\n'
+  done
+  [ "$mjq_seen" -eq 1 ] || mjq_hits+="(no plugins/*/$pat found)"$'\n'
+done
+if [ -n "$mjq_hits" ]; then
+  report "a milestone is read without a projection, or a description read bypasses blocking-criteria.sh (#640)" \
+    "$mjq_hits" \
+    "Fetch with --jq naming a field; send a description to a file and print it with blocking-criteria.sh."
+fi
+
 if [ "$fail" -ne 0 ]; then
   cat >&2 <<'EOF'
 

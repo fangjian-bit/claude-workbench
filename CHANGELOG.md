@@ -19,6 +19,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 `v0.5.0` are summarized from their tags; the full record is `docs/decisions.md` (`WB-D*`) and
 the GitHub release notes.
 
+## [Unreleased]
+
+- **`ship` and `archive-sprint` read a milestone description only through `bin/blocking-criteria.sh`** (`#640`).
+  Under `planning.kind: github_milestones`, `ship`'s blocking-precondition step, `archive-sprint`'s
+  precondition 5 and its close step's display each captured the whole, author-editable description
+  into the session. They now write it to a file and print only the `BLOCKING:` criteria, each with
+  its item header and continuation lines (the `— gates:` line included), sanitized and capped by
+  lines and bytes, and close with a `[read status: N]` line. The close step's `PATCH` prints only
+  the state. A new invariants check (19) keeps an unprojected milestone read from coming back. This
+  narrows exposure and binds nothing: whoever edits the description still chooses the lines selected.
+
 ## [0.18.0] — 2026-10-13
 
 **⚠️ Migration required** — one new required `.ai/project.yml` key, `identities`. Answer

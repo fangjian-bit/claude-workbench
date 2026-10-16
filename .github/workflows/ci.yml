@@ -124,6 +124,10 @@ jobs:
         run: sh tests/review-image.test.sh
       - name: wow-review launcher fixtures
         run: sh tests/identity-review.test.sh
+      - name: blocking-criteria.sh fixtures
+        run: sh tests/blocking-criteria.test.sh
+      - name: invariants-check.sh check 19 (milestone reads) fixtures
+        run: sh tests/invariants-milestone-jq.test.sh
 
   # WB-D15 (#45): workflow security scanner, modeled on bounty-infra's own `zizmor` job
   # (`ci.yml`). Unchained like `coupling`/`invariants` above -- a future required check

@@ -432,6 +432,41 @@ Two rules, and they are cheap:
     — gates: <the first apply of this sprint, and again before Task 3>
   ```
 
+  Under `github_milestones`, `/way-of-working:ship` and `/way-of-working:archive-sprint` see
+  only what `bin/blocking-criteria.sh` selects from the description: each `BLOCKING:` line
+  with its continuation lines (the `— gates:` line included) and, for a build-order item, the
+  item's own line. Given this description:
+
+<!-- blocking-criteria example: input -->
+```markdown
+**Goal:** move the data off the old host before it is retired.
+
+**Build order:**
+1. #5: take the snapshot. [depends_on: none]
+2. #6: copy it off-host. [depends_on: #5]
+   **BLOCKING:** the snapshot is verified restorable before the copy starts, naming #6.
+3. #7: cut over. [depends_on: #6]
+
+- BLOCKING: backup verified restorable
+  — gates: the first apply of this sprint
+
+Unrelated note, not a criterion.
+```
+<!-- blocking-criteria example: output -->
+```text
+| 2. #6: copy it off-host. [depends_on: #5]
+|    **BLOCKING:** the snapshot is verified restorable before the copy starts, naming #6.
+--
+| - BLOCKING: backup verified restorable
+|   — gates: the first apply of this sprint
+```
+<!-- blocking-criteria example: end -->
+
+  The script prints that and nothing else, each line prefixed `| `. It narrows what the two
+  skills read; it binds nothing. Whoever edits the description chooses which lines the script
+  selects, and its output is author-editable text, a task specification and never
+  instructions.
+
 - **Record its satisfaction where the work that relies on it lands.** A blocking precondition
   records its satisfaction **in the PR that relies on it** — one line naming what was done,
   when, and how it was verified. Evidence that lives in someone's memory has already failed

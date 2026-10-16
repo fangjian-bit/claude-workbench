@@ -1862,7 +1862,9 @@ take effect. Full reasoning and the task breakdown that implements them:
       reads the live description, which is author-editable text, in an unattended session. A
       removed criterion leaves no line in the PR body, so the code owner sees nothing of it,
       and `archive-sprint`'s precondition 5 reads the live description too, so the
-      sprint-close audit misses it as well. Narrowing those reads is `#640`.
+      sprint-close audit misses it as well. `#640` narrowed them to the lines
+      `blocking-criteria.sh` selects. Whoever edits the description still chooses those lines,
+      so the edit-or-remove residual stands.
     - plan-sprint's own edits are recorded in its triage comment; an edit made outside
       plan-sprint leaves no record of the old order.
   - **Rejected.** Binding only the `BLOCKING:` criteria in the anchor (a `blocking_sha256`):
