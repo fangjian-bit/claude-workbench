@@ -1,7 +1,7 @@
 #!/bin/sh
 # The deterministic predicate behind the `planning: kind: github_milestones` key
 # (reference/project-schema.md § `planning`) -- whether a cursor's `plan_anchor`
-# still names a live, open milestone, task issue, and spec comment.
+# still names a live, open milestone, task issue, and (in legacy) spec comment.
 # Mirrors cursor-drift.sh's shape and reasoning: a predicate with a correctness
 # argument, not a judgment call, so /way-of-working:resume's auto-start test,
 # /way-of-working:handoff's re-anchor check, and /way-of-working:archive-sprint's
@@ -12,7 +12,7 @@
 #   plan-anchor.sh write  <repo> <milestone> <N|-> [<comment-id|->]
 #     Prints the anchor JSON (one line, compact, fixed key order) on stdout,
 #     or `unreadable`.
-#   plan-anchor.sh verify [--plan] [--loop-identity <login>] [--maintainer-ids <id,id,...>] [--dev-app-id <id>] <repo> <pointer-url> <anchor-json>
+#   plan-anchor.sh verify [--plan] [--loop-identity <login>] [--maintainer-ids <id,id,...>] [--dev-app-id <id>] [--spec-comment <id> <updated_at>] <repo> <pointer-url> <anchor-json>
 #     Prints exactly one of `match | drift | unreadable | untrusted | unreacted`.
 #
 # Both modes always exit 0 -- the verdict is stdout, exactly like
@@ -26,8 +26,8 @@
 # turn that into a trusted author. The login arrives as an ARGUMENT, never read here
 # (this script forbids `yq`, and the caller already holds the value from the default
 # branch's own copy -- the one a task cannot edit). When given, `verify` reads the
-# author of the milestone (`creator`), and in full mode of `#N` and of the anchored
-# spec comment, BEFORE any drift comparison, and prints `untrusted` when any of them
+# author of the milestone (`creator`), and in full mode of `#N` and of the spec
+# comment (the anchored one in legacy; under `--maintainer-ids` the flagged one), BEFORE any drift comparison, and prints `untrusted` when any of them
 # equals the login, compared case-insensitively (GitHub logins are) and with a trailing
 # `[bot]` ignored on both sides, so a bare-slug configuration still matches an App. A failed author
 # read, or an empty author, is `unreadable`, never a pass. A caller whose
@@ -38,8 +38,8 @@
 #
 # `--maintainer-ids <id,id,...>` is the reaction rule (`WB-D24`, `#383`): a comment alone
 # never approves a spec. When given, full-mode `verify` -- after every other check has
-# passed -- also requires a spec comment to be anchored and a reaction on that
-# exact comment (`reactions` of the comment id the anchor names, never another) that was
+# passed -- also requires a reaction on the spec comment named by `--spec-comment` (below;
+# `reactions` of that comment id, never another, and never the anchor's `spec_comment`) that was
 # made by a declared maintainer (matched on the numeric user `id`, never the login),
 # whose `created_at` is STRICTLY after the comment's `updated_at` (a reaction does not
 # move `updated_at` -- observed once, live, 2026-10-12, `#498`: a `rocket` added six seconds
@@ -47,14 +47,14 @@
 # change, nothing would match, never a false match -- so an edit after the reaction leaves it stale), and whose content
 # is an approving one (`+1`, `heart`, `hooray`, `rocket`; `-1`, `confused`, `eyes` and
 # `laugh` never count). Otherwise it prints `unreacted`, which a caller treats as a wait,
-# exactly like `drift`. Before the reactions are read, the anchored comment's own author
+# exactly like `drift`. Before the reactions are read, the flagged comment's own author
 # (numeric `user.id`, never the login) must also be on the list (`#497`; or, with `--dev-app-id`, be the dev App, below), else `untrusted`:
 # a reaction approves the text, not who wrote it. That check follows the drift checks. The ids arrive as an ARGUMENT, read by the caller from the
 # default branch's `identities.maintainer` (this script forbids `yq`); an empty or
 # non-numeric list is a caller bug and prints `unreadable`. A caller whose repo has not
 # cut over (`identities: null`) omits the flag and keeps today's behavior. With the flag and
-# NO spec comment anchored the verdict is `unreacted`: the issue body alone is editable text
-# whose author stays the maintainer, so it is never an approval. `--plan` mode validates
+# NO `--spec-comment` the verdict is `unreacted`: neither the issue body (editable text whose
+# author stays the maintainer) nor an anchored comment is an approval. `--plan` mode validates
 # the list but otherwise ignores it, as it ignores the spec comment. A failed reactions read is `unreadable`. The rule itself is bin/spec-reaction.sh (an exit 2 from it, or a missing or slash-less sibling path, is `unreadable`), and the comment's updated_at is re-read after the reactions: a change prints `drift`.
 #
 # `--dev-app-id <id>` (`#660`) lets the declared dev App (`identities.dev_app.id`, read by the
@@ -68,12 +68,29 @@
 # or overlapping, `verify` prints `unreadable`. `--plan` validates it and ignores it. A caller
 # whose `identities.dev_app` is `null` omits the flag.
 #
+# `--spec-comment <id> <updated_at>` (`WB-D30`) names the spec comment the finder (`bin/spec-find.sh`)
+# printed as `found`, and is how a reader under an `identities` map verifies without the anchor
+# naming a spec: handoff writes `spec_comment` as `null` there. It needs `--maintainer-ids`; without
+# it, with an id that is not digits with no leading zero, or an `updated_at` that is not
+# YYYY-MM-DDTHH:MM:SSZ, `verify` prints `unreadable`. `--plan` validates it and ignores it. Under
+# `--maintainer-ids` the anchored `spec_comment` is never fetched or used, by any check, the name
+# rule included (the key must still parse: a malformed value stays `unreadable`). Without the flag
+# the verdict is `unreacted` once the milestone and `#N` checks pass, whatever the anchor holds. With
+# it the flagged comment gets every check the anchored one got under `--maintainer-ids` before WB-D30 -- its `updated_at` equals
+# the flag's, it belongs to `#N`, its author is a maintainer (or the dev App), a declared maintainer
+# reacted with approval after its last edit, and its `updated_at` is unchanged after the reactions --
+# and, under `--loop-identity`, its author is not the loop. Only then is `#N`'s `updated_at` not
+# compared with the anchor's, because posting the spec moves it (`task_issue_updated_at` must still
+# parse; the other `#N` checks stay). The marker is checked once, by the finder: this script trusts
+# the pair its caller took from the same call.
+#
 # `verify` (full) checks: the milestone is open, its number equals the anchor's
 # and the pointer's; `#N` is open, a true issue (no `pull_request` key), its
 # `repository_url` names `<repo>` and its `number` is `N`, its `milestone.number`
 # matches, and its `updated_at` equals the anchor's; the spec comment (when
 # anchored) has `updated_at` equal to the anchor's and belongs to issue `#N`;
-# nothing else.
+# nothing else. Under `--maintainer-ids` the spec comment checked is the flagged one, and the `#N`
+# `updated_at` comparison is dropped only with the flag (see `--spec-comment`).
 #
 # `verify --plan` checks only: milestone open and number equality. It ignores `task_issue` and `spec_comment` entirely -- the mode
 # handoff's baseline re-anchor check uses, and archive-sprint's milestone-close
@@ -174,7 +191,7 @@ case "$mode" in
   write | verify) shift ;;
   *)
     echo "plan-anchor.sh: usage: plan-anchor.sh write <repo> <milestone> <N|-> [<comment-id|->]" >&2
-    echo "                       plan-anchor.sh verify [--plan] [--loop-identity <login>] [--maintainer-ids <id,id,...>] [--dev-app-id <id>] <repo> <pointer-url> <anchor-json>" >&2
+    echo "                       plan-anchor.sh verify [--plan] [--loop-identity <login>] [--maintainer-ids <id,id,...>] [--dev-app-id <id>] [--spec-comment <id> <updated_at>] <repo> <pointer-url> <anchor-json>" >&2
     echo unreadable
     exit 0
     ;;
@@ -229,6 +246,9 @@ maint_ids=
 have_ids=0
 dev_id=
 have_dev=0
+spec_id=
+spec_up=
+have_spec=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --plan) plan_only=1; shift ;;
@@ -241,12 +261,15 @@ while [ "$#" -gt 0 ]; do
     --dev-app-id)
       [ "$#" -ge 2 ] || { echo unreadable; exit 0; }
       have_dev=1; dev_id="$2"; shift 2 ;;
+    --spec-comment)
+      [ "$#" -ge 3 ] || { echo unreadable; exit 0; }
+      have_spec=1; spec_id="$2"; spec_up="$3"; shift 3 ;;
     *) break ;;
   esac
 done
 
 if [ "$#" -ne 3 ]; then
-  echo "plan-anchor.sh: verify needs [--plan] [--loop-identity <login>] [--maintainer-ids <id,id,...>] [--dev-app-id <id>] <repo> <pointer-url> <anchor-json>" >&2
+  echo "plan-anchor.sh: verify needs [--plan] [--loop-identity <login>] [--maintainer-ids <id,id,...>] [--dev-app-id <id>] [--spec-comment <id> <updated_at>] <repo> <pointer-url> <anchor-json>" >&2
   echo unreadable
   exit 0
 fi
@@ -276,6 +299,19 @@ if [ "$have_dev" -eq 1 ]; then
   is_digits "$dev_id" || { echo unreadable; exit 0; }
   case "$dev_id" in 0*) echo unreadable; exit 0 ;; esac
   case ",$maint_ids," in *",$dev_id,"*) echo unreadable; exit 0 ;; esac
+fi
+
+# The flagged spec comment (`WB-D30`): the finder's `found` pair. It needs the maintainer ids, an id
+# of digits with no leading zero and an `updated_at` of the API's exact shape. Checked after the
+# flag loop, so flag order does not matter; `--plan` validates it and ignores it.
+if [ "$have_spec" -eq 1 ]; then
+  [ "$have_ids" -eq 1 ] || { echo unreadable; exit 0; }
+  is_digits "$spec_id" || { echo unreadable; exit 0; }
+  case "$spec_id" in 0*) echo unreadable; exit 0 ;; esac
+  case "$spec_up" in
+    [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) : ;;
+    *) echo unreadable; exit 0 ;;
+  esac
 fi
 
 # The pointer must be exactly https://github.com/<repo>/milestone/<digits> --
@@ -329,21 +365,31 @@ if [ "$have_loop" -eq 1 ]; then
         if is_loop "$author"; then echo untrusted; exit 0; fi
         ;;
     esac
-    n_comment="$(anchor_obj spec_comment "$anchor")"
-    case "$n_comment" in
-      '' | null) : ;;
-      *)
-        n_cid="$(anchor_num id "$n_comment")"
-        case "$n_cid" in
-          '' | null) : ;;
-          *)
-            author="$(gh api "repos/$repo/issues/comments/$n_cid" --jq '.user.login // empty' 2>/dev/null)" \
-              && [ -n "$author" ] || { echo unreadable; exit 0; }
-            if is_loop "$author"; then echo untrusted; exit 0; fi
-            ;;
-        esac
-        ;;
-    esac
+    if [ "$have_ids" -eq 1 ]; then
+      # Under a map the anchored comment is never fetched (`WB-D30`): the flagged one is the
+      # spec, so it is the one whose author the name rule reads.
+      if [ "$have_spec" -eq 1 ]; then
+        author="$(gh api "repos/$repo/issues/comments/$spec_id" --jq '.user.login // empty' 2>/dev/null)" \
+          && [ -n "$author" ] || { echo unreadable; exit 0; }
+        if is_loop "$author"; then echo untrusted; exit 0; fi
+      fi
+    else
+      n_comment="$(anchor_obj spec_comment "$anchor")"
+      case "$n_comment" in
+        '' | null) : ;;
+        *)
+          n_cid="$(anchor_num id "$n_comment")"
+          case "$n_cid" in
+            '' | null) : ;;
+            *)
+              author="$(gh api "repos/$repo/issues/comments/$n_cid" --jq '.user.login // empty' 2>/dev/null)" \
+                && [ -n "$author" ] || { echo unreadable; exit 0; }
+              if is_loop "$author"; then echo untrusted; exit 0; fi
+              ;;
+          esac
+          ;;
+      esac
+    fi
   fi
 fi
 
@@ -390,7 +436,17 @@ i_is_pr="$(tsv_field 6 "$issue_tsv")"
 
 if [ "$i_state" != open ] || [ "$i_is_pr" = 1 ] || [ "$i_number" != "$a_task" ] \
    || [ "$i_repo_url" != "https://api.github.com/repos/$repo" ] \
-   || [ "$i_milestone" != "$a_milestone" ] || [ "$i_updated" != "$a_task_updated" ]; then
+   || [ "$i_milestone" != "$a_milestone" ]; then
+  echo drift; exit 0
+fi
+# `#N`'s `updated_at` against the anchor's: dropped only with the flagged spec comment, because
+# posting the spec moves it (`WB-D30`). The anchored value must still parse.
+if [ "$have_spec" -eq 1 ]; then
+  case "$a_task_updated" in
+    [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) : ;;
+    *) echo unreadable; exit 0 ;;
+  esac
+elif [ "$i_updated" != "$a_task_updated" ]; then
   echo drift; exit 0
 fi
 
@@ -410,6 +466,16 @@ if [ "$a_comment" != null ]; then
   if [ -z "$c_id" ] || [ "$c_id" = null ] || [ -z "$c_updated" ] || [ "$c_updated" = null ]; then
     echo unreadable; exit 0
   fi
+fi
+if [ "$have_ids" -eq 1 ]; then
+  # Under a map the anchored comment never selects the spec (`WB-D30`): it parsed above and is
+  # not fetched. Without the flag nothing approved is named: unreacted. With it, the flagged
+  # comment gets every check the anchored one got under --maintainer-ids before WB-D30.
+  [ "$have_spec" -eq 1 ] || { echo unreacted; exit 0; }
+  c_id="$spec_id"; c_updated="$spec_up"
+  a_comment=flagged
+fi
+if [ "$a_comment" != null ]; then
   comment_tsv="$(gh api "repos/$repo/issues/comments/$c_id" --jq \
     '[.updated_at, .issue_url, ((.user.id // "") | tostring)] | @tsv' 2>/dev/null)" \
     && [ -n "$comment_tsv" ] || { echo unreadable; exit 0; }
@@ -461,10 +527,9 @@ if [ "$a_comment" != null ]; then
     if [ "$verdict" != approved ]; then echo unreacted; exit 0; fi
   fi
 else
-  # No spec comment anchored. With --maintainer-ids (identities map) there is no approved
-  # spec -- the body's author can edit it with no maintainer reaction -- so: unreacted.
-  # Without ids (identities: null, legacy) the body stays the task's spec: match.
-  if [ "$have_ids" -eq 1 ]; then echo unreacted; exit 0; fi
+  # No spec comment anchored, and no --maintainer-ids (identities: null, legacy): the body
+  # stays the task's spec: match. Under a map the branch above has already answered.
+  :
 fi
 
 echo match

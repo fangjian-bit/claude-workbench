@@ -73,8 +73,8 @@
 #   trusted    -- the id and login match an `identities.maintainer` entry. Only a maintainer's
 #                 authorship is trusted by this predicate, which also judges issue and PR authors.
 #                 The dev App's text is not trusted by `author`; a dev-App spec comment is
-#                 accepted only by spec-comment.sh (through `role`) and plan-anchor.sh (through
-#                 `--dev-app-id`), and only with a fresh maintainer reaction, so an agent can
+#                 accepted only by spec-comment.sh (through `role`), plan-anchor.sh (through
+#                 `--dev-app-id`), spec-find.sh and the loop preflight, and only with a fresh maintainer reaction, so an agent can
 #                 write the spec it obeys but never approve it (#660).
 #   untrusted  -- identities is a map and the account is the dev, reviewer or loop App, or is
 #                 not declared at all. A hostile account is a normal input, not an error.

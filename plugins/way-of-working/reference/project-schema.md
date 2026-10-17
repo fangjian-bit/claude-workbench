@@ -405,8 +405,9 @@ accepted, stated trade, not a silent one (rule 2 no longer covers the milestone 
    author's claim, beside their login and trust verdict (`author_association` before the repo
    declares `identities`), never
    adopted as the skill's finding.
-2. **The plan anchor (below) binds the task and its spec comment**: the task issue `#N` and
-   `#N`'s spec comment. The milestone description is consumed unbound: `/way-of-working:ship`
+2. **The plan anchor (below) binds the task and, under `identities: null`, its spec comment**:
+   the task issue `#N` and, in a legacy repo, `#N`'s spec comment. Under a map the anchor binds
+   `#N` only and the spec is found on GitHub at each read (`WB-D30`). The milestone description is consumed unbound: `/way-of-working:ship`
    reads only the lines `bin/blocking-criteria.sh` selects, unattended, to find its
    `BLOCKING:` lines (`#640`). The description stays unbound, and whoever edits it chooses
    those lines (`WB-D27`). The anchor
@@ -424,16 +425,21 @@ accepted, stated trade, not a silent one (rule 2 no longer covers the milestone 
   "milestone": <number>,
   "task_issue": <N or null>,
   "task_issue_updated_at": "<issue N's updated_at, or null>",
-  "spec_comment": { "id": <id>, "updated_at": "<ts>" }   // or null when no spec comment exists
+  "spec_comment": { "id": <id>, "updated_at": "<ts>" }   // or null when no spec comment exists; always null under a map
 }
 ```
 
+Under a map (`identities` is `!!map`) `/way-of-working:handoff` writes `spec_comment` as `null`:
+the spec is the one comment `bin/spec-find.sh` prints as `found`, and the readers pass it to
+`verify` as `--spec-comment <id> <updated_at>` (`WB-D30`). The anchored `spec_comment` still
+has to parse, but a map-mode `verify` never fetches it.
+
 `bin/plan-anchor.sh` is the deterministic predicate over it, mirroring `cursor-drift.sh`'s
 shape: `write <repo> <milestone> <N|-> [<comment-id|->]` produces the anchor; `verify [--plan]
-[--loop-identity <login>] [--maintainer-ids <id,id,...>] [--dev-app-id <id>] <repo> <pointer-url> <anchor-json>` compares it against the live
+[--loop-identity <login>] [--maintainer-ids <id,id,...>] [--dev-app-id <id>] [--spec-comment <id> <updated_at>] <repo> <pointer-url> <anchor-json>` compares it against the live
 milestone/issue/comment and answers `match | drift | unreadable | untrusted | unreacted` (`untrusted`:
-the loop's own login authored one of them, § `orchestration`, or, with `--maintainer-ids`, the anchored spec comment's author is neither a declared maintainer nor, with `--dev-app-id`, the declared dev App (`#497`, `#660`); `unreacted`: with `--maintainer-ids`,
-no declared maintainer has reacted approvingly on the anchored spec comment since its last edit (the dev App's own reaction never counts), or no spec comment is anchored at all,
+the loop's own login authored one of them, § `orchestration`, or, with `--maintainer-ids`, the spec comment's author is neither a declared maintainer nor, with `--dev-app-id`, the declared dev App (`#497`, `#660`); `unreacted`: with `--maintainer-ids`,
+no declared maintainer has reacted approvingly on the spec comment since its last edit (the dev App's own reaction never counts; a maintainer author's own reaction does), or, with `--maintainer-ids` and no `--spec-comment`, whatever well-formed `spec_comment` the anchor holds,
 § `identities` — `WB-D24`, `#383`), always exiting 0 — the verdict is stdout, the caller
 decides policy. `--plan` mode checks only the milestone's state and number (and, with `--loop-identity`, its
 creator) and ignores `task_issue`/`spec_comment` — `/way-of-working:handoff`'s baseline re-anchor check uses
@@ -442,14 +448,15 @@ it, since `#N` may not exist yet or may have just changed; `/way-of-working:arch
 or closed by close time. Full
 mode additionally requires `#N` open, a true issue (no `pull_request` key),
 living in `{backlog.repo}` at that number, on that milestone, unedited since the anchor, and
-(when anchored) the spec comment unedited and still on `#N`. Read the script's own header for
+(legacy: when anchored; under a map: the comment named by `--spec-comment`, which also drops the
+comparison of `#N`'s `updated_at`, because posting the spec moves it) the spec comment unedited and still on `#N`. Read the script's own header for
 the exact checks each mode makes — it is not restated here. **`<anchor-json>` must be a single
 line** (`jq -c`, never pretty-printed `jq .`) — the parser matches a key and its value on the
 same line only, and a multi-line anchor reads as `unreadable`, same as any other malformed
 shape.
 
 **Anchor scope — deliberate, and load-bearing for liveness.** The anchor binds the one task
-`#N` and `#N`'s spec comment. An older anchor's `description_sha256` is ignored (`WB-D27`). It does **not** bind other issues' membership or
+`#N` and, in a legacy repo, `#N`'s spec comment. An older anchor's `description_sha256` is ignored (`WB-D27`). It does **not** bind other issues' membership or
 state, because routine work moves them: merging a PR that closes a different milestone issue
 is the *expected* event between handoff and resume, and any anchor binding the issue set (or
 the milestone's own `updated_at`, which moves on `milestoned` events) would read every routine
@@ -458,21 +465,25 @@ carve-out in `cursor-drift.sh` exists to avoid for git-tracked state, and this a
 avoid for this one. Accepted availability note, stated so nobody "fixes" it later: any comment
 on `#N` — including the human's own approval comment or a spec revision after handoff — moves
 `updated_at`, reads as drift, and waits; that is fails-closed, availability-only, and correct.
+Under a map, `verify --spec-comment` drops that one comparison, since posting the spec moves it;
+the other `#N` checks (open, a true issue, repo, number, milestone) stay.
 
 **The spec comment lives on `#N`.** When `next_action` names an approved spec, that comment is
-on issue `#N` in `{backlog.repo}`, and it is what `plan_anchor.spec_comment` binds. A spec that
+on issue `#N` in `{backlog.repo}`; in a legacy repo it is what `plan_anchor.spec_comment` binds,
+and under a map `spec_comment` is `null` and the comment is the one `bin/spec-find.sh` finds
+(a `spec-task:` marker comment a declared maintainer or the dev App wrote and a declared
+maintainer approved with a reaction after its last edit, `WB-D30`). A spec that
 references another issue's text reads it as data — anything *normative* it relies on must
 already be in git by that task's build time. `/way-of-working:handoff` refuses to anchor a
-spec-comment URL that is not on `#N`. Under a map (`identities` is `!!map`), that comment is the
+spec-comment URL that is not on `#N`, and under a map anchors none. Under a map (`identities` is `!!map`), that comment is the
 **whole** spec: the builder (`resume`, the `coder` agent) fetches `#N` only for its number,
-`updated_at` and author checks, projected so its body never enters context, because the
+state, milestone and author checks, projected so its body never enters context, because the
 maintainer's reaction covers the comment and not the body (`WB-D24`, `#496`). The mode is
 decided from the default branch's copy of `identities`, never the working tree's. No other
 issue's body is read either, and `plan-anchor.sh` projects its own fetches, so it too never
 brings a body into context.
 `identities: null` keeps the body read. `/way-of-working:architect-review` follows the same
-rule: under a map it loads the anchored spec comment only, after checking its `updated_at` and
-author and issue, re-reads the maintainer's reaction through `bin/spec-reaction.sh` (`#613`) to label the spec approved, unreacted or not re-verified, and states in the review when no spec could be verified.
+rule: under a map it loads the found spec comment only (the id from `spec-find.sh`, run once inside the call that uses it), after checking its `updated_at`, author, issue and a maintainer's fresh reaction with `spec-comment.sh`, labels it through `bin/spec-reaction.sh` (`#613`), and states in the review when no spec could be loaded.
 
 ### `load_bearing_docs`, `code_paths`
 
@@ -780,7 +791,7 @@ LOOP=$(printf '%s' "$YML" | yq -r '.orchestration.loop_identity // ""')
 # a failed step above is unreadable, never an empty $LOOP; empty: no flag, else --loop-identity "$LOOP"
 ```
 `plan-anchor.sh verify` prints `untrusted` when the milestone's creator, the task issue's
-author, or the anchored spec comment's author (the last two in full mode only) is that
+author, or the spec comment's author (the anchored one in a legacy repo, the `--spec-comment` one under a map; the last two in full mode only) is that
 login (with `--maintainer-ids` it also prints it for a spec comment neither a declared maintainer nor the dev App (`--dev-app-id`) wrote, `#497`, `#660`). Every caller treats `untrusted` as a refusal: it is never `match`, and it is not
 `drift` either, since no re-anchor or approval by the session itself repairs it.
 
@@ -801,7 +812,7 @@ like `orchestration`:
 
 ```yaml
 identities:
-  maintainer:                       # non-empty: every account whose reaction is trusted, and whose authorship is trusted without one
+  maintainer:                       # non-empty: every account whose reaction is trusted, and whose issue and PR authorship is trusted without one (a spec comment needs a reaction whoever wrote it)
     - { login: example-maintainer, id: 1001 }
     - { login: example-maintainer-2, id: 1002 }
   dev_app: { login: "example-dev[bot]", id: 2001 }       # or null until the App exists
@@ -842,7 +853,7 @@ the **default branch's** committed copy, never the working tree's.
 (`#382`): `trusted` for a declared `maintainer` (matched on `id`), `untrusted` for any other
 account including the dev App, which `author` never trusts (it also judges issue and PR authors) — and `legacy` when
 `identities` is `null`, where the reader keeps its `author_association` allowlist (`OWNER`,
-`MEMBER`, `COLLABORATOR`). A spec comment's author is the one exception, judged by `bin/spec-comment.sh` through `gh-identity.sh role` (`#660`): the dev App may write a spec comment, never approves one, and a dev-App spec comment is used only with a declared maintainer's approving reaction after its last edit, wherever it is read (`plan-anchor.sh verify --dev-app-id`, the reactions file each reader passes `spec-comment.sh` under a map, and the dispatch preflight's `--spec-reactions`). The readers are `resume`'s author-trust check (and the `coder`
+`MEMBER`, `COLLABORATOR`). A spec comment's author is the one exception, judged by `bin/spec-comment.sh` through `gh-identity.sh role` (`#660`): the dev App may write a spec comment, never approves one, and a dev-App spec comment is used only with a declared maintainer's approving reaction after its last edit, wherever it is read (`plan-anchor.sh verify --dev-app-id`, `spec-find.sh`, the reactions file each reader passes `spec-comment.sh` under a map, and the dispatch preflight's `--spec-reactions`). Under a map a maintainer-authored spec comment needs the same reaction (`WB-D30`); the loop preflight does not yet apply it to a maintainer's comment. The readers are `resume`'s author-trust check (and the `coder`
 agent's, which points at it), `bin/review-sandbox.sh trust`, `plan-sprint` (judging the login and
 id `bin/plan-gather.sh` prints), `spec-task` (the issue it drafts for, read through `bin/spec-issue.sh`) and `scripts/loop/preflight.sh github-dispatch`
 (`--identities`, the one reader that is its own implementation of the rule rather than a call

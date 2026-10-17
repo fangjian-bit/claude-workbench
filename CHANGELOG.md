@@ -27,11 +27,18 @@ review needs the host tools (`install-host-tools.ps1`, `wow-review`) and the rev
 permissions (Issues write, Actions read), accepted by each installation. Repos with
 `identities: null` are unchanged.
 
+**⚠️ Migration** — on a map repo the readers (`resume`, the `coder` agent, `architect-review`) now
+find the spec with `bin/spec-find.sh` (#662, #678, `WB-D30`): a spec comment without the
+`spec-task:` marker is no longer used, so post it with `/way-of-working:spec-task`; every spec
+comment, a maintainer's included, needs a declared maintainer's approving reaction after its last
+edit; and `/way-of-working:handoff` no longer anchors the spec. Repos with `identities: null` are
+unchanged.
+
 ### Added
 
 - **`bin/spec-find.sh`** (#662, part 1): finds the one approved spec comment on a task issue and
-  prints its id and `updated_at`, or a word that means wait. Not yet called by any skill; the
-  readers switch to it in part 2. Tested by `tests/spec-find.test.sh`; invariants checks 16 and 17
+  prints its id and `updated_at`, or a word that means wait. Called by `resume`, the `coder` agent
+  and `architect-review` since part 2 (#678). Tested by `tests/spec-find.test.sh`; invariants checks 16 and 17
   now cover it.
 - **`bin/spec-post.sh`** (#661, `WB-D29`, supersedes `WB-D26`): `spec-task` now posts its checked draft as
   one new comment on the issue when the session acts as the declared dev App, with a first-line marker

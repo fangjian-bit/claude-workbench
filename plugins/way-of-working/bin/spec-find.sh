@@ -1,7 +1,8 @@
 #!/bin/sh
 # Which comment on a task issue is its approved spec? One implementation of the selection
 # WB-D29's binding rules for marker readers set out, so the readers do not each carry it in
-# prose (#662, part 1). Nothing calls it yet: the readers switch to it in part 2.
+# prose (#662). Its callers: /way-of-working:resume, the coder agent and
+# /way-of-working:architect-review (each runs it in the Bash call that uses its result).
 #
 # Usage: spec-find.sh find <issue> <project.yml>
 #

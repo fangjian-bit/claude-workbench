@@ -657,7 +657,7 @@ fi
 
 # --- 15. architect-review never loads the task issue's body under an identities map (#566) --
 #
-# resume and the coder's builder rule read only the anchored spec comment under a map, because
+# resume and the coder's builder rule read only the approved spec comment under a map, because
 # the maintainer's reaction covers the comment and an agent with issue write can edit the body
 # afterwards (#496). architect-review's step 5 still loaded "its body and, when one exists, its
 # anchored spec comment" for every repo, and the schema doc recorded that as "not yet covered".
@@ -684,15 +684,15 @@ done
 if [ -n "$specbody_hits" ]; then
   report "architect-review may load the task issue's body under an identities map (#566)" \
     "$specbody_hits" \
-    "Under a map step 5 loads the anchored spec comment only; keep that rule and the schema text saying it is covered."
+    "Under a map step 5 loads the approved spec comment only; keep that rule and the schema text saying it is covered."
 fi
 
 # --- 16. One spec-reaction rule, one implementation (#613) --------------------------------
 #
 # Whether a declared maintainer reacted to a spec comment after its last edit is asked by
 # plan-anchor.sh (resume's auto-start), by architect-review's Map branch, and by spec-comment.sh
-# for a dev-App-authored comment (#660), and by the loop's dispatch preflight (scripts/loop/preflight.sh)
-# for the same case (#666), and by bin/spec-find.sh, which finds the approved spec comment on a
+# for every declared author under a map (#660, WB-D30), and by the loop's dispatch preflight (scripts/loop/preflight.sh)
+# for a dev-App-authored comment only (#666; #682 tracks the maintainer case), and by bin/spec-find.sh, which finds the approved spec comment on a
 # task issue (#662). Two
 # implementations would let the approval rule drift between the gate that starts work and the
 # review that labels it. Five things are the invariant: plan-anchor.sh, spec-comment.sh and spec-find.sh carry their
@@ -753,19 +753,26 @@ if [ -n "$reaction_hits" ]; then
     "plan-anchor.sh, spec-comment.sh, spec-find.sh, architect-review's SKILL.md and scripts/loop/preflight.sh must all call bin/spec-reaction.sh, not restate the rule."
 fi
 
-# --- 17. The anchored spec comment is printed only after its checks pass (#614) ----------------
+# --- 17. The spec comment is printed only after its checks pass, and found, not listed (#614, WB-D30) --
 #
 # resume's builder rule and the coder's fetch step told the reader to fetch the anchored spec
 # comment and check it "in that same response", so the unchecked text had already entered
 # context by the time a check could fail; architect-review carried its own inline copy of the
 # checks. bin/spec-comment.sh is the one implementation: the fetch goes to a file and the body
-# is printed only after the checks pass. Two things are the invariant, per file: it names
-# spec-comment.sh, and every spec-comment fetch (the path `issues/comments/<id>`) is one of
-# three allowed forms: followed by `/` (the reactions fetch), by ` >"$T/` (redirected into the
-# temp directory) or by ` --jq .updated_at` ending there (the re-check). Anything else after the
-# id, a line end included, is flagged -- an allow-list, so `--jq .body`, `--jq .updated_at,.body`
-# and `|jq` cannot slip through. It sees only the literal `<id>` placeholder those files use; a
-# fetch spelled another way is outside it. A missing file or script fails: a check that cannot
+# is printed only after the checks pass. Per file the invariant is: it names spec-comment.sh;
+# it names spec-find.sh, since under a map the readers find the spec rather than take its id from
+# the anchor (WB-D30); every spec-comment fetch (the path `issues/comments/<id>`, or the same with
+# `$CID` or `${CID}` for the id, one closing `"` allowed) is one of three allowed forms: followed
+# by `/` (the reactions fetch), by ` >"$T/` (redirected into the temp directory) or by
+# ` --jq .updated_at` ending there (the re-check). Anything else after the id, a line end
+# included, is flagged -- an allow-list, so `--jq .body`, `--jq .updated_at,.body` and `|jq`
+# cannot slip through. And it carries no comment LISTING, in any of these forms: an
+# `issues/<x>/comments` path (x not `comments`), `gh issue view` with `--comments` or with
+# `--json` naming `comments`, a GraphQL `comments(` or `comments {`, the repo-wide listing
+# (`issues/comments` followed by anything but `/<id>`, `/$CID` or `/${CID}`) and an
+# `issues/<x>/timeline` path, whose `commented` events carry comment bodies. Only spec-find.sh
+# lists, and it is held to its own rules below. The check sees only those spellings; a fetch or
+# listing spelled another way is outside it. A missing file or script fails: a check that cannot
 # look must not pass (#243's stance).
 speccomment_hits=""
 ls plugins/*/bin/spec-comment.sh >/dev/null 2>&1 || speccomment_hits+="(no plugins/*/bin/spec-comment.sh found)"$'\n'
@@ -775,8 +782,20 @@ for pat in 'skills/resume/SKILL.md' 'skills/architect-review/SKILL.md' 'agents/c
     [ -f "$f" ] || continue
     speccomment_seen=1
     grep -Fq 'spec-comment.sh' "$f" || speccomment_hits+="$f (does not call spec-comment.sh)"$'\n'
-    bare=$(grep -oE 'issues/comments/<id>.{0,24}' "$f" | grep -Ev '^issues/comments/<id>(/| >"\$T/| --jq \.updated_at([^,._A-Za-z]|$))' || true)
+    grep -Fq 'spec-find.sh' "$f" || speccomment_hits+="$f (does not name spec-find.sh)"$'\n'
+    bare=$(grep -oE 'issues/comments/(<id>|\$CID|\$\{CID\})"?.{0,24}' "$f" | grep -Ev '^issues/comments/(<id>|\$CID|\$\{CID\})"?(/| >"\$T/| --jq \.updated_at([^,._A-Za-z]|$))' || true)
     [ -z "$bare" ] || speccomment_hits+="$f (a spec-comment fetch neither redirected to a file nor projected: $(printf '%s' "$bare" | head -n 1))"$'\n'
+    # Comment listings (WB-D30): the finder lists, the readers never do.
+    list=$(grep -oE 'issues/[^/[:space:]]+/comments' "$f" | grep -vx 'issues/comments/comments' || true)
+    [ -z "$list" ] || speccomment_hits+="$f (lists a task issue's comments: $(printf '%s' "$list" | head -n 1))"$'\n'
+    list=$(grep -E 'gh issue view' "$f" | grep -E -e '--comments' -e '--json[^|]*comments' || true)
+    [ -z "$list" ] || speccomment_hits+="$f (lists comments with gh issue view)"$'\n'
+    list=$(grep -E 'comments(\(|[[:space:]]*\{)' "$f" || true)
+    [ -z "$list" ] || speccomment_hits+="$f (a GraphQL comments selection)"$'\n'
+    list=$(grep -oE 'issues/comments.{0,8}' "$f" | grep -Ev '^issues/comments/(<id>|\$CID|\$\{CID\})' || true)
+    [ -z "$list" ] || speccomment_hits+="$f (the repo-wide comment listing: $(printf '%s' "$list" | head -n 1))"$'\n'
+    list=$(grep -E 'issues/[^[:space:]]*/timeline' "$f" || true)
+    [ -z "$list" ] || speccomment_hits+="$f (reads an issue timeline, whose events carry comment bodies)"$'\n'
   done
   [ "$speccomment_seen" -eq 1 ] || speccomment_hits+="(no plugins/*/$pat found)"$'\n'
 done
@@ -802,16 +821,16 @@ for f in plugins/*/bin/spec-find.sh; do
   fi
 done
 if [ -n "$speccomment_hits" ]; then
-  report "the anchored spec comment may reach context before its checks pass (#614)" \
+  report "the spec comment may reach context before its checks pass, or a reader lists comments (#614, WB-D30)" \
     "$speccomment_hits" \
-    "Fetch the comment into a file and print it with bin/spec-comment.sh body; never to the transcript. In bin/spec-find.sh keep the one listing line with its projection, and read no .body elsewhere."
+    "Name bin/spec-find.sh in each reader and take the comment id from its found line; fetch the comment into a file and print it with bin/spec-comment.sh body, never to the transcript; list no comments. In bin/spec-find.sh keep the one listing line with its projection, and read no .body elsewhere."
 fi
 
 # --- 18. The spec-task skill carries no posting form; its one write lives in spec-post.sh (#611, #661, WB-D29) --
 #
 # A dev-App spec comment is used only with a declared maintainer's fresh approving reaction, and a
-# comment a human-trusted login posted would be read as "maintainer-authored", which several readers
-# load without one. So the spec-task skill carries no posting form: no `gh issue comment`, `gh pr
+# comment a human-trusted login posted would be read as "maintainer-authored", which the loop preflight
+# still loads without one (#682). So the spec-task skill carries no posting form: no `gh issue comment`, `gh pr
 # comment` or other `gh issue`/`gh pr` write verb (flags may sit between the words), no `gh label`,
 # and no `gh api` call with `-X`/`--method` POST|PATCH|PUT|DELETE or with `-f`/`-F` (a value may be
 # attached) or `--field`/`--raw-field`/`--input` (any of which turns a read into a write). A command

@@ -1601,7 +1601,9 @@ take effect. Full reasoning and the task breakdown that implements them:
        "the human's merge is the approval" becomes "the human's code-owner approval is the
        approval". `/resume`'s agent-run merge is **removed**, not kept for cursor-sync PRs. A stalled auto-merge (armed, approved, `CLEAN`, approval on the current head) is reported by `pr-checks` with the pinned merge command, never merged by an agent: which App holds the token is not established, so an agent-run stall merge waits on a measured dev-App proof (#432, residual tracked separately).
        Routine cursor fields later move to an unprotected `ai/cursor` branch, while
-       `plan_anchor` changes stay on `{pr_base}` through an approved PR.
+       `plan_anchor` changes stay on `{pr_base}` through an approved PR. *Amended by `WB-D30`:
+       under a map, choosing the spec no longer goes through the anchor's approved PR; the
+       anchor binds the milestone and the task, and the spec is found on GitHub at each read.*
     4. **Claude runs in per-repo dev containers.** They hold no human credential (no
        keyring, browser profile, GPG or `gh` login) and no cloud credential. There is no
        Docker socket. AWS work from a container goes through CI's read-only plan roles;
@@ -1618,7 +1620,8 @@ take effect. Full reasoning and the task breakdown that implements them:
        pairs in a new `identities` key, which reopens `WB-D22`'s rejection of a
        maintainer-login key. Unattended `/resume` auto-start also requires the
        maintainer's **reaction** on the exact spec comment, created after its last edit.
-       An App can edit comments but cannot react as another user.
+       An App can edit comments but cannot react as another user. *Amended by `WB-D30`: the
+       reaction is on the comment `spec-find.sh` selects, not on a comment the anchor names.*
     7. **App-mode review runs in a per-review container the host launches with `wow-review`
        (#514, decided 2026-10-14; built in #634, #635 and #636, not yet live-verified).** The
        reviewer must be a different identity from the PR's author, and a dev container that
@@ -1896,7 +1899,9 @@ take effect. Full reasoning and the task breakdown that implements them:
     - `verify` neither requires nor reads `description_sha256` and never fetches the
       description. Its other checks stay: the milestone is open, its number equals the
       pointer's, and with `--loop-identity` its creator is not the loop's own login. Full mode
-      keeps every task-issue and spec-comment check.
+      keeps every task-issue and spec-comment check. *Qualified by `WB-D30`: under a map, full
+      mode checks the comment named by `--spec-comment` instead of the anchored one, and drops
+      the comparison of `#N`'s `updated_at` when that flag is given.*
     - The first-anchor `hitl_gate` stays, and now means the human confirms which milestone the
       sprint works from.
     - `archive-sprint`'s close step shows the milestone's `BLOCKING:` lines with a selector that
@@ -2015,8 +2020,8 @@ take effect. Full reasoning and the task breakdown that implements them:
     - **The author problem is closed for the dev App only.** `#660` lets the dev App author a spec
       comment that readers use with a declared maintainer's fresh approving reaction, and every
       reader at the time refuses it without one. Posting under any other trusted login would make
-      agent text "maintainer-authored", which `spec-comment.sh` and `architect-review` load
-      without a reaction.
+      agent text "maintainer-authored", which `spec-comment.sh` and `architect-review` then
+      loaded without a reaction (since `WB-D30`, no skill reader loads a spec under a map without one; the loop preflight still does, `#682`).
     - **"Approval as a reflex" is answered by the reaction.** The maintainer reads the posted
       comment on GitHub before reacting, and an unreacted dev-App comment is never used. There is
       no per-task terminal stop.
@@ -2081,6 +2086,70 @@ take effect. Full reasoning and the task breakdown that implements them:
       records also apply.
     - **A `gh` call has no per-call timeout.** A hang ends with no word, which the skill treats as
       `post-unknown`.
+
+- **WB-D30 (`#662`, `#678`) — under a map, the readers find the spec with `spec-find.sh` at each
+  read, and handoff stops anchoring it.** Part 2 of `#662`, after `bin/spec-find.sh` (part 1,
+  `#680`). Amends `WB-D24` items 3 and 6 and the full-mode rule of `WB-D27`; the amended places
+  carry a back-pointer. The spec is the comment GitHub shows approved, so a spec posted, edited or
+  replaced after handoff no longer needs another handoff and another approved cursor-sync PR.
+  - **The decision.**
+    - **Which comment.** Under an `identities` map the spec is the one comment `spec-find.sh`
+      prints as `found`: a `spec-task:` marker comment by a declared maintainer or the declared dev
+      App, which a declared maintainer approved with a reaction after its last edit.
+    - **Who finds it.** `resume` (auto-start and body read), the `coder` agent and
+      `architect-review` run the finder in the Bash call that uses its result. A session pins the
+      first `found` pair, and a later `found` with another pair is a stop that needs a fresh session.
+    - **What handoff anchors.** Handoff anchors the milestone and the task, and writes
+      `spec_comment` as `null`. `plan-anchor.sh verify --spec-comment <id> <updated_at>` checks the
+      found comment as it checked the anchored one, and without it, under `--maintainer-ids`, prints
+      `unreacted` once the milestone and `#N` checks pass, whatever well-formed `spec_comment` the anchor holds.
+    - **Every author needs the reaction.** `spec-comment.sh` requires a declared maintainer's fresh
+      approving reaction under a map whoever the author is, a maintainer's own included, as
+      `spec-find.sh` and `verify` do.
+    - **Legacy.** Repos with `identities: null` keep anchoring exactly as before.
+  - **The rule.**
+    - `verify` drops the comparison of `#N`'s `updated_at` with `task_issue_updated_at` only when
+      `--spec-comment` is given, because posting the spec moves it; open, true issue, repo, number
+      and milestone stay.
+    - `scripts/invariants-check.sh` check 17 now also requires each reader file to name
+      `spec-find.sh` and to carry no comment listing, `timeline` included.
+    - `spec-find.sh`, `spec-reaction.sh`, `gh-identity.sh`, `spec-comment.sh` and their tests join
+      `scripts/loop/protected-paths.txt`.
+  - **The `WB-D30` residuals.**
+    1. An approved spec stays a candidate indefinitely.
+    2. With two approved specs, deleting or editing one picks the other (an edit moves its
+       `updated_at`, so its reaction goes stale). Any account with Issues write can delete it, and
+       the dev App can edit its own comments: the dev App, the reviewer App's host-minted filing token (Issues write since
+       `#636`) and any write collaborator. The loop App holds no Issues permission
+       (`docs/proposals/sprint-orchestrator-plan-v9.md`, its App grant).
+    3. Removing a reaction does not stop a build already running.
+    4. No git record says which spec a build used.
+    5. The review may judge against a different spec than the build used. Today no in-session
+       review loads a spec under a map: host mode stops at the `wow-review` line, and container
+       mode has no `state.json`. So this applies once the review loads specs again.
+    6. The reaction alone selects the spec.
+    7. **No second party before the build.** `WB-D29`'s first residual is no longer limited by
+       the anchor PR's code-owner approval. A session holding a maintainer credential can write
+       and approve a spec with no second party before the build. The PR's code-owner approval is
+       the only remaining gate. An App declared under `identities.maintainer` would likewise
+       approve its own text; the declared config, changed only through a code-owner-approved edit
+       to the default branch, is the control. Where host sessions run as the declared maintainer
+       (this repo's), that is the ordinary case on the host, not an edge case: a session can post
+       a marker comment, react to it and have the next fresh session build from it.
+    8. **Stalling the readers.** An agent with Issues write can stall every reader, failing
+       closed, by editing or deleting the spec or by keeping a marker comment moving. The dev App,
+       or a maintainer credential, can also flood `#N` with marker comments. Each one costs the
+       finder two API calls, with no cap. Other authors' comments are dropped before any per-row
+       call.
+    9. **Unseen `#N` changes.** Under a map, edits to `#N`'s body, title or labels after the
+       anchor no longer stop auto-start or the build. Closing it or moving its milestone still
+       does.
+    10. **The marker is checked once.** Only the finder checks it: `verify --spec-comment` and
+        `spec-comment.sh` trust the finder's selection from the same call.
+    11. **The loop preflight.** `scripts/loop/preflight.sh` does not yet apply the reaction rule
+        to a maintainer-authored spec comment, and its `github-dispatch --no-spec-comment` path
+        still treats a trusted issue body as the spec, which handoff's `null` anchor makes the
+        default shape. Nothing calls it yet. `#682` tracks both.
 
 ## Status
 

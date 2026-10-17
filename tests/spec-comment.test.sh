@@ -1,5 +1,5 @@
 #!/bin/sh
-# Fixture tests for plugins/way-of-working/bin/spec-comment.sh: the anchored spec comment's
+# Fixture tests for plugins/way-of-working/bin/spec-comment.sh: the spec comment's
 # checks (id, edit, issue, author trust, and a dev-App author's fresh maintainer reaction), shared by
 # resume, the coder and architect-review (#614, #660).
 #
@@ -76,17 +76,28 @@ expect_body_refused() { # <desc> <word>
   assert_eq "$1 (body rc)" 1 "$rc"
 }
 
+# Under a map every declared author needs a declared maintainer's reaction strictly after the
+# last edit (WB-D30). rx <name> <rows...>: write $tmp/<name>.tsv, one TAB-separated row each.
+rx() { n="$1"; shift; : >"$tmp/$n.tsv"; for r in "$@"; do printf '%s\n' "$r" >>"$tmp/$n.tsv"; done; }
+T="$(printf '\t')"
+rx fresh "1001${T}heart${T}2026-10-14T19:20:00Z"
+rx own "2001${T}heart${T}2026-10-14T19:20:00Z"
+rx stale "1001${T}heart${T}2026-10-14T19:17:38Z"
+rx equal "1001${T}heart${T}$UPD"
+rx wrongkind "1001${T}eyes${T}2026-10-14T19:20:00Z"
+: >"$tmp/emptyrx.tsv"
+
 # -- ok, and the body is printed exactly --------------------------------------------------
 mk good alice-dev 1001 NONE
-run check "$tmp/good.json" "$tmp/map.yml"
+run check "$tmp/good.json" "$tmp/map.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/fresh.tsv"
 expect_check "maintainer under a map" ok
-run body "$tmp/good.json" "$tmp/map.yml"
+run body "$tmp/good.json" "$tmp/map.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/fresh.tsv"
 assert_eq "body: multi-line text, exactly" "$(printf '## Spec\n\nline two')" "$out"
 assert_eq "body: rc 0" 0 "$rc"
 assert_eq "body: nothing on stderr" "" "$err"
 
 mk dash alice-dev 1001 NONE '- leading dash\n---\ntrue\n$(echo no)\n`x`'
-run body "$tmp/dash.json" "$tmp/map.yml"
+run body "$tmp/dash.json" "$tmp/map.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/fresh.tsv"
 assert_eq "body: leading dash, rule line, shell metacharacters verbatim" \
   "$(printf '%s\n%s\n%s\n%s\n%s' '- leading dash' '---' 'true' '$(echo no)' '`x`')" "$out"
 
@@ -117,14 +128,6 @@ expect_check "moved and wrong issue names moved" moved
 # -- author trust ---------------------------------------------------------------------------------
 # The dev App may author, but only with a declared maintainer's reaction strictly after the
 # last edit (#660). rx <name> <rows...>: write $tmp/<name>.tsv, one TAB-separated row each.
-rx() { n="$1"; shift; : >"$tmp/$n.tsv"; for r in "$@"; do printf '%s\n' "$r" >>"$tmp/$n.tsv"; done; }
-T="$(printf '\t')"
-rx fresh "1001${T}heart${T}2026-10-14T19:20:00Z"
-rx own "2001${T}heart${T}2026-10-14T19:20:00Z"
-rx stale "1001${T}heart${T}2026-10-14T19:17:38Z"
-rx equal "1001${T}heart${T}$UPD"
-rx wrongkind "1001${T}eyes${T}2026-10-14T19:20:00Z"
-: >"$tmp/emptyrx.tsv"
 
 mk dev 'acme-dev[bot]' 2001 NONE
 run check "$tmp/dev.json" "$tmp/map.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/fresh.tsv"
@@ -157,13 +160,29 @@ printf 'identities:\n  maintainer:\n    - { login: alice-dev, id: 1001 }\n    - 
 run check "$tmp/dev.json" "$tmp/dupapp.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/own.tsv"
 expect_check "dev App id also declared a maintainer" untrusted
 
-# A maintainer's word never depends on the reactions argument.
+# A maintainer's word depends on the reactions argument too (WB-D30): any declared maintainer's
+# fresh approving reaction, their own included, and nothing else.
 run check "$tmp/good.json" "$tmp/map.yml"
-expect_check "maintainer, no reactions file" ok
+expect_check "maintainer, no reactions file" unreacted
 run check "$tmp/good.json" "$tmp/map.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/emptyrx.tsv"
-expect_check "maintainer, empty reactions file" ok
+expect_check "maintainer, empty reactions file" unreacted
 run check "$tmp/good.json" "$tmp/map.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/nofile.tsv"
-expect_check "maintainer, missing reactions file" ok
+expect_check "maintainer, missing reactions file" unreacted
+run check "$tmp/good.json" "$tmp/map.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/stale.tsv"
+expect_check "maintainer, stale reaction" unreacted
+run check "$tmp/good.json" "$tmp/map.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/wrongkind.tsv"
+expect_check "maintainer, a reaction that does not approve" unreacted
+run check "$tmp/good.json" "$tmp/map.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/own.tsv"
+expect_check "maintainer, only the dev App reacted" unreacted
+run body "$tmp/good.json" "$tmp/map.yml"
+expect_body_refused "maintainer, no reactions file" unreacted
+# Their own fresh reaction approves a maintainer's comment; so does another maintainer's.
+run check "$tmp/good.json" "$tmp/map.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/fresh.tsv"
+expect_check "maintainer, their own fresh reaction" ok
+printf 'identities:\n  maintainer:\n    - { login: alice-dev, id: 1001 }\n    - { login: bob-dev, id: 1002 }\n  dev_app: { login: "acme-dev[bot]", id: 2001 }\n' >"$tmp/two.yml"
+rx bobs "1002${T}rocket${T}2026-10-14T19:20:00Z"
+run check "$tmp/good.json" "$tmp/two.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/bobs.tsv"
+expect_check "maintainer, another maintainer's fresh reaction" ok
 
 # The dev App's login on another id, or its id under another login, is no dev App.
 mk devlogin 'acme-dev[bot]' 2099 NONE
@@ -286,7 +305,7 @@ assert_eq "slash-less invocation refuses (rc)" 2 "$rc"
 
 # -- siblings ---------------------------------------------------------------------------------------
 # A missing spec-reaction.sh is exit 2 with nothing on stdout for a dev-App author, never
-# `unreacted`; a maintainer's word does not depend on it (#660).
+# `unreacted`; under a map a maintainer's word depends on it too (WB-D30).
 sib="$tmp/sib"
 mkdir "$sib"
 cp "$script" "$sib/spec-comment.sh"
@@ -298,9 +317,15 @@ for m in check body; do
   assert_eq "no spec-reaction.sh, dev App, $m (rc)" 2 "$rc"
 done
 rc=0
-out="$(sh "$sib/spec-comment.sh" check "$tmp/good.json" $REPO $ISSUE $CID $UPD "$tmp/map.yml" 2>/dev/null)" || rc=$?
-assert_eq "no spec-reaction.sh, maintainer (stdout)" ok "$out"
-assert_eq "no spec-reaction.sh, maintainer (rc)" 0 "$rc"
+out="$(sh "$sib/spec-comment.sh" check "$tmp/good.json" $REPO $ISSUE $CID $UPD "$tmp/map.yml" "$tmp/fresh.tsv" 2>/dev/null)" || rc=$?
+assert_eq "no spec-reaction.sh, maintainer (stdout)" "" "$out"
+assert_eq "no spec-reaction.sh, maintainer (rc)" 2 "$rc"
+# A legacy author needs neither the reactions nor the sibling.
+mk owner stranger 9999 OWNER
+rc=0
+out="$(sh "$sib/spec-comment.sh" check "$tmp/owner.json" $REPO $ISSUE $CID $UPD "$tmp/null.yml" 2>/dev/null)" || rc=$?
+assert_eq "no spec-reaction.sh, legacy OWNER (stdout)" ok "$out"
+assert_eq "no spec-reaction.sh, legacy OWNER (rc)" 0 "$rc"
 
 # A spec-reaction.sh that exits 2 (a bad argument) is `unreacted`; the sibling's word decides.
 printf '#!/bin/sh\nexit 2\n' >"$sib/spec-reaction.sh"

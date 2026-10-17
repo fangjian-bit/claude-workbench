@@ -1,8 +1,9 @@
 #!/bin/sh
 # Has a declared maintainer reacted to a spec comment since its last edit? One rule, one
-# implementation, for the three callers that ask it: plan-anchor.sh's `verify` (resume's auto-start
+# implementation, for the callers that ask it: plan-anchor.sh's `verify` (resume's auto-start
 # check), /way-of-working:architect-review's *Task spec* paragraph (Map branch), which labels the spec it loaded (#613),
-# and spec-comment.sh, for a dev-App-authored comment (#660).
+# spec-comment.sh, for a comment by any author under an identities map (#660, #678), spec-find.sh
+# (#662) and the loop's dispatch preflight (#666).
 # Before this, plan-anchor.sh carried the rule inline and /way-of-working:architect-review could only say
 # "approval not re-verified".
 #
@@ -28,7 +29,7 @@
 #                 fatal: it cannot approve, so skipping is the closed direction.
 # Exits 2, printing NOTHING to stdout, when an argument is bad (wrong count, an id list that
 # is empty or is not comma-separated digits, a malformed timestamp). The caller decides what
-# 2 means; both callers treat it as "could not verify", never as approved.
+# 2 means; every caller treats it as "not approved" (unreadable, unreacted, no spec or a stop), never as approved.
 #
 # Strictly after, because an edit made in the same second as the reaction cannot be ordered
 # against it, and an unordered reaction does not approve text it may not have seen. The

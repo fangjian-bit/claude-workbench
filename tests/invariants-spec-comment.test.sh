@@ -1,7 +1,8 @@
 #!/bin/sh
-# Fixture tests for scripts/invariants-check.sh's check 17: the anchored spec comment is
-# printed only after its checks pass -- resume, architect-review and the coder each call
-# spec-comment.sh, and none fetches the comment unprojected and unredirected (#614).
+# Fixture tests for scripts/invariants-check.sh's check 17: the spec comment is printed only
+# after its checks pass -- resume, architect-review and the coder each call spec-comment.sh,
+# none fetches the comment unprojected and unredirected (#614), each names spec-find.sh and none
+# lists a task issue's comments (WB-D30).
 #
 # Each case mutates a COPY of the real tree and asserts the check fires (or stays silent), so
 # a check that only passes on the real tree cannot hide. Only check 17's own message is
@@ -17,7 +18,7 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
 fail=0
-MSG="the anchored spec comment may reach context before its checks pass"
+MSG="the spec comment may reach context before its checks pass"
 
 tree() {
   d="$tmp/$1"
@@ -57,6 +58,56 @@ for pat in skills/resume/SKILL.md skills/architect-review/SKILL.md agents/coder.
   sed 's/spec-comment\.sh/some-other-check.sh/g' "$f" >"$f.new" && mv "$f.new" "$f"
   assert_fires "$pat without a spec-comment.sh call fires" "$d"
 done
+
+# Each of the three readers no longer naming spec-find.sh fires (WB-D30).
+for pat in skills/resume/SKILL.md skills/architect-review/SKILL.md agents/coder.md; do
+  d="$(tree "nofind-$(basename "$(dirname "$pat")")")"
+  f="$(ls "$d"/plugins/*/"$pat")"
+  sed 's/spec-find\.sh/some-other-finder.sh/g' "$f" >"$f.new" && mv "$f.new" "$f"
+  assert_fires "$pat without a spec-find.sh mention fires" "$d"
+done
+
+# A comment listing, in each reader, fires -- every form check 17 names.
+for pat in skills/resume/SKILL.md skills/architect-review/SKILL.md agents/coder.md; do
+  d="$(tree "list-$(basename "$(dirname "$pat")")")"
+  f="$(ls "$d"/plugins/*/"$pat")"
+  printf '%s\n' 'List them with gh api repos/{backlog.repo}/issues/$N/comments --paginate.' >>"$f"
+  assert_fires "$pat with an issue comment listing fires" "$d"
+done
+for form in 'gh api repos/{backlog.repo}/issues/<N>/comments --paginate' \
+  'gh issue view 12 --comments' \
+  'gh issue view 12 --json title,comments' \
+  'gh issue view 12 --repo o/r --json comments --jq .comments' \
+  'query { repository { issue(number: 12) { comments(first: 5) { nodes { id } } } } }' \
+  'query { repository { issue(number: 12) { comments { nodes { id } } } } }' \
+  'gh api repos/{backlog.repo}/issues/comments --paginate' \
+  'gh api "repos/{backlog.repo}/issues/comments?per_page=100"' \
+  'gh api repos/{backlog.repo}/issues/comments' \
+  'gh api repos/{backlog.repo}/issues/$N/timeline --paginate'; do
+  d="$(tree "listform-$(printf '%s' "$form" | cksum | cut -d' ' -f1)")"
+  f="$(ls "$d"/plugins/*/agents/coder.md)"
+  printf '%s\n' "$form" >>"$f"
+  assert_fires "a comment listing form fires: $form" "$d"
+done
+
+# The $CID spellings of the fetch are held to the same allow-list.
+for form in 'gh api repos/{backlog.repo}/issues/comments/$CID --jq .body' \
+  'gh api "repos/{backlog.repo}/issues/comments/$CID" --jq .body' \
+  'gh api repos/{backlog.repo}/issues/comments/${CID}|jq -r .body' \
+  'gh api repos/{backlog.repo}/issues/comments/$CID'; do
+  d="$(tree "cidform-$(printf '%s' "$form" | cksum | cut -d' ' -f1)")"
+  f="$(ls "$d"/plugins/*/agents/coder.md)"
+  printf '%s\n' "$form" >>"$f"
+  assert_fires "an unprojected \$CID fetch fires: $form" "$d"
+done
+
+d="$(tree cidlegal)"
+f="$(ls "$d"/plugins/*/agents/coder.md)"
+printf '%s\n' \
+  'Redirected: gh api "repos/{backlog.repo}/issues/comments/$CID" >"$T/c.json" then check it.' \
+  'Braced: gh api "repos/{backlog.repo}/issues/comments/${CID}" >"$T/c.json" then check it.' \
+  'Reactions: gh api "repos/{backlog.repo}/issues/comments/$CID/reactions" --paginate >"$T/rx.tsv".' >>"$f"
+assert_silent "the \$CID fetches redirected into the temp directory are legal" "$d"
 
 # A bare fetch, in each reader, fires: closing backtick right after the id.
 for pat in skills/resume/SKILL.md skills/architect-review/SKILL.md agents/coder.md; do

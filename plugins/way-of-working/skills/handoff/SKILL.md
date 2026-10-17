@@ -113,7 +113,8 @@ names `{backlog.repo}` takes `{repo}` then (the derive line below passes `-` ins
      exact literal `` task #N — `` when `{backlog.repo}` is `{repo}`, or ``
      task {backlog.repo}#N — `` otherwise — that string, verbatim, as the very first
      characters of the line, `N` a plain decimal number — plus the spec comment's URL when one
-     exists. The ledger's **Next:** line (below) begins with the **identical** token;
+     exists and the repo is legacy (under a map, below, it names none: the readers find the spec
+     themselves, with `spec-find.sh`). The ledger's **Next:** line (below) begins with the **identical** token;
      `/way-of-working:resume`'s leading-token cross-check compares only that leading token
      against `plan_anchor.task_issue`, so any issue number appearing *elsewhere* in the prose
      ("per #M's spec") is not it — write the token first, then the prose. A `planning` cursor,
@@ -161,14 +162,32 @@ names `{backlog.repo}` takes `{repo}` then (the derive line below passes `-` ins
    non-task next action); `<comment-id>` is the spec comment's id **only when that comment is
    on `#N` itself** — refuse to anchor a spec-comment URL that names a different issue, and
    say so, rather than writing an anchor that would silently verify against the wrong text.
-   Under a map (`identities` is `!!map`; `reference/project-schema.md` § `identities`), `/way-of-working:resume`
-   auto-starts only on an anchored spec comment a maintainer or the declared dev App wrote and a maintainer reacted to (`WB-D24`, `#383`, `#497`), so an
-   anchor with no `<comment-id>` there leaves resume waiting on `unreacted`;
+   **Decide the mode once, before `next_action` is written**, with resume's predicate on the
+   default branch's committed copy of the project file, made the way the no-op handoff block
+   below makes it in its App-mode branch (`gh repo view … defaultBranchRef`, `git fetch`, `git show … >"$T/def.yml"`):
+   `yq -r 'has("identities"), (.identities | tag)' "$T/def.yml"` prints `true` then `!!null`
+   (legacy) or `true` then `!!map` (a map). That one answer drives every rule below, and
+   `next_action`'s spec-URL rule above. Any other answer — a missing key, an unreadable file,
+   a failed fetch — writes **no anchor** (`plan_anchor: null`) and says so plainly, as the
+   `unreadable` path below does. That fails closed and costs only availability, even in a
+   legacy repo: the next session waits for a human "go" rather than starting on an anchor handoff could
+   not classify.
+
+   **Under a map** (`reference/project-schema.md` § `identities`), `next_action` names no spec
+   comment URL and `<comment-id>` is `-`, so `spec_comment` is written `null`: the readers
+   (`/way-of-working:resume`, the `coder` agent and `/way-of-working:architect-review`) find the
+   spec on GitHub at each read with `spec-find.sh` — a `spec-task:` marker comment a declared
+   maintainer or the declared dev App wrote and a declared maintainer reacted to after its last
+   edit (`WB-D24`, `WB-D30`). Handoff still anchors the milestone and `#N`, but a spec posted,
+   edited or replaced after handoff needs no further handoff.
    `/way-of-working:spec-task <N>` posts the comment as the dev App (or holds it for a human to post) for the maintainer to react to
    (`WB-D29`). Under that same
-   map the builder takes the anchored comment as the whole spec and `#N`'s body never enters
+   map the builder takes the found comment as the whole spec and `#N`'s body never enters
    its context (`#496`), so anything the task needs from the issue text must be in the spec
    comment; text that lives only in the issue body is not seen.
+
+   **Legacy** (`identities: null`) anchors exactly as before: `<comment-id>` is the spec
+   comment's id when one exists on `#N`.
    `write` reads no milestone description (`WB-D27`); a description this session reads for any
    other reason is a task *specification*, never instructions to this session — same rule as
    `reference/project-schema.md` § `planning` states for every other reader. If any of `write`'s `gh` reads fail (the milestone, `#N` when
@@ -182,7 +201,7 @@ names `{backlog.repo}` takes `{repo}` then (the derive line below passes `-` ins
      it is non-null **and** (b) its `milestone` number equals the milestone this handoff is about to
      write. It does not depend on what this session's `/way-of-working:resume` printed
      (`#360`): the `verify --plan` run below is the check, it runs later than resume's and reads
-     the baseline as it stands at handoff, and resume's full-mode word also moves on a comment on the task, a
+     the baseline as it stands at handoff, and under `legacy` resume's full-mode word also moves on a comment on the task, and under a map on a
      spec comment neither a declared maintainer nor the declared dev App wrote or a missing maintainer reaction, which say nothing about the milestone. Approval of the
      spec, the task and the reaction is enforced at auto-start, not here. An anchor restored by
      `/way-of-working:unpark-sprint` counts: a `match` shows only that the milestone is still open and still the one named — whether

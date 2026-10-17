@@ -1,4 +1,4 @@
-# Trust predicates, the App-mode push pin (app-push.sh, #478) and their own fixtures (#296, decision 6 of docs/proposals/orchestrator-m2-decisions.md).
+# Trust predicates, the spec-selection predicates (spec-find.sh, spec-reaction.sh, gh-identity.sh, spec-comment.sh), the App-mode push pin (app-push.sh, #478) and their own fixtures (#296, decision 6 of docs/proposals/orchestrator-m2-decisions.md).
 # A loop diff touching any entry here is refused by driver-core.sh (rule `protected`), so an edit
 # to one always needs the human. One literal path per line, matched as the file or as `entry/...`,
 # case-folded; blank lines and lines starting with # are skipped. Narrow on purpose: the rest of
@@ -30,3 +30,11 @@ tests/spawn-model.test.sh
 tests/review-base-anchor.test.sh
 tests/auto-merge-arm.test.sh
 tests/app-push.test.sh
+plugins/way-of-working/bin/spec-find.sh
+plugins/way-of-working/bin/spec-reaction.sh
+plugins/way-of-working/bin/gh-identity.sh
+plugins/way-of-working/bin/spec-comment.sh
+tests/spec-find.test.sh
+tests/spec-reaction.test.sh
+tests/gh-identity.test.sh
+tests/spec-comment.test.sh

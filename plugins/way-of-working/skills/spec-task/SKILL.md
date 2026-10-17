@@ -8,7 +8,7 @@ description: >-
   number. Reads only that issue, and only when its author is trusted (a declared
   identities.maintainer, or the legacy OWNER/MEMBER/COLLABORATOR allowlist). Posts only after
   bin/spec-shape.sh says ok, and only through bin/spec-post.sh; a declared maintainer then reacts
-  on GitHub, and /way-of-working:handoff anchors the comment. Never edits, deletes or reacts to
+  on GitHub, and once they have, under a map, the readers find the comment. Never edits, deletes or reacts to
   a comment, never edits the issue, never builds. Run in a session on models.architect (or as an
   architect subagent, its model confirmed or labelled), just in time, right before the task is
   next -- not at planning time.
@@ -22,12 +22,13 @@ reviewed spec instead of improvising one. **This skill drafts, posts or holds, a
 (`WB-D29`). When the session acts as the declared dev App it posts the draft itself, as one new
 comment on `#N`, through `bin/spec-post.sh`. As any other login, or in a repo with no `identities`
 map, the script composes the same comment and holds it for a human to post. Approval does not
-move: a declared maintainer reacts to the comment on GitHub, and every reader refuses a dev-App
-spec without that reaction. `/way-of-working:handoff` then anchors the comment
-(`plan-anchor.sh write … <N> <comment-id>`).
+move: a declared maintainer reacts to the comment on GitHub, and every skill reader under a map refuses a dev-App
+spec, or a maintainer's own, without that reaction (the loop preflight does not yet for a maintainer's own, `#682`). Once a maintainer has reacted, the
+readers find the comment themselves with `bin/spec-find.sh` (`WB-D30`); `/way-of-working:handoff`
+no longer anchors it under a map.
 
-- Only the dev App posts, so "maintainer-authored" keeps meaning "a human posted it", which
-  readers rely on when they load a maintainer's spec without a reaction.
+- Only the dev App posts, so a posted comment is attributable to the App and a human's comment
+  stays a human's; under a map a skill reader uses it only after a declared maintainer's reaction.
 - There is no confirmation stop in the session: the maintainer reading the posted comment before
   reacting is the review, and an unreacted dev-App comment is never used.
 
@@ -224,8 +225,8 @@ session context: the comment is public.
    `bin/spec-post.sh` is the only thing that writes to GitHub or writes the marker line; its
    header is the contract. It prints one line, and the skill acts on it:
    - **`posted <id> <login> <url>`**: print the URL and the id, then the next steps: a declared
-     maintainer reacts to the comment with an approving reaction after its last edit; the next
-     `/way-of-working:handoff` anchors that comment id; build in a fresh session, since this one
+     maintainer reacts to the comment with an approving reaction after its last edit; once they
+     have, the readers find that comment; build in a fresh session, since this one
      has read `#N`'s body, which under an identities map the builder must not have in context.
    - **`held <reason> <path>`**: print the reason and the absolute path of `comment.md`, taken
      from this skill's own directory line (`<OUTDIR>/comment.md`), not from the path the script

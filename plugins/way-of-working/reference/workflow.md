@@ -349,8 +349,8 @@ description and cannot be mistaken for the human's approval.
 - **`/way-of-working:spec-task <N>`** — the spec-comment half of the Opus planning role. Run
   just in time, right before task `#N` is next: it reads the issue only when its author is
   trusted, drafts the spec comment in the fixed shape against the PR base's tree, then **posts it as the dev App or holds it for a human to post, and stops
-  (`bin/spec-post.sh`)**. A declared maintainer reacts on GitHub, then
-  `/way-of-working:handoff` anchors it. Never edits, deletes or reacts (`WB-D29`). Runs on `models.architect`.
+  (`bin/spec-post.sh`)**. A declared maintainer reacts on GitHub, and once they have,
+  under a map, the readers find it. Never edits, deletes or reacts (`WB-D29`). Runs on `models.architect`.
 - **`/way-of-working:park-sprint <next-id>`** — set the live sprint aside mid-flight:
   snapshot its cursor into tracked `.ai/parked/<id>-*`, seed the live cursor for the next
   sprint, and open the docs-only cursor-sync PR. Mechanical; any model.

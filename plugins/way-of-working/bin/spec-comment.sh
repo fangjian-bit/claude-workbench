@@ -1,6 +1,6 @@
 #!/bin/sh
-# Is the anchored spec comment the one a declared maintainer or the declared dev App wrote, on the task it claims, unedited
-# since the anchor? One implementation of those checks, shared by the three readers that print
+# Is the spec comment the one a declared maintainer or the declared dev App wrote, on the task it claims, unedited
+# since the pair the caller holds (the anchor's, or under a map the finder's `found` pair)? One implementation of those checks, shared by the three readers that print
 # the comment: /way-of-working:resume's *body read (TOCTOU closure)* rule, the coder agent's *fetch the task once* step and
 # /way-of-working:architect-review's *Load context lean* step (#614). Before this each carried the checks in its
 # own prose, and a reader that skipped one (or fetched the comment to the transcript before
@@ -8,18 +8,20 @@
 #
 # Usage: spec-comment.sh check|body <comment.json> <backlog-repo> <issue> <comment-id> <updated_at> <project.yml> [<reactions.tsv>]
 #
-#   <comment.json>   the caller's own fetch of the ONE anchored comment, to a file:
+#   <comment.json>   the caller's own fetch of the ONE spec comment, to a file:
 #                      gh api repos/{backlog.repo}/issues/comments/<id> >"$T/c.json"
 #                    never to the transcript and never piped in: a failed fetch through a pipe
 #                    reads as an empty file, and the caller must stop on its non-zero exit
 #                    before this script runs. This script makes NO network call.
 #   <backlog-repo>   owner/name of {backlog.repo}
 #   <issue>          the task issue number (plan_anchor.task_issue), digits
-#   <comment-id>     plan_anchor.spec_comment.id, digits
-#   <updated_at>     plan_anchor.spec_comment.updated_at, YYYY-MM-DDTHH:MM:SSZ
+#   <comment-id>     the spec comment's id, digits: under a map the finder's `found` id (CID); in
+#                    legacy plan_anchor.spec_comment.id
+#   <updated_at>     its updated_at, YYYY-MM-DDTHH:MM:SSZ: the finder's (CUP) or, in legacy,
+#                    plan_anchor.spec_comment.updated_at
 #   <project.yml>    the DEFAULT branch's committed copy (the callers' $DEF_YML_FILE), never the
 #                    working tree's, which a branch under review can edit
-#   <reactions.tsv>  optional, read only for a dev-App author: the caller's own capture of
+#   <reactions.tsv>  optional, read under a map for every declared author (a maintainer's and the dev App's): the caller's own capture of
 #                      gh api "repos/<backlog-repo>/issues/comments/<comment-id>/reactions" --paginate \
 #                        --jq '.[] | [(.user.id|tostring), .content, .created_at] | @tsv' >"$T/rx.tsv"
 #                    the projection plan-anchor.sh uses, to a file with its exit status checked.
@@ -28,32 +30,35 @@
 #                    comment id, in the same Bash call. This script cannot see which file was
 #                    fetched first; it RELIES on that order, and every caller's prose must keep
 #                    it. Then an edit after the reactions read moves the comment's `updated_at`
-#                    off the anchored value, which is reported as `moved`. A maintainer or
-#                    legacy author ignores the argument.
+#                    off the <updated_at> argument, which is reported as `moved`. A legacy author ignores
+#                    the argument.
 #
 # check prints exactly one word to stdout and exits 0 -- the FIRST failing check, in this order:
 #   ok           -- all of the below hold
 #   wrong-id     -- `.id` is not <comment-id>
-#   moved        -- `.updated_at` is not <updated_at>: the comment was edited after the anchor
+#   moved        -- `.updated_at` is not <updated_at>: the comment was edited since that pair was read
 #   wrong-issue  -- `.issue_url` is not https://api.github.com/repos/<backlog-repo>/issues/<issue>
 #   untrusted    -- the author is not trusted. `gh-identity.sh role` on `.user.login` and
-#                   `.user.id`: `maintainer` passes; `legacy` (identities null, the repo has not cut
-#                   over) passes only when `.author_association` is OWNER, MEMBER or
-#                   COLLABORATOR; `dev_app` goes on to the reaction check below; `reviewer_app`,
+#                   `.user.id`: `maintainer` and `dev_app` go on to the reaction check below; `legacy`
+#                   (identities null, the repo has not cut over) passes only when
+#                   `.author_association` is OWNER, MEMBER or COLLABORATOR; `reviewer_app`,
 #                   `loop_app`, `undeclared`, an exit of 2 and any other word fail
-#   unreacted    -- the author is the declared dev App and no declared maintainer has approved
-#                   the text. A dev-App spec is never used, by any reader, without a declared
-#                   maintainer's approving reaction (the four spec-reaction.sh accepts) created
-#                   strictly after its last edit: the dev App can write a spec but cannot approve
-#                   one, since an App cannot react as another user (WB-D24 item 6). The rule is
+#   unreacted    -- under a map, the author is a declared maintainer or the declared dev App and no
+#                   declared maintainer has approved the text. A spec is never used, by any of the three readers above,
+#                   without a declared maintainer's approving reaction (the four spec-reaction.sh
+#                   accepts) created strictly after its last edit (WB-D24 item 6, WB-D30): the dev
+#                   App can write a spec but cannot approve one, since an App cannot react as another
+#                   user, and a maintainer's own reaction approves their own comment. The rule is
 #                   spec-reaction.sh, run on the comment's
 #                   `updated_at`, the maintainer ids read from <project.yml> (only under a map,
 #                   `identities.maintainer`, aliases expanded, every `id` an !!int above 0, at
 #                   least one; anything else is `unreacted`) and the reactions file. Only
 #                   `approved` passes. No file, a missing or unreadable file, an exit 2 from
 #                   spec-reaction.sh and any other word are `unreacted`, never `unreadable`, which
-#                   still covers the comment file only. A maintainer's comment carries no such
-#                   condition here (plan-anchor.sh alone asks it of every author).
+#                   still covers the comment file only. A legacy comment (identities null) carries
+#                   no such condition. The dev App's id on the approver list is `unreacted` for a
+#                   dev-App author only; a maintainer author is approved by any declared
+#                   maintainer's reaction, their own included, as in spec-find.sh and plan-anchor.sh.
 #   unreadable  -- the file is missing, is not JSON, or lacks a field (or has one of the wrong
 #                   type) the checks read. Decided before any other word.
 # It never prints `.body`.
@@ -66,7 +71,7 @@
 # Exits 2, printing nothing to stdout, when an argument is bad: the wrong argument count, an
 # unknown mode, a repo that is not owner/name, an issue or comment id that is not digits, a
 # malformed <updated_at>, or an unreadable <project.yml> -- and when it cannot find its sibling
-# gh-identity.sh (a slash-less $0, or none beside it), or, for a dev-App author only, its
+# gh-identity.sh (a slash-less $0, or none beside it), or, for a declared author under a map, its
 # sibling spec-reaction.sh: a broken install must not read as "waiting for a maintainer
 # reaction", so that is exit 2 with nothing on stdout, never `unreacted`. (An exit 2 FROM
 # spec-reaction.sh, a bad argument, is `unreacted`.) The caller treats any non-zero exit as a
@@ -77,8 +82,8 @@
 # gh-identity.sh and spec-reaction.sh are the SIBLING copies and only those: a slash-less `$0`
 # would resolve `dirname` to the current directory, where a branch under review could supply
 # one that prints `dev_app` or `approved` (plan-anchor.sh does the same for spec-reaction.sh).
-# spec-reaction.sh is looked for only when the author is the dev App, so a maintainer's word
-# never depends on it.
+# spec-reaction.sh is looked for only when the author is a declared maintainer or the dev App (a
+# map), so a legacy author's word never depends on it.
 #
 # Permitted toolset: POSIX sh and yq (mikefarah v4, which reads JSON), the toolset gh-identity.sh
 # already needs. No system jq, no python.
@@ -132,21 +137,20 @@ verdict() {
 
   if who="$(sh "$gi" role "$f_login" "$f_uid" "$yml" 2>/dev/null)"; then
     case "$who" in
-      maintainer) echo ok; return ;;
+      maintainer | dev_app) reaction_word "$who"; return ;;
       legacy)
         assoc="$(J '.author_association | select(tag == "!!str")')" || assoc=
         case "$assoc" in OWNER | MEMBER | COLLABORATOR) echo ok; return ;; esac
         echo untrusted; return ;;
-      dev_app) dev_app_word; return ;;
     esac
   fi
   echo untrusted
 }
 
-# A dev-App author needs a declared maintainer's fresh approving reaction. A missing sibling
-# exits 2 (out of verdict()'s command substitution, nothing on stdout); everything else that
-# is not `approved` is `unreacted`.
-dev_app_word() {
+# A declared author (maintainer or dev App) needs a declared maintainer's fresh approving
+# reaction. A missing sibling exits 2 (out of verdict()'s command substitution, nothing on
+# stdout); everything else that is not `approved` is `unreacted`.
+reaction_word() {
   [ -f "$sr" ] || { echo "spec-comment.sh: spec-reaction.sh not beside this script" >&2; exit 2; }
   [ -n "$rx" ] && [ -f "$rx" ] && [ -r "$rx" ] || { echo unreacted; return; }
   m_total="$(yq -r 'explode(.) | .identities.maintainer | select(tag == "!!seq") | length' "$yml" 2>/dev/null)" || { echo unreacted; return; }
@@ -155,7 +159,10 @@ dev_app_word() {
   m_good="$(printf '%s' "$ids" | awk -F, '{print NF}')"
   [ "$m_good" = "$m_total" ] || { echo unreacted; return; }
   # The dev App is never an approver: its id on the maintainer list could approve its own text.
-  case ",$ids," in *",$f_uid,"*) echo unreacted; return ;; esac
+  # A maintainer author is approved by any declared maintainer's reaction, their own included.
+  if [ "$1" = dev_app ]; then
+    case ",$ids," in *",$f_uid,"*) echo unreacted; return ;; esac
+  fi
   if got="$(sh "$sr" "$updated" "$ids" <"$rx" 2>/dev/null)" && [ "$got" = approved ]; then
     echo ok
   else
