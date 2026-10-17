@@ -537,7 +537,7 @@ check "golden: every revocation precedes the first outbox-read" test "$(ev_last 
 
 # docker create argv
 cs=$(grep '^CALL \[create\].*wow-review-session' "$STUB/docker.calls")
-for want in "[--label] [wow.review=1]" "[--read-only]" "[--cap-drop] [ALL]" "[no-new-privileges]" "[--log-opt] [max-size=10m]" "[--log-opt] [max-file=1]" \
+for want in "[--label] [wow.review=1]" "[--read-only]" "[--cap-drop] [ALL]" "[no-new-privileges]" "[--log-opt] [max-size=10m]" "[--log-opt] [max-file=1]" "[--log-opt] [compress=false]" \
     "[/home/app:rw,nosuid,uid=1000,gid=1000,mode=0700,size=1g]" "[/tmp:rw,nosuid,size=512m]" "volume-nocopy=true]" \
     "target=/run/glunk-identity/review,readonly]" "target=/work,volume-nocopy=true]" "target=/review-out,volume-nocopy=true]" \
     "[WOW_REVIEW_SHA=$SHA]" "[WOW_REVIEW_MODEL=opus]" "[WOW_REVIEW_REPO=o/r]" "[WOW_REVIEW_PR=7]" \

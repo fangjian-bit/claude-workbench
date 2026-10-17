@@ -495,9 +495,11 @@ dkp run -d --name "$H" --network none --read-only --cap-drop ALL --security-opt 
   --entrypoint sleep "$TAG" infinity >/dev/null || fail "cannot start the outbox holder"
 
 # ---- 9. create, preflight, re-mint, start, unlock --------------------------------------------
+# compress=false: the `local` log driver (Docker Desktop's default) compresses unless told not to,
+# and refuses max-file=1 with compression on, at start, after create succeeded. json-file accepts it too.
 dkp create --name "$S" --label wow.review=1 --label "wow.review.deadline=$DL" --network "$NET" \
   --read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit 512 --memory 4g --cgroupns private --ipc private \
-  --log-opt max-size=10m --log-opt max-file=1 \
+  --log-opt max-size=10m --log-opt max-file=1 --log-opt compress=false \
   --tmpfs /tmp:rw,nosuid,size=512m --tmpfs /home/app:rw,nosuid,uid=1000,gid=1000,mode=0700,size=1g \
   --mount "type=volume,source=$WORK,target=/work,volume-nocopy=true" \
   --mount "type=volume,source=$OUTV,target=/review-out,volume-nocopy=true" \
