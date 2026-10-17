@@ -350,7 +350,7 @@ EOF
   printf '{"state":"open","head":{"sha":"%s"},"base":{"ref":"main"}}\n' "$SHA" >"$g/repos_o_r_pulls_7"
   printf '{"repositories":[{"full_name":"o/r"},{"full_name":"o/backlog"}]}\n' >"$g/installation_repositories"
   printf '{"data":{"viewer":{"login":"glunk-review[bot]","databaseId":4242}}}\n' >"$g/graphql"
-  printf '{"commit_id":"%s","state":"COMMENTED","user":{"login":"glunk-review[bot]","id":4242},"html_url":"https://github.com/o/r/pull/7#pullrequestreview-555"}\n' "$SHA" >"$g/post_review"
+  printf '{"commit_id":"%s","state":"COMMENTED","user":{"login":"glunk-review[bot]","id":4242},"html_url":"https://github.com/o/r/pull/7#pullrequestreview-555","submitted_at":"2026-10-17T16:35:56Z"}\n' "$SHA" >"$g/post_review"
   printf '{"object":{"sha":"%s"}}\n' "$TIP" >"$g/repos_o_r_git_ref_heads_main"
   printf '[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"ci"},{"context":"gate"}]}}]\n' >"$g/repos_o_r_rules_branches_main"
   printf '{"statuses":[]}\n' >"$g/repos_o_r_commits_${SHA}_status"
@@ -1078,6 +1078,97 @@ new_case; set_findings '[{"title":"T","body":"b","type":"bug"},{"title":"U","bod
 run o/r 7
 assert_eq "a failed create stops the rest, the exit stays 0" 0 "$rc"
 assert_eq "a failed create: only one file line" "0 101" "$(cat "$(entry_dir)/filed")"
+
+# =========================================================================================
+# --- the gate poll: a failure is final only when posted after the review ---------------------
+# =========================================================================================
+FIND1='[{"title":"T","body":"b","type":"bug"}]'
+BEFORE=2026-10-17T16:00:00Z; AFTER=2026-10-17T17:00:00Z; SUBMITTED=2026-10-17T16:35:56Z
+glog() { cat "$home"/review-logs/*.log; }
+gpolls() { glog | grep -c -E 'gate poll [0-9]'; }
+gline() { glog | grep -c -E -- "Z gate poll $1\$"; }                  # gline <text>: that exact poll line
+status_doc() { # status_doc <context> <state> <updated_at json>
+  printf '{"statuses":[{"context":"%s","state":"%s","updated_at":%s}]}\n' "$1" "$2" "$3"
+}
+run_gate_case() { # run_gate_case <label>: golden path, exit 0 and the one finding filed
+  run o/r 7
+  assert_eq "$1: exit 0" 0 "$rc"
+  assert_eq "$1: the finding is filed" 1 "$(n_issues)"
+}
+gate_case() { new_case; set_findings "$FIND1"; printf '{"check_runs":[{"name":"ci","status":"completed","conclusion":"success"}]}\n' >"$STUB/gh/repos_o_r_commits_${SHA}_check-runs"; }
+
+gate_case
+status_path="$STUB/gh/repos_o_r_commits_${SHA}_status"
+status_doc gate failure "\"$BEFORE\"" >"$status_path"; status_doc gate success "\"$AFTER\"" >"$status_path.after"; printf '1\n' >"$status_path.after.n"
+run_gate_case "stale status failure, then success"
+assert_eq "stale then success: the stale line" 1 "$(gline '1: failure, not posted after the review')"
+assert_eq "stale then success: then success" 1 "$(gline '2: success')"
+assert_eq "stale then success: two polls" 2 "$(gpolls)"
+assert_eq "stale then success: one status call per poll" 2 "$(grep -c "|repos/o/r/commits/$SHA/status|" "$STUB/gh.calls")"
+assert_eq "stale then success: one check-runs call per poll" 2 "$(grep -c "|repos/o/r/commits/$SHA/check-runs|" "$STUB/gh.calls")"
+
+gate_case
+status_path="$STUB/gh/repos_o_r_commits_${SHA}_status"
+status_doc gate failure "\"$AFTER\"" >"$status_path"
+run_gate_case "status failure after the review"
+assert_eq "status failure after: final on poll 1" 1 "$(gline '1: failure')"
+assert_eq "status failure after: one poll" 1 "$(gpolls)"
+
+gate_case
+status_path="$STUB/gh/repos_o_r_commits_${SHA}_status"
+status_doc gate failure "\"$SUBMITTED\"" >"$status_path"
+run_gate_case "status failure at exactly submitted_at"
+assert_eq "status failure at submitted_at: stale on every poll" 6 "$(gline '[1-6]: failure, not posted after the review')"
+assert_eq "status failure at submitted_at: six polls" 6 "$(gpolls)"
+
+gate_case
+printf '{"check_runs":[{"name":"gate","status":"completed","conclusion":"failure","completed_at":"%s"}]}\n' "$BEFORE" >"$STUB/gh/repos_o_r_commits_${SHA}_check-runs"
+printf '{"check_runs":[{"name":"gate","status":"completed","conclusion":"failure","completed_at":"%s"}]}\n' "$AFTER" >"$STUB/gh/repos_o_r_commits_${SHA}_check-runs.after"
+printf '1\n' >"$STUB/gh/repos_o_r_commits_${SHA}_check-runs.after.n"
+run_gate_case "stale check-run failure, then a fresh one"
+assert_eq "check-run: the stale line" 1 "$(gline '1: failure, not posted after the review')"
+assert_eq "check-run: then a final failure" 1 "$(gline '2: failure')"
+assert_eq "check-run: two polls" 2 "$(gpolls)"
+
+gate_case
+status_path="$STUB/gh/repos_o_r_commits_${SHA}_status"
+status_doc gate failure "\"$BEFORE\"" >"$status_path"
+printf '{"check_runs":[{"name":"ci","status":"completed","conclusion":"success","completed_at":"%s"}]}\n' "$AFTER" >"$STUB/gh/repos_o_r_commits_${SHA}_check-runs"
+run_gate_case "a ci check-run after the review beside a stale gate failure"
+assert_eq "other name: never final" 6 "$(gline '[1-6]: failure, not posted after the review')"
+
+gate_case
+status_path="$STUB/gh/repos_o_r_commits_${SHA}_status"
+printf '{"statuses":[{"context":"gate","state":"failure","updated_at":"%s"},{"context":"ci","state":"success","updated_at":"%s"}]}\n' "$BEFORE" "$AFTER" >"$status_path"
+run_gate_case "a ci status after the review beside a stale gate failure"
+assert_eq "other context: never final" 6 "$(gline '[1-6]: failure, not posted after the review')"
+
+for variant in "missing|" "malformed|2026-10-17T16:35:56.123Z"; do
+  label=${variant%%|*}; val=${variant#*|}
+  gate_case
+  status_path="$STUB/gh/repos_o_r_commits_${SHA}_status"
+  status_doc gate failure '"2999-01-01T00:00:00Z"' >"$status_path"
+  if [ -n "$val" ]; then sed -i "s|\"submitted_at\":\"[^\"]*\"|\"submitted_at\":\"$val\"|" "$STUB/gh/post_review"
+  else sed -i 's|,"submitted_at":"[^"]*"||' "$STUB/gh/post_review"; fi
+  run_gate_case "a $label submitted_at"
+  assert_eq "$label submitted_at: the reason line, once" 1 "$(glog | grep -c 'gate poll: no usable submitted_at; no failure is final')"
+  assert_eq "$label submitted_at: six polls" 6 "$(gpolls)"
+  assert_eq "$label submitted_at: every read stale" 6 "$(gline '[1-6]: failure, not posted after the review')"
+done
+
+gate_case
+status_path="$STUB/gh/repos_o_r_commits_${SHA}_status"
+status_doc gate failure null >"$status_path"; status_doc gate success "\"$AFTER\"" >"$status_path.after"; printf '1\n' >"$status_path.after.n"
+run_gate_case "a null updated_at, then success"
+assert_eq "null updated_at: not final" 1 "$(gline '1: failure, not posted after the review')"
+assert_eq "null updated_at: then success" 1 "$(gline '2: success')"
+for bad in '"not-a-time"' '"2999-01-01T00:00:00.5Z"' '""'; do
+  gate_case
+  status_path="$STUB/gh/repos_o_r_commits_${SHA}_status"
+  status_doc gate failure "$bad" >"$status_path"
+  run_gate_case "a gate timestamp $bad"
+  assert_eq "gate timestamp $bad: never final" 6 "$(gline '[1-6]: failure, not posted after the review')"
+done
 
 # =========================================================================================
 # --- the log -----------------------------------------------------------------------------------

@@ -868,13 +868,13 @@ if ! jq -j .body <"$HDIR/review-request.json" | tr -d '\r' | cmp -s - "$BODYF"; 
 fi
 prc=0
 gh_api -X POST "repos/$repo/pulls/$num/reviews" --input "$(hp "$HDIR/review-request.json")" \
-  --jq '[.commit_id, .state, .user.login, (.user.id | tostring), .html_url] | @tsv' >"$HDIR/post-response" || prc=$?
+  --jq '[.commit_id, .state, .user.login, (.user.id | tostring), .html_url, .submitted_at] | @tsv' >"$HDIR/post-response" || prc=$?
 RESP=$(tr -d '\r' <"$HDIR/post-response" 2>/dev/null || :)
 if [ "$prc" != 0 ]; then
   say "the review POST failed ($prc): posted or unknown"
   fin 104 post-unknown
 fi
-IFS=$tab read -r rcommit rstate rlogin rid rurl <<EOF
+IFS=$tab read -r rcommit rstate rlogin rid rurl rsub <<EOF
 $RESP
 EOF
 if [ -z "${rcommit:-}" ] || [ "$rcommit" != "$pin" ] || [ "${rstate:-}" != COMMENTED ]; then
@@ -892,20 +892,60 @@ fi
 logl "review posted: $rurl"
 
 # ---- 15. poll the gate (logged only) ---------------------------------------------------------
+# Right after the post the gate still carries the failure it posted before the review existed, so
+# a failure ends the poll only when a gate record was posted strictly after the review's
+# submitted_at (a status's updated_at, a check-run's completed_at). "After the review" means
+# posted after it, not evaluated against it: a gate run that started before the review and
+# completed after it still stops the poll on a stale failure. A check-run's started_at would be
+# the tighter test; completed_at is kept and the gap is recorded, since only the log is affected.
+# poll_gate never ends the launcher: it runs after the review posted and before the findings are
+# filed, so every command here sits in a condition or carries a fallback.
+ts_digits() { # ts_digits <YYYY-MM-DDTHH:MM:SSZ>: the 14 digits, or status 1 and no output
+  case $1 in
+    [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) printf '%s' "$1" | tr -d ':TZ\055' ;;
+    *) return 1 ;;
+  esac
+}
+gate_posted_after() { # gate_posted_after <records file> <submitted_at digits>: status 0 if a gate record is later
+  WOW_GATE=$GATE awk -F '\t' '
+    BEGIN { gate = ENVIRON["WOW_GATE"] }
+    { sub(/\r$/, "") }
+    $1 == "status" && $2 == gate { print $4 }
+    $1 == "check-run" && $2 == gate { print $5 }
+  ' <"$1" >"$HDIR/p-times" 2>/dev/null || return 1
+  while IFS= read -r gt || [ -n "$gt" ]; do
+    if gd=$(ts_digits "$gt") && [ "$gd" -gt "$2" ]; then return 0; fi
+  done <"$HDIR/p-times"
+  return 1
+}
 poll_gate() {
   if ! tc file "$HDIR/read-token" >/dev/null 2>&1; then
     mint_read >/dev/null 2>&1 && tc file "$HDIR/read-token" >/dev/null 2>&1 || { logl "gate poll: no live read token"; return 0; }
   fi
   TOK=$(tc token "$HDIR/read-token") && [ -n "$TOK" ] || { logl "gate poll: cannot read the read token"; return 0; }
+  sdig=
+  if sdig=$(ts_digits "${rsub:-}") && [ -n "$sdig" ]; then :; else
+    sdig=
+    logl "gate poll: no usable submitted_at; no failure is final"
+  fi
   n=0
   while [ "$n" -lt 6 ]; do
     n=$((n + 1))
-    if gh_api --paginate "repos/$repo/commits/$pin/status" --jq '.statuses[] | ["status", .context, .state] | @tsv' >"$HDIR/p-status" 2>/dev/null \
-       && gh_api --paginate "repos/$repo/commits/$pin/check-runs" --jq '.check_runs[] | ["check-run", .name, .status, (.conclusion // "")] | @tsv' >"$HDIR/p-runs" 2>/dev/null \
-       && cat "$HDIR/p-status" "$HDIR/p-runs" >"$HDIR/p-gate"; then
+    if gh_api --paginate "repos/$repo/commits/$pin/status" --jq '.statuses[] | ["status", .context, .state, (.updated_at // "")] | @tsv' >"$HDIR/p-status" 2>/dev/null \
+       && gh_api --paginate "repos/$repo/commits/$pin/check-runs" --jq '.check_runs[] | ["check-run", .name, .status, (.conclusion // ""), (.completed_at // "")] | @tsv' >"$HDIR/p-runs" 2>/dev/null \
+       && cat "$HDIR/p-status" "$HDIR/p-runs" >"$HDIR/p-times-in" \
+       && cut -f1-3 "$HDIR/p-status" >"$HDIR/p-gate" \
+       && cut -f1-4 "$HDIR/p-runs" >>"$HDIR/p-gate"; then
       gs=$(sh "$here/review-gate-state.sh" "$GATE" <"$HDIR/p-gate" 2>/dev/null) || gs=unreadable
-      logl "gate poll $n: $gs"
-      case $gs in success|failure) return 0 ;; esac
+      case $gs in
+        success) logl "gate poll $n: success"; return 0 ;;
+        failure)
+          if [ -n "$sdig" ] && gate_posted_after "$HDIR/p-times-in" "$sdig"; then
+            logl "gate poll $n: failure"; return 0
+          fi
+          logl "gate poll $n: failure, not posted after the review" ;;
+        *) logl "gate poll $n: $gs" ;;
+      esac
     else
       logl "gate poll $n: the read failed"
     fi
