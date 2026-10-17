@@ -1,6 +1,6 @@
 #!/bin/sh
 # Fixture tests for plugins/way-of-working/bin/spec-comment.sh: the spec comment's
-# checks (id, edit, issue, author trust, and a dev-App author's fresh maintainer reaction), shared by
+# checks (id, edit, issue, author trust, a declared author's fresh maintainer reaction, and the dev App's id off the maintainer list for a maintainer author too), shared by
 # resume, the coder and architect-review (#614, #660).
 #
 # Runs the real gh-identity.sh beside the script over fixture project.yml files, so the trust
@@ -159,6 +159,50 @@ expect_check "dev App id on a malformed maintainer entry, own reaction" unreacte
 printf 'identities:\n  maintainer:\n    - { login: alice-dev, id: 1001 }\n    - { login: "acme-dev[bot]", id: 2001 }\n  dev_app: { login: "acme-dev[bot]", id: 2001 }\n' >"$tmp/dupapp.yml"
 run check "$tmp/dev.json" "$tmp/dupapp.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/own.tsv"
 expect_check "dev App id also declared a maintainer" untrusted
+
+# The dev App's id on the maintainer list refuses a MAINTAINER author's comment too: the dev App
+# has Issues write and could edit it, then approve the edited text (#689).
+mk maint alice-dev 1001 NONE
+printf 'identities:\n  maintainer:\n    - { login: alice-dev, id: 1001 }\n    - { login: devdup, id: 2001 }\n  dev_app: { login: "acme-dev[bot]", id: 2001 }\n' >"$tmp/dupother.yml"
+for c in dupother:dupother dupapp:dupapp; do
+  cname="${c%%:*}" cyml="$tmp/${c#*:}.yml"
+  run check "$tmp/maint.json" "$cyml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/own.tsv"
+  expect_check "maintainer author, dev App id on the list ($cname), dev App reaction" unreacted
+  run body "$tmp/maint.json" "$cyml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/own.tsv"
+  expect_body_refused "maintainer author, dev App id on the list ($cname), dev App reaction" unreacted
+  run check "$tmp/maint.json" "$cyml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/fresh.tsv"
+  expect_check "maintainer author, dev App id on the list ($cname), maintainer reaction" unreacted
+done
+# A dev_app entry that is neither null nor well formed refuses a maintainer author's comment.
+for v in 'string:dev_app: acme' 'strid:dev_app: { login: "acme-dev[bot]", id: "2001" }' 'nologin:dev_app: { id: 2001 }'; do
+  vname="${v%%:*}"
+  printf 'identities:\n  maintainer:\n    - { login: alice-dev, id: 1001 }\n  %s\n' "${v#*:}" >"$tmp/baddev.yml"
+  run check "$tmp/maint.json" "$tmp/baddev.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/fresh.tsv"
+  expect_check "maintainer author, malformed dev_app ($vname)" unreacted
+done
+# A non-decimal spelling of the dev App's id must not slip past the comparison with 2001.
+for s in +2001 0x7D1 02001; do
+  printf 'identities:\n  maintainer:\n    - { login: alice-dev, id: 1001 }\n    - { login: devdup, id: 2001 }\n  dev_app: { login: "acme-dev[bot]", id: %s }\n' "$s" >"$tmp/spell.yml"
+  run check "$tmp/maint.json" "$tmp/spell.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/own.tsv"
+  expect_check "maintainer author, dev App id spelled $s, dev App reaction" unreacted
+done
+# The dev App as the author, with its own id spelled non-canonically: gh-identity.sh reads it as a
+# maintainer, so this check is what refuses its own approval.
+mk devself 'acme-dev[bot]' 2001 NONE
+for s in +2001 0x7D1; do
+  printf 'identities:\n  maintainer:\n    - { login: alice-dev, id: 1001 }\n    - { login: "acme-dev[bot]", id: 2001 }\n  dev_app: { login: "acme-dev[bot]", id: %s }\n' "$s" >"$tmp/spellself.yml"
+  run check "$tmp/devself.json" "$tmp/spellself.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/own.tsv"
+  expect_check "dev App author, own id spelled $s, own reaction" unreacted
+done
+# No dev App (null or absent), or one whose id is not on the list, leaves a maintainer approved.
+printf 'identities:\n  maintainer:\n    - { login: alice-dev, id: 1001 }\n  dev_app: null\n' >"$tmp/nulldev.yml"
+run check "$tmp/maint.json" "$tmp/nulldev.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/fresh.tsv"
+expect_check "maintainer author, dev_app null" ok
+printf 'identities:\n  maintainer:\n    - { login: alice-dev, id: 1001 }\n' >"$tmp/nokey.yml"
+run check "$tmp/maint.json" "$tmp/nokey.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/fresh.tsv"
+expect_check "maintainer author, dev_app key absent" ok
+run check "$tmp/maint.json" "$tmp/map.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/fresh.tsv"
+expect_check "maintainer author, dev App id not on the list" ok
 
 # A maintainer's word depends on the reactions argument too (WB-D30): any declared maintainer's
 # fresh approving reaction, their own included, and nothing else.

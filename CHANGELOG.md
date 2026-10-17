@@ -54,6 +54,12 @@ with `/way-of-working:spec-task`, and move the maintainer's reaction to the new 
   object but got: array`, and stopped every container-mode review as `needs-human`. Invariants check 20
   now runs the skill's `pulls/<N>/files` filter on a canned page and compares the output; tested by
   `tests/invariants-files-filter.test.sh`.
+- **`spec-comment.sh` refuses a maintainer's spec comment when the dev App's id is on the maintainer list** (#689).
+  The check ran only for a dev-App author, so a maintainer-authored comment with a dev-App reaction read `ok`; the
+  dev App has Issues write and could edit the text, then approve it. A `dev_app` entry that is neither null nor
+  well formed (a map with a canonical decimal `id` and a string `login`) is `unreacted` too. For a canonical id no reader reaches it
+  today, since `spec-find.sh` reads such a config as `unreadable` first; a non-canonical spelling (`+2001`) does get past it. Tested by new fixtures in
+  `tests/spec-comment.test.sh`.
 
 ## [0.19.0] — 2026-10-17
 
