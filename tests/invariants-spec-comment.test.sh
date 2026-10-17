@@ -3,6 +3,7 @@
 # after its checks pass -- resume, architect-review and the coder each call spec-comment.sh,
 # none fetches the comment unprojected and unredirected (#614), each names spec-find.sh and none
 # lists a task issue's comments (WB-D30).
+# resume and the coder also name spec-fresh.sh, which exists and makes no gh call (#663).
 #
 # Each case mutates a COPY of the real tree and asserts the check fires (or stays silent), so
 # a check that only passes on the real tree cannot hide. Only check 17's own message is
@@ -199,5 +200,31 @@ assert_silent "a .body named in a comment is silent" "$d"
 d="$(tree sfgone)"
 rm -f "$d/$sf"
 assert_fires "a missing spec-find.sh fires" "$d"
+
+# bin/spec-fresh.sh (#663): resume and the coder name it, it exists and it makes no gh call.
+sfr=plugins/way-of-working/bin/spec-fresh.sh
+d="$(tree sfrcontrol)"
+assert_silent "spec-fresh.sh as shipped passes" "$d"
+
+for pat in skills/resume/SKILL.md agents/coder.md; do
+  d="$(tree "nofresh-$(basename "$(dirname "$pat")")")"
+  f="$(ls "$d"/plugins/*/"$pat")"
+  sed 's/spec-fresh\.sh/some-other-check.sh/g' "$f" >"$f.new" && mv "$f.new" "$f"
+  assert_fires "$pat without a spec-fresh.sh mention fires" "$d"
+done
+
+d="$(tree sfrgh)"
+f="$d/$sfr"
+printf '%s\n' 'gh api repos/o/r/issues/1' >>"$f"
+assert_fires "a spec-fresh.sh with a gh call fires" "$d"
+
+d="$(tree sfrghcomment)"
+f="$d/$sfr"
+printf '%s\n' '# never call gh api here' >>"$f"
+assert_silent "a gh call named in a spec-fresh.sh comment is silent" "$d"
+
+d="$(tree sfrgone)"
+rm -f "$d/$sfr"
+assert_fires "a missing spec-fresh.sh fires" "$d"
 
 [ "$fail" -eq 0 ]

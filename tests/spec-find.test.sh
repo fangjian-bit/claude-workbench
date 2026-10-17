@@ -431,6 +431,49 @@ expect "unreadable: a backlog repo starting with .." "unreadable"
 nc; Y_BACKLOG="owner/.."; writeyml; approved 1001 maint1 101; run
 expect "unreadable: a backlog repo ending in /.." "unreadable"
 
+# --- pending (#663) ---
+runp() { # <after-id>
+  rc=0
+  out="$(PATH="$fakebin:$PATH" FX_DIR="$cd_" FX_MARK="$SENTINEL" sh "$cd_/bin/spec-find.sh" pending "$ISSUE" "$cd_/project.yml" "$1" 2>"$cd_/err" </dev/null)" || rc=$?
+  err="$(cat "$cd_/err")"
+}
+
+nc; approved 1001 maint1 101; addrow 1002 "dev-app[bot]" 201; runp 1001
+expect "pending: one unreacted dev-App comment newer than the found one" "pending 1002"
+
+nc; addrow 1000 "dev-app[bot]" 201; approved 1001 maint1 101; runp 1001
+expect "pending: an older unreacted comment and no newer one" "pending none"
+
+nc; addrow 1000 "dev-app[bot]" 201; approved 1001 maint1 101; addrow 1002 "dev-app[bot]" 201; runp 1001
+expect "pending: an older and a newer unreacted comment list only the newer" "pending 1002"
+
+nc; approved 1001 maint1 101; addrow 10002 "dev-app[bot]" 201; runp 1001
+expect "pending: an id with more digits than after-id is greater" "pending 10002"
+
+nc; addrow 999 "dev-app[bot]" 201; approved 1001 maint1 101; runp 1001
+expect "pending: an id with fewer digits than after-id is not greater" "pending none"
+
+nc; approved 1001 maint1 101; approved 1002 maint2 102; runp 1001
+expect "pending: all role-passed rows approved" "pending none"
+
+nc; runp 1001
+expect "pending: no marker comments" "pending none"
+
+nc; approved 1001 maint1 101; addrow 1002 "dev-app[bot]" 201; printf '%s' "2026-09-21T09:06:00Z" >"$cd_/upd/1002"; runp 1001
+expect "pending: a row that moves between the reads" "moved 1002"
+
+nc; approved 1001 maint1 101; flag "FX_LIST_FAIL=1"; runp 1001
+expect "pending: a failed listing" "unreadable"
+
+nc; approved 1001 maint1 101; addrow 1002 "dev-app[bot]" 201; runp 0
+expect "exit 2: pending with an after-id of zero" "" 2
+runp 01
+expect "exit 2: pending with a leading-zero after-id" "" 2
+runp abc
+expect "exit 2: pending with a non-digit after-id" "" 2
+rc=0; out="$(PATH="$fakebin:$PATH" FX_DIR="$cd_" sh "$cd_/bin/spec-find.sh" pending 7 "$cd_/project.yml" 2>/dev/null)" || rc=$?
+expect "exit 2: pending without an after-id" "" 2
+
 # --- exit 2, nothing on stdout ---
 nc; approved 1001 maint1 101
 ISSUE=abc; run

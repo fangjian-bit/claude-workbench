@@ -288,7 +288,11 @@ description and cannot be mistaken for the human's approval.
   reports a forgotten handoff cursor-sync PR, which it never merges (`WB-D24`).
   Anything else — a `planning`
   status, an open gate, an unreadable one, a wrong model, a dirty tree — and it states the
-  pick-up point and waits. The rule **fails closed**: not being able to tell whether a
+  pick-up point and waits. The one exception is under an `identities` map, as the declared dev
+  App only: when every auto-start condition but the plan verification holds and the finder finds
+  no spec comment by a declared author, or when a build it auto-started finds the approved spec
+  stale against the base and no newer draft is waiting, it may instead draft one spec comment
+  (posted, or held for a human) and end without building (`WB-D31`). The rule **fails closed**: not being able to tell whether a
   gate is open counts as open. The approval that carries signal is the `hitl_gate`, which
   is unchanged and still enforced; what auto-start removes is the content-free "go" that
   re-approved a `next_action` the human already approved by merging its cursor-sync PR (a
@@ -346,8 +350,9 @@ description and cannot be mistaken for the human's approval.
   after the human confirms the diff. It stages the edit when the live write does not go
   through, and records the old and new order in a triage comment. Grounded triage, not
   design; any model.
-- **`/way-of-working:spec-task <N>`** — the spec-comment half of the Opus planning role. Run
-  just in time, right before task `#N` is next: it reads the issue only when its author is
+- **`/way-of-working:spec-task <N>`** — the spec-comment half of the Opus planning role. May
+  be run ahead for any task whose `depends_on` is met, since the build re-checks the paths the
+  spec lists and refuses a stale one (`WB-D31`): it reads the issue only when its author is
   trusted, drafts the spec comment in the fixed shape against the PR base's tree, then **posts it as the dev App or holds it for a human to post, and stops
   (`bin/spec-post.sh`)**. A declared maintainer reacts on GitHub, and once they have,
   under a map, the readers find it. Never edits, deletes or reacts (`WB-D29`). Runs on `models.architect`.

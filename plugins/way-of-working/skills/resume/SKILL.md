@@ -8,7 +8,9 @@ description: >-
   implementing, model matches, no drift, no orchestrator-driver lock, no open cursor-sync PR and no unmerged sync branch
   under HEAD — an unreadable check counts as one — and — under planning.kind: github_milestones — the
   plan anchor verifies and the task issue's author is trusted); otherwise state the pick-up
-  point and wait. Fails closed — an open, missing, or unreadable gate always waits. Run this
+  point and wait. As the declared dev App only, it may instead draft and post one spec comment
+  (when the finder finds no spec comment at all, or the approved one is stale) and end without building. Fails
+  closed — an open, missing, or unreadable gate always waits. Run this
   at the START of a session working on this repo.
 ---
 
@@ -183,6 +185,14 @@ edited it. **Default to the full checklist whenever unsure.**
        prints `untrusted` for a spec comment neither a declared maintainer nor the declared dev App wrote, and `unreacted` until a maintainer reacts: real results,
        reported as such. Under `legacy` it reads no reaction, and a comment author only for the `--loop-identity` name rule.
 
+       **The drafting-identity line (`#663`, `WB-D31`).** When the finder prints `none`, that same
+       verify call (the one that ran the finder) also runs `draft-identity.sh check
+       "$DEF_YML_FILE"` and prints `Drafting identity: <word>`. A missing line waits. The word is
+       `dev_app` only when the viewer is the declared dev App and `gh` has no stored login to
+       fall back to; the fallback part is a property of the environment, so it also covers
+       spec-task's later calls, which a single viewer read does not. `not-dev-app`,
+       `stored-login` and `unreadable` all wait.
+
        **The reader rule under a map** (every reader of the spec — this session, a `coder`
        it delegates to, `/way-of-working:architect-review` — means exactly this by "run the
        finder"):
@@ -218,7 +228,9 @@ edited it. **Default to the full checklist whenever unsure.**
        **The *Spec approval* line,** one per finder result (`Ids` are printed only after a
        digits-and-commas check):
        - `none` — `Spec approval: waiting — no spec-task: comment by a declared maintainer or
-         the dev App on #N; draft one with /way-of-working:spec-task <N>.`
+         the dev App on #N; draft one with /way-of-working:spec-task <N>.` This is the line
+         whenever the *drafting branch* (Auto-start section) does not apply: any of its
+         conditions failing, the maintainer's own session included.
        - `unreacted <ids>` — `Spec approval: waiting — a maintainer reaction (👍, ❤️, 🎉 or
          🚀) is needed on spec comment <ids> on #N, after its last edit.`
        - `ambiguous <ids>` — `Spec approval: waiting — more than one approved spec on #N
@@ -230,6 +242,20 @@ edited it. **Default to the full checklist whenever unsure.**
          spec comment <id> was found but verify printed <word> (for example a reaction removed or the
          comment edited since the finder read it, or #N closed or moved off the milestone); resume
          again in a fresh session once that is fixed.`
+
+       The body read's freshness check (`spec-fresh.sh check`, below) adds these, one per word it
+       prints other than `fresh`:
+       - `stale <n>` — `Spec approval: waiting — spec comment <CID> on #N is stale (<n> listed
+         paths changed on <base> since its commit); react to a refreshed draft (<ids> if posted,
+         else draft one with /way-of-working:spec-task <N>) and remove the reaction from <CID>.`
+       - `bad-marker` or `bad-sha` — `Spec approval: waiting — spec comment <CID>'s marker does
+         not match #N or its commit is not on <base>; draft a new one with
+         /way-of-working:spec-task <N> and remove the reaction from <CID>.`
+       - `bad-shape` — ``Spec approval: waiting — spec comment <CID>'s Files touched section
+         cannot be checked (one "- `path`" bullet per file, no hidden text); draft a new one with
+         /way-of-working:spec-task <N> and remove the reaction from <CID>.``
+       - `unreadable` — `Spec approval: waiting — the freshness check could not run; resume
+         again.`
 
        The word is informational and the auto-start input; `/way-of-working:handoff`'s baseline
        does not depend on it (`#360`) — handoff runs its own `verify --plan`. Running it here changes nothing about what enters context: `verify` prints one word, and
@@ -738,7 +764,7 @@ edited it. **Default to the full checklist whenever unsure.**
    cached by the same-conversation shortcut — a lock appears and clears while a conversation
    idles.
 
-   Then **either start the next action or wait**, per the rule below.
+   Then **start the next action, wait, or (under a map, as the dev App only) draft a spec**, per the rules below.
 
    **Auto-start** — begin the `next_action` immediately, no "go" needed, only when **all** hold:
    - the *Ensure the schema is complete* step's `schema-complete.sh check .ai/project.yml`
@@ -893,7 +919,7 @@ edited it. **Default to the full checklist whenever unsure.**
      until a declared maintainer reacts after its last edit.
      Under `legacy` (`identities: null`) the flags are omitted and nothing changes.
 
-   Otherwise **state the pick-up point and wait.** In particular: always wait on
+   Otherwise **state the pick-up point and wait** (except the *drafting branch* below). In particular: always wait on
    `planning` (the planning pass is one question at a time — that dialogue *is* the
    work), on any open or unreadable gate, on a model mismatch, and on any drift. Under
    `{planning.kind}: github_milestones`, a `planning` cursor whose `pointers.sprint_plan` is
@@ -919,6 +945,8 @@ edited it. **Default to the full checklist whenever unsure.**
    > `.user.id`, or `author_association` under `legacy`) is trusted per the rule above. Check and use the same bytes, no second fetch.
    >
    > **Under a map, the body read is one Bash call that does this, in this order:**
+   > 0. Bind `TASK` (`.pointers.plan_anchor.task_issue`) from `.ai/state.json` with `jq -r` into a variable, checked as digits
+   >    with no leading zero, never pasted; every later step uses `"$TASK"`.
    > 1. Decide the mode (below).
    > 2. Fetch `#N` projected as `[.number, .state, .user.login, .user.id, (.milestone.number // 0)] | @tsv`
    >    (the milestone is the last field, so an empty value cannot shift the others). Check that
@@ -932,9 +960,19 @@ edited it. **Default to the full checklist whenever unsure.**
    >    .created_at] | @tsv' >"$T/rx.tsv"` (`<id>` bound to `$CID`; a non-zero exit a stop, never
    >    piped), then `gh api repos/{backlog.repo}/issues/comments/<id> >"$T/c.json"` (a non-zero
    >    exit is a stop). Never to the transcript.
-   > 5. Run `spec-comment.sh body "$T/c.json" {backlog.repo} <task_issue> "$CID" "$CUP"
-   >    "$DEF_YML_FILE" "$T/rx.tsv"`, `task_issue` read from `.ai/state.json` with `jq -r` into
-   >    a variable, never pasted.
+   > 5. Run `spec-comment.sh check "$T/c.json" {backlog.repo} "$TASK" "$CID" "$CUP"
+   >    "$DEF_YML_FILE" "$T/rx.tsv"`, `TASK` as bound at the start of the call. It exits 0 for every verdict, so its stdout is what is tested:
+   >    exactly `ok`, else a stop.
+   > 6. Run `spec-fresh.sh check "$T/c.json" "$TASK" "$DEF_YML_FILE"` (`#663`, `WB-D31`): the
+   >    paths the spec lists under *Files touched* against the commit in its marker and the
+   >    current base tip. Its stdout must be exactly `fresh`. `stale <n>`, `bad-marker`,
+   >    `bad-shape`, `bad-sha` and `unreadable` are stops, each with its *Spec approval* line
+   >    above; `stale <n>` also feeds the *stale branch* below.
+   > 7. Only then run `spec-comment.sh body "$T/c.json" {backlog.repo} "$TASK" "$CID" "$CUP"
+   >    "$DEF_YML_FILE" "$T/rx.tsv"` with the same arguments.
+   >
+   > Only `ok` and then `fresh` go on, all three in the one Bash call; anything else is a stop
+   > and nothing after it runs, so an unchecked or stale comment never enters context.
    >
    > The reactions are fetched first, so an edit after that read moves the comment's
    > `updated_at` off `CUP` and reads `moved`: no separate re-read is needed. Every spec
@@ -982,6 +1020,43 @@ edited it. **Default to the full checklist whenever unsure.**
    > `#N` under a map: the build starts in a fresh session. `plan-anchor.sh` itself projects
    > its fetches, so running it does not count.
 
+   > **The stale branch (`#663`, `WB-D31`), under a map.** It runs only in the session that
+   > auto-started this build, when the body read stopped on `stale <n>`: resume running the body
+   > read itself, or a `coder` it spawned for that build reporting `stale <n>`. A build the human
+   > started after a wait, or a `coder` fix round on an open PR, reports the word and waits with
+   > the stale *Spec approval* line. In a **new** Bash call that re-reads the default branch's
+   > copy (`DEF_YML_FILE`, as the *Author trust* paragraph does) and binds `TASK` again the same way (from `.ai/state.json`, digits-checked):
+   > 1. Run `spec-find.sh find "$TASK" "$DEF_YML_FILE"` and require the session's pinned pair
+   >    (the *pin* rule). A mismatch waits.
+   > 2. Repeat the body read's own steps up to freshness, on a fresh fetch by `CID`: the
+   >    reactions, then the comment, `spec-comment.sh check` printing `ok`, then `spec-fresh.sh
+   >    check` printing `stale <n>`; any other word waits. A `coder`'s report is never enough on its own.
+   > 3. Run `draft-identity.sh check "$DEF_YML_FILE"`. Anything but `dev_app` waits with the
+   >    stale line.
+   > 4. Run `spec-find.sh pending "$TASK" "$DEF_YML_FILE" "$CID"`. On `pending none`, run the
+   >    *drafting step* below, then end the session. On `pending <ids>`, wait with the stale
+   >    line (naming the ids: a refreshed draft is already posted). Any other word waits,
+   >    naming it.
+   >
+   > **The drafting branch (`#663`, `WB-D31`), under a map.** Every Auto-start condition holds
+   > except *plan verified*; and `verify --plan` printed `match`, the leading-token cross-check
+   > passed, the finder printed `none`, and the `Drafting identity:` line reads `dev_app`. Then
+   > resume runs the *drafting step* instead of waiting, and ends. `unreacted`, `ambiguous`,
+   > `moved` and `unreadable` keep their existing wait lines, and so does `none` when any of
+   > these conditions fails (the maintainer's own session included): the `none` line in the
+   > *Spec approval* list stays for that case, and the body of `#N` is not read.
+   >
+   > **The drafting step** is `/way-of-working:spec-task <N>`. A session not on `{models.architect}`
+   > drafts through an `architect` subagent under spec-task's own model rule. The session prints
+   > spec-task's outcome, including `held`, then one line saying it ends without building and that
+   > the next fresh session builds after a maintainer has reacted. It does not build, hand off or
+   > write `.ai/`.
+   >
+   > **What stops a build after drafting.** On the `none` branch the session holds no pin, so the
+   > *no pin* rule (the *reader rule* above) stops a build. On the stale branch the re-run
+   > freshness check reads `stale` again. Say this, and that the session (or its subagent) has
+   > read `#N`'s body, which under a map rules out building.
+
    > **Fail closed.** A missing, empty, or unparseable `hitl_gate`, a `state.json` that
    > won't parse, or a `sprint_status` you can't classify all mean **wait** — never
    > proceed. "I couldn't tell whether a gate was open" is not "no gate is open"; that
@@ -999,7 +1074,8 @@ edited it. **Default to the full checklist whenever unsure.**
    > fine, that is the failure this block exists to stop.
 
    Say which branch you took and why in one line (`Auto-starting: gate NONE OPEN,
-   status implementing, cursor clean.` / `Waiting: HITL Gate open on the sprint 41 plan.`)
+   status implementing, cursor clean.` / `Waiting: HITL Gate open on the sprint 41 plan.` /
+   `Drafting: no spec comment for #N, acting as the dev App with no stored login.`)
    so the choice is visible and you can stop it.
 
    **Auto-start removes a rubber stamp, not a gate.** The ledger's **Next:** was approved by the human's

@@ -7,11 +7,11 @@ description: >-
   declared dev App, or hold the composed comment for a human to post, and STOP. Takes the issue
   number. Reads only that issue, and only when its author is trusted (a declared
   identities.maintainer, or the legacy OWNER/MEMBER/COLLABORATOR allowlist). Posts only after
-  bin/spec-shape.sh says ok, and only through bin/spec-post.sh; a declared maintainer then reacts
+  bin/spec-shape.sh and bin/spec-fresh.sh shape say ok, and only through bin/spec-post.sh; a declared maintainer then reacts
   on GitHub, and once they have, under a map, the readers find the comment. Never edits, deletes or reacts to
   a comment, never edits the issue, never builds. Run in a session on models.architect (or as an
-  architect subagent, its model confirmed or labelled), just in time, right before the task is
-  next -- not at planning time.
+  architect subagent, its model confirmed or labelled). A spec may be drafted ahead for any task
+  whose depends_on is met: the build re-checks the paths it lists and refuses a stale one.
 argument-hint: "<issue number>"
 ---
 
@@ -47,9 +47,10 @@ confirm with `spawn-model.sh <agent-id> <alias>` (the id the Agent tool's own re
 Write tool: it only drafts and returns the text, and the parent session writes `draft.md`. A
 result other than `confirmed` is added by the parent under the title line as `Model provenance:
 <result> (unconfirmed)`, never dropped, so the line is part of what is posted. The parent then
-runs the shape check and `spec-post.sh`. Run it **just in time**, right before the task is next:
-a spec drafted at planning time is checked against a tree that has moved by the time it is
-built.
+runs the shape checks and `spec-post.sh`. A spec may be drafted **ahead** for any task whose
+`depends_on` is met (`WB-D31`): the base moves, but the build re-checks the paths the spec lists
+under *Files touched* against the commit in its marker (`bin/spec-fresh.sh`) and refuses a stale
+spec, so a draft that has aged is caught rather than built from.
 
 **Draft only from the pinned tree and `#N`'s body**, never from memory, other issues or other
 session context: the comment is public.
@@ -137,7 +138,16 @@ session context: the comment is public.
 
    - `### Goal` — what the task does and why, in a paragraph.
    - `### Files touched` — every file created (marked **(new)**) or changed, each with what
-     changes in it.
+     changes in it. One file per top-level bullet, written `- ` and then the path in backticks;
+     each top-level bullet stays on one line, and its detail goes on lines indented two spaces
+     or in sub-bullets. The section has no code fence, and no line at any indent that starts with `#` or `<`. A column-0 line other
+     than a bullet is plain prose that does not start with a list, quote, table, link, backtick, `~`, tab or
+     number-and-period character. The
+     whole draft contains no HTML comment opener, not even inside backticks. Only the first
+     backtick span of each top-level bullet is checked for freshness, so a bullet names one
+     file, and its path uses only letters, digits, `.`, `_`, `-` and `/`, starts with a letter, digit, `.` or `_`, and has no empty, `.` or `..` segment (so no `./` prefix). A bullet whose change only adds an entry (a changelog line, a list line) may carry
+     **(append)** right after the closing backtick, which the freshness check skips. Never mark
+     a workflow file or a file the loop protects this way.
    - `### Done when` — checkable conditions, each runnable or observable.
    - `### Tests` — the new fixtures, and the existing suites that must still pass.
    - `### Out of scope` — what a reader might assume is included and is not.
@@ -212,9 +222,19 @@ session context: the comment is public.
    `spec-shape.sh` prints `ok`, `missing <section>[,<section>…]` or `unreadable`. On `missing`, fix
    those sections in the file and check once more; a second failure stops, naming the sections,
    and both directories are removed. `unreadable`, or anything else (an empty `SHAPE=` means
-   `spec-shape.sh` is not on `PATH`), stops the same way. Nothing is posted before `ok`.
+   `spec-shape.sh` is not on `PATH`), stops the same way.
 
-7. **Post or hold.** Only on `ok`. Run the one posting command, binding every value by value from
+   After `spec-shape.sh` says `ok`, check that the *Files touched* section is one the freshness
+   check can read, binding `DD` by value as above:
+   ```bash
+   DD='<printed draft dir>' &&
+   F=$(spec-fresh.sh shape "$DD/draft.md"); echo "FRESHSHAPE=$F"
+   ```
+   It prints `ok`, `bad-shape` or `unreadable`. A `bad-shape` gets one fix and one re-check, then
+   stops, as a `missing` does; `unreadable`, or an empty `FRESHSHAPE=`, stops the same way.
+   Nothing is posted before both say `ok`.
+
+7. **Post or hold.** Only when both shape checks said `ok`. Run the one posting command, binding every value by value from
    its printed line (`N` the digits, `SHA` from the pin step, `DD` and `OO` from the directory
    line), never as an expansion of anything else:
    ```bash
@@ -252,4 +272,5 @@ only writes are the temp files above, the remote-tracking refs `git fetch` updat
 new comment `spec-post.sh` posts as the declared dev App. The post needs comment access on
 `#N`, which for the dev App is the Issues write permission; the fetch needs only read reach.
 
-`/way-of-working:resume` and `/way-of-working:handoff` point at this skill and never invoke it.
+`/way-of-working:resume` invokes this skill in its drafting and stale branches, as the declared
+dev App only (`WB-D31`); `/way-of-working:handoff` points at it and never invokes it.

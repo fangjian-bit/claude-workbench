@@ -58,8 +58,13 @@ under-specified, or requires a design decision, STOP and report back rather than
    and compared with the pin, a mismatch a stop), the reactions fetched by `CID` to a file,
    then the comment fetched by `CID` **into a file, never to your transcript**
    (`gh api repos/{backlog.repo}/issues/comments/<id> >"$T/c.json"`, `<id>` bound to
-   `$CID`; a non-zero exit is a stop), printed only through `spec-comment.sh body` with `CID`
-   and `CUP` and the reactions file. Under `legacy`, fetch the anchored comment into a file the
+   `$CID`; a non-zero exit is a stop), then, in the same call and in this order,
+   `spec-comment.sh check` with the arguments `body` takes (its stdout must be exactly `ok`; it
+   exits 0 for every verdict, so the word is what is tested), `spec-fresh.sh check "$T/c.json"
+   "$TASK" "$DEF_YML_FILE"` (its stdout must be exactly `fresh`), and only then `spec-comment.sh
+   body` with `CID` and `CUP` and the reactions file. On any word but `fresh` you stop and report
+   the word to your spawner (`stale <n>`, `bad-marker`, `bad-shape`, `bad-sha` or
+   `unreadable`); you never draft or post a spec (`#663`). Under `legacy`, fetch the anchored comment into a file the
    same way and print it only through `spec-comment.sh body` with the arguments
    `/way-of-working:resume`'s *body read (TOCTOU closure)* rule names. Any non-zero exit is a stop, reported like a red gate with the word it wrote on
    stderr (none on 2). `$T` is a directory you make in that same Bash call (`T=$(mktemp -d)`),

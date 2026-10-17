@@ -5,10 +5,19 @@
 # /way-of-working:architect-review (each runs it in the Bash call that uses its result).
 #
 # Usage: spec-find.sh find <issue> <project.yml>
+#        spec-find.sh pending <issue> <project.yml> <after-id>
 #
 #   <issue>        the task issue number, digits with no leading zero
 #   <project.yml>  the DEFAULT branch's committed copy (the callers' $DEF_YML_FILE), never the
 #                  working tree's, which a branch under review can edit
+#   <after-id>     `pending` only: a comment id, digits with no leading zero (the found CID)
+#
+# `pending` (#663) uses the same configuration reads, the same one listing and the same static,
+# role, reaction and `moved` logic as `find`. It answers whether an unreacted draft newer than
+# the approved spec is already posted, so resume does not post a duplicate. Its words are, in
+# order: `unreadable`, `moved <id>`, `pending <id>[,<id>...]` (the rows that passed the role
+# check, are not approved candidates and have an id greater than <after-id>, compared as digit
+# strings: the longer is larger, equal lengths compare as strings) or `pending none`.
 #
 # It makes its own `gh` calls: one paginated listing of the issue's comments, then, for each
 # comment that clears the static and role checks, that comment's reactions and a second read of
@@ -53,7 +62,8 @@
 # YYYY-MM-DDTHH:MM:SSZ; a failure prints `unreadable`.
 #
 # Exits 2, printing nothing to stdout, when an argument is bad (the wrong count, a mode other
-# than `find`, an issue that is not digits with no leading zero), <project.yml> is unreadable,
+# than `find` or `pending`, an issue or <after-id> that is not digits with no leading zero),
+# <project.yml> is unreadable,
 # `$0` has no slash, or a sibling gh-identity.sh or spec-reaction.sh is not beside this script.
 # Like spec-comment.sh it uses only the SIBLING copies: a slash-less `$0` would resolve
 # `dirname` to the current directory, where a branch under review could supply one that
@@ -65,13 +75,22 @@ LC_ALL=C
 export LC_ALL
 
 usage() {
-  echo "usage: spec-find.sh find <issue> <project.yml>" >&2
+  echo "usage: spec-find.sh find <issue> <project.yml> | spec-find.sh pending <issue> <project.yml> <after-id>" >&2
   exit 2
 }
-[ "$#" -eq 3 ] || usage
-mode="$1" issue="$2" yml="$3"
-[ "$mode" = find ] || usage
+[ "$#" -ge 1 ] || usage
+mode="$1"
+case "$mode" in
+  find) [ "$#" -eq 3 ] || usage ;;
+  pending) [ "$#" -eq 4 ] || usage ;;
+  *) usage ;;
+esac
+issue="$2" yml="$3" after=
 case "$issue" in '' | 0* | *[!0-9]*) echo "spec-find.sh: issue must be digits with no leading zero" >&2; exit 2 ;; esac
+if [ "$mode" = pending ]; then
+  after="$4"
+  case "$after" in '' | 0* | *[!0-9]*) echo "spec-find.sh: after-id must be digits with no leading zero" >&2; exit 2 ;; esac
+fi
 if [ ! -f "$yml" ] || ! yq -o=yaml '.' "$yml" >/dev/null 2>&1; then
   echo "spec-find.sh: unreadable project.yml" >&2
   exit 2
@@ -150,6 +169,7 @@ cand_ids=
 cand_n=0
 cand_updated=
 role_ids=
+pend_ids=
 n=0
 while IFS="$US" read -r c_id c_login c_uid c_updated; do
   n=$((n + 1))
@@ -172,11 +192,20 @@ while IFS="$US" read -r c_id c_login c_uid c_updated; do
     cand_ids="${cand_ids:+$cand_ids,}$c_id"
     cand_n=$((cand_n + 1))
     cand_updated="$c_updated"
+  elif [ "$mode" = pending ]; then
+    # Digit strings with no leading zero: the longer is larger, equal lengths compare as strings.
+    # awk, since POSIX test has no string order.
+    if [ "$(SF_A="$c_id" SF_B="$after" awk 'BEGIN { a = ENVIRON["SF_A"]; b = ENVIRON["SF_B"]; print (length(a) > length(b) || (length(a) == length(b) && a "" > b "")) ? "yes" : "no" }')" = yes ]; then
+      pend_ids="${pend_ids:+$pend_ids,}$c_id"
+    fi
   fi
 done <"$tmp/rows"
 
 # --- the word ----------------------------------------------------------------------------
 [ -z "$moved_id" ] || out "moved $moved_id"
+if [ "$mode" = pending ]; then
+  out "pending ${pend_ids:-none}"
+fi
 [ "$cand_n" -lt 2 ] || out "ambiguous $cand_ids"
 if [ "$cand_n" -eq 1 ]; then
   case "$cand_ids" in '' | *[!0-9]*) out unreadable ;; esac

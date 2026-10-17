@@ -56,11 +56,13 @@ sh tests/invariants-spec-body.test.sh  # invariants-check.sh check 15 (architect
 sh tests/spec-reaction.test.sh  # spec-reaction.sh approved/unreacted/bad-argument fixtures (not yet required)
 sh tests/invariants-spec-reaction.test.sh  # invariants-check.sh check 16 (one spec-reaction rule, plan-anchor.sh and architect-review call it) fixtures (not yet required)
 sh tests/spec-comment.test.sh  # spec-comment.sh ok/moved/wrong-issue/untrusted/unreacted/unreadable/bad-argument fixtures (not yet required)
-sh tests/invariants-spec-comment.test.sh  # invariants-check.sh check 17 (resume, coder and architect-review print the spec comment only via spec-comment.sh, name spec-find.sh and carry no comment listing) fixtures (not yet required)
+sh tests/invariants-spec-comment.test.sh  # invariants-check.sh check 17 (resume, coder and architect-review print the spec comment only via spec-comment.sh, name spec-find.sh, resume and coder also name spec-fresh.sh, which exists and makes no gh call, and carry no comment listing) fixtures (not yet required)
 sh tests/spec-shape.test.sh    # spec-shape.sh ok/missing-section/wrong-order/empty-restated/unreadable/bad-argument fixtures (not yet required)
 sh tests/invariants-spec-task-post.test.sh  # invariants-check.sh check 18 (the skill carries no posting form; spec-post.sh pins exactly two gh lines) fixtures (not yet required)
 sh tests/spec-post.test.sh      # spec-post.sh post/hold/stop/response fixtures vs a stub gh (not yet required)
-sh tests/spec-find.test.sh      # spec-find.sh projection fixtures (jq) and find/found/unreacted/none/ambiguous/moved/unreadable fixtures vs a stub gh (not yet required)
+sh tests/spec-find.test.sh      # spec-find.sh projection fixtures (jq) and find/found/unreacted/none/ambiguous/moved/unreadable and pending fixtures vs a stub gh (not yet required)
+sh tests/spec-fresh.test.sh     # spec-fresh.sh check/shape fixtures vs a scratch repo with a local bare origin; needs yq and git (not yet required)
+sh tests/draft-identity.test.sh  # draft-identity.sh dev_app/not-dev-app/stored-login/unreadable fixtures vs a stub gh (not yet required)
 sh tests/blocking-criteria.test.sh  # blocking-criteria.sh criterion projection, sanitizing, caps and the conventions.md worked example (not yet required)
 sh tests/invariants-milestone-jq.test.sh  # invariants-check.sh check 19 (every milestone read projected, description reads go through blocking-criteria.sh) fixtures (not yet required)
 sh tests/hitl-gate-closed.test.sh  # hitl-gate-closed.sh canonical closed form vs bare, OPEN, parked, appended clause, empty fixtures (not yet required)
@@ -94,6 +96,6 @@ sh tests/identity-review.test.sh  # scripts/identity/wow-review launcher fixture
 
 `scripts/lint.sh` needs the `claude` CLI and `jq` on PATH. `scripts/invariants-check.sh` needs
 `yq` (mikefarah v4) on PATH too — it fails the gate, never skips it, when `yq` is missing.
-`tests/review-base-anchor.test.sh`, `tests/schema-complete.test.sh`, `tests/milestone-desc.test.sh`, `tests/spec-issue.test.sh` and `tests/spec-post.test.sh` need `yq` on PATH as
+`tests/review-base-anchor.test.sh`, `tests/schema-complete.test.sh`, `tests/milestone-desc.test.sh`, `tests/spec-issue.test.sh`, `tests/spec-post.test.sh`, `tests/spec-fresh.test.sh` (which also needs `git`) and `tests/draft-identity.test.sh` need `yq` on PATH as
 well (each skips itself, loudly, if absent). `tests/review-image.test.sh` needs `jq` and `yq`,
 and skips itself loudly without them.

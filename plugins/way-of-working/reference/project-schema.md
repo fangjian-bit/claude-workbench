@@ -879,6 +879,13 @@ from the default branch's copy, confirm it with `gh-identity.sh role`, and pass 
 `review-step.sh login app`; a `null`, absent or malformed `dev_app` derives nothing. The
 derivation does not read the token's GraphQL `viewer` (`#476`) to prove which App holds it, so `review-step.sh decide` never lets App mode reach `auto` (`show <M> app-mode`).
 
+**The spec flow reads `dev_app` too** (`#611`, `#663`). `bin/spec-post.sh` reads the token's GraphQL
+`viewer` and requires `gh-identity.sh role` to print `dev_app` before it posts a spec comment; it holds
+the comment for a human otherwise. `bin/draft-identity.sh` (`WB-D31`) makes the same viewer read, then
+repeats it with the token variables removed to see whether a stored login would act if the token were
+lost, and prints `dev_app` only when neither does: `/way-of-working:resume` drafts unattended only
+on that word.
+
 ---
 
 ## Worked example — a second repo, to show the seams move

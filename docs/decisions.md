@@ -1848,7 +1848,8 @@ take effect. Full reasoning and the task breakdown that implements them:
     - **Posting makes approval a reflex.** The maintainer reading a draft before posting it is
       the review; a skill that posted and then asked for a reaction would turn that into a click.
     - **Planning time is too early.** A spec is checked against a tree, and the tree moves; the
-      skill runs just in time, right before the task is next.
+      skill runs just in time, right before the task is next. *Reversed by `WB-D31`: the build
+      re-checks the paths the spec lists, so a spec may be drafted ahead.*
   - **The rule.**
     - The skill reads `#N` only when its author is trusted, by the same
       `gh-identity.sh author` test `resume` uses, from the default branch's `identities`.
@@ -1864,7 +1865,8 @@ take effect. Full reasoning and the task breakdown that implements them:
       `resume` does, and its closing message says to build in a fresh session: this one has read
       `#N`'s body, which the builder must not have in context under a map (`#496`).
     - It runs on the architect model (`models.architect`; Opus by default), with `spawn-model.sh` provenance when it is a subagent.
-    - `resume` and `handoff` point at it and never invoke it. No new `.ai/project.yml` key: the
+    - `resume` and `handoff` point at it and never invoke it. *Reversed for `resume` by `WB-D31`,
+      which invokes it in its drafting and stale branches as the dev App only.* No new `.ai/project.yml` key: the
       shape is generic method, and the trusted ids and base come from `identities` and
       `pr_base`.
   - **Rejected.**
@@ -2037,6 +2039,8 @@ take effect. Full reasoning and the task breakdown that implements them:
     - A candidate is a comment that passes every rule above, the fresh reaction included. A marker
       comment with no fresh maintainer reaction is not a candidate.
     - More than one candidate stops as ambiguous; a reader never picks one.
+    - *Amended by `WB-D31`: a builder also runs `spec-fresh.sh check` on the found comment, which
+      reads the marker's `sha=` and refuses a spec whose listed paths changed on the base since.*
     - To replace an approved spec, the maintainer removes the reaction from the old comment (or
       deletes it) and reacts to the new one.
   - **The rule.**
@@ -2145,11 +2149,105 @@ take effect. Full reasoning and the task breakdown that implements them:
        anchor no longer stop auto-start or the build. Closing it or moving its milestone still
        does.
     10. **The marker is checked once.** Only the finder checks it: `verify --spec-comment` and
-        `spec-comment.sh` trust the finder's selection from the same call.
+        `spec-comment.sh` trust the finder's selection from the same call. *Amended by `WB-D31`:
+        `spec-fresh.sh` also reads the marker, after `spec-comment.sh check`, to find the commit.*
     11. **The loop preflight.** `scripts/loop/preflight.sh` does not yet apply the reaction rule
         to a maintainer-authored spec comment, and its `github-dispatch --no-spec-comment` path
         still treats a trusted issue body as the spec, which handoff's `null` anchor makes the
         default shape. Nothing calls it yet. `#682` tracks both.
+
+- **WB-D31 (`#663`) — a build re-checks the paths its spec lists against the base and refuses a
+  stale spec, and `resume` may draft the spec itself as the dev App.** Builds on `#662` and
+  `#661`. Reverses `WB-D26`'s "just in time" and "`resume` never invokes `spec-task`" rules, and
+  amends `WB-D30` residual 10: the marker is now also read by `spec-fresh.sh`, after
+  `spec-comment.sh check`. Built as `bin/spec-fresh.sh`, `bin/draft-identity.sh` and
+  `spec-find.sh pending`. Both behaviours apply under an `identities` map only.
+  - **The decision.**
+    - **Freshness.** Before a build uses a found spec, the paths its *Files touched* section lists
+      are compared between the commit in its `spec-task:` marker (`sha=`) and the current tip of
+      the base (`spec-fresh.sh check`). If any changed, the spec is stale and the build does not
+      use it. The map body read of `resume` and the `coder` agent run `spec-comment.sh check`, then
+      `spec-fresh.sh check`, then `spec-comment.sh body`, in one Bash call; only `ok` and then
+      `fresh` go on.
+    - **Drafting.** When `resume` would auto-start and the finder prints `none`, or the build it
+      auto-started stopped on `stale <n>`, and the session runs as the declared dev App with no
+      stored login behind it (`draft-identity.sh` prints `dev_app`), `resume` runs
+      `/way-of-working:spec-task <N>` instead of waiting and ends without building. In the stale
+      case it posts only when no unreacted marker comment newer than the approved one exists
+      (`spec-find.sh pending`). The next fresh session builds once a maintainer has reacted.
+    - **Drafting ahead.** Because a stale spec can no longer be built from, a spec may be drafted
+      ahead for any task whose `depends_on` is met.
+  - **Why.** An approved spec is checked against the tree it was drafted on, and that tree moves.
+    The old guard was timing: draft just in time, right before the task is next. That left a spec
+    approved, then overtaken by a merge, then built. Checking the listed paths at the build makes
+    the staleness visible instead of relying on when the draft was written, and it removes the
+    human-started drafting session as a step in front of every build.
+  - **The rule.**
+    - `spec-fresh.sh` reads only git and files, never `gh`: `scripts/invariants-check.sh` check 17
+      requires it to exist, to make no `gh` call, and requires `resume` and the `coder` to name it.
+    - Only the first backtick span of each top-level *Files touched* bullet is checked, so the
+      section must have a shape the check can read (`bad-shape` otherwise): one file per bullet,
+      no code fence, no hidden or bidi text, no HTML comment opener anywhere. A bullet marked
+      **(append)** (an entry added to a shared file) is skipped, never on a `.github/` path.
+      `.ai/next-steps.md` and `.ai/parked/` are dropped from the changed set, as `cursor-drift.sh`
+      treats them as a cursor sync.
+    - The `coder` never drafts or posts; it reports the word. The stale branch runs only in the
+      session that auto-started the build, and re-runs the finder, the checks and `draft-identity.sh`
+      itself rather than trusting a `coder`'s report.
+    - `spec-fresh.sh`, `draft-identity.sh` and their tests join `scripts/loop/protected-paths.txt`.
+  - **Rejected.**
+    - **A freshness check in the pick-up summary before auto-start.** It runs in the body read only.
+    - **Editing the old comment.** A refreshed draft is a new `spec-task` run from `#N`'s body and
+      the current base.
+    - **Drafting by any identity other than the declared dev App,** the maintainer's included. Their
+      session keeps today's wait line and never reads the issue body.
+    - **A schema key listing files to ignore.** The **(append)** marker is the one carve-out.
+  - **Accepted residuals.**
+    1. An auto-started dev-App session reads `#N`'s body, which any Issues-write account can edit,
+       so a prompt injection there acts with the dev App's permissions.
+    2. **The real precondition is the dev container.** That is where there is no stored login and
+       git's credential helper is replaced. `draft-identity.sh` sees only `gh`'s own store as this
+       environment configures it. It does not see a git credential manager, a token file a host
+       hook reads, or a `gh` reached through `wsl.exe` or `cmd.exe`. It is checked once per
+       decision, and a transient failure of the fallback read counts as no stored login. A `gh`
+       wrapper that supplies the dev token, as the container's does, hides any store behind the
+       real binary.
+    3. No invariant pins `draft-identity.sh` to read-only `gh` calls. `tests/draft-identity.test.sh`'s
+       call log is the only control, and the file is loop-protected.
+    4. **(append)** is chosen by the drafter, which may have been injected, and is checked only by
+       the maintainer's reaction.
+    5. Only the first span of each bullet is checked, so a bullet naming two files checks one.
+    6. `WB-D29`'s two open decisions now apply to posts no human started: refusing hidden text, and
+       holding when the backlog repo is public and the code repo private. Part of the first is
+       closed here: `spec-fresh.sh` refuses an HTML comment opener or a stray CR anywhere in the
+       body, and the zero-width and bidi characters listed in `spec-fresh.sh` inside *Files touched*;
+       other invisible characters (Unicode tag characters, soft hyphen) and hidden text elsewhere
+       are still not refused.
+    7. Deleting or de-marking an unreacted draft lets the next session post again. That is one post
+       per session, or per loop iteration under `WB-D23`. This extends `WB-D30` residual 8.
+    8. Two sessions at once can both post.
+    9. An unreacted newer marker comment blocks redrafting until the maintainer reacts to it or
+       deletes it. This fails closed.
+    10. Shared files that are not marked **(append)** make a spec stale whenever another PR touching
+        them merges.
+    11. A path cited outside *Files touched* is not checked.
+    12. `/way-of-working:architect-review` can still load a spec the builder refused as stale (see
+        `WB-D30` residual 5).
+    13. `bad-sha` after a base rewrite needs a human to draft a new spec.
+    14. **Staleness can land mid-build.** Every `coder` spawn re-runs the freshness check, so a
+        listed shared file merging by another PR while a build is under way makes the next spawn,
+        or a fix round on an open PR, read `stale`. The stale branch then redrafts and ends the
+        session with the partial work uncommitted; a fix round only waits.
+    15. A `held` draft (for example `WB-D29`'s public-backlog hold) is not remembered, so each
+        session redrafts and holds again.
+    16. A spec approved before this lands that does not fit the *Files touched* shape reads
+        `bad-shape`, and one drafted on an old base is likely `stale`. A `bad-shape` spec always
+        needs a human to draft a new one; a `stale` one redrafts itself only in a dev-App session
+        that auto-started the build.
+    17. The span allowlist is `A-Za-z0-9._/-` only, so paths such as `+page.svelte` or
+        `[slug]` always read `bad-shape` for an adopter that has them.
+    18. The `none` drafting branch does not check that `#N` is open or on the milestone before
+        drafting; `spec-post.sh` stops a closed issue after the draft is made.
 
 ## Status
 

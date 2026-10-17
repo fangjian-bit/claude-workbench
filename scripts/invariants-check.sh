@@ -771,7 +771,9 @@ fi
 # `--json` naming `comments`, a GraphQL `comments(` or `comments {`, the repo-wide listing
 # (`issues/comments` followed by anything but `/<id>`, `/$CID` or `/${CID}`) and an
 # `issues/<x>/timeline` path, whose `commented` events carry comment bodies. Only spec-find.sh
-# lists, and it is held to its own rules below. The check sees only those spellings; a fetch or
+# lists, and it is held to its own rules below. resume and the coder must also name spec-fresh.sh
+# (#663, WB-D31), the freshness check run between spec-comment.sh check and body; the script must
+# exist and make no gh call. The check sees only those spellings; a fetch or
 # listing spelled another way is outside it. A missing file or script fails: a check that cannot
 # look must not pass (#243's stance).
 speccomment_hits=""
@@ -783,6 +785,11 @@ for pat in 'skills/resume/SKILL.md' 'skills/architect-review/SKILL.md' 'agents/c
     speccomment_seen=1
     grep -Fq 'spec-comment.sh' "$f" || speccomment_hits+="$f (does not call spec-comment.sh)"$'\n'
     grep -Fq 'spec-find.sh' "$f" || speccomment_hits+="$f (does not name spec-find.sh)"$'\n'
+    case "$pat" in
+      skills/resume/SKILL.md | agents/coder.md)
+        grep -Fq 'spec-fresh.sh' "$f" || speccomment_hits+="$f (does not name spec-fresh.sh)"$'\n'
+        ;;
+    esac
     bare=$(grep -oE 'issues/comments/(<id>|\$CID|\$\{CID\})"?.{0,24}' "$f" | grep -Ev '^issues/comments/(<id>|\$CID|\$\{CID\})"?(/| >"\$T/| --jq \.updated_at([^,._A-Za-z]|$))' || true)
     [ -z "$bare" ] || speccomment_hits+="$f (a spec-comment fetch neither redirected to a file nor projected: $(printf '%s' "$bare" | head -n 1))"$'\n'
     # Comment listings (WB-D30): the finder lists, the readers never do.
@@ -820,10 +827,18 @@ for f in plugins/*/bin/spec-find.sh; do
     fi
   fi
 done
+# bin/spec-fresh.sh (#663) is a pure git-and-file check: it must exist and no non-comment line
+# may call gh.
+ls plugins/*/bin/spec-fresh.sh >/dev/null 2>&1 || speccomment_hits+="(no plugins/*/bin/spec-fresh.sh found)"$'\n'
+for f in plugins/*/bin/spec-fresh.sh; do
+  [ -f "$f" ] || continue
+  fresh_gh=$(grep -Ev '^[[:space:]]*#' "$f" | grep -E '(^|[^A-Za-z0-9_-])gh[[:space:]]' || true)
+  [ -z "$fresh_gh" ] || speccomment_hits+="$f (makes a gh call: $(printf '%s' "$fresh_gh" | head -n 1))"$'\n'
+done
 if [ -n "$speccomment_hits" ]; then
   report "the spec comment may reach context before its checks pass, or a reader lists comments (#614, WB-D30)" \
     "$speccomment_hits" \
-    "Name bin/spec-find.sh in each reader and take the comment id from its found line; fetch the comment into a file and print it with bin/spec-comment.sh body, never to the transcript; list no comments. In bin/spec-find.sh keep the one listing line with its projection, and read no .body elsewhere."
+    "Name bin/spec-find.sh in each reader and take the comment id from its found line; fetch the comment into a file and print it with bin/spec-comment.sh body, never to the transcript; list no comments. resume and the coder also name bin/spec-fresh.sh, run before the body prints (#663). In bin/spec-find.sh keep the one listing line with its projection, and read no .body elsewhere. bin/spec-fresh.sh makes no gh call."
 fi
 
 # --- 18. The spec-task skill carries no posting form; its one write lives in spec-post.sh (#611, #661, WB-D29) --

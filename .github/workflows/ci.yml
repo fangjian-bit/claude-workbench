@@ -124,6 +124,10 @@ jobs:
         run: sh tests/spec-issue.test.sh
       - name: spec-find.sh fixtures
         run: sh tests/spec-find.test.sh
+      - name: spec-fresh.sh fixtures
+        run: sh tests/spec-fresh.test.sh
+      - name: draft-identity.sh fixtures
+        run: sh tests/draft-identity.test.sh
       - name: spec-post.sh fixtures
         run: sh tests/spec-post.test.sh
       - name: token-check.sh fixtures
