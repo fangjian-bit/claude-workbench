@@ -91,7 +91,7 @@ RUN set -eu; \
     command -v timeout >/dev/null; \
     [ "$(stat -c %u:%a /etc/way-of-working/review-container)" = 0:444 ]; \
     [ "$(stat -c %u:%a /etc/claude-code/managed-settings.json)" = 0:444 ] \
-      && jq -e '.strictPluginOnlyCustomization == true' /etc/claude-code/managed-settings.json >/dev/null
+      && jq -e '.strictPluginOnlyCustomization == true and .allowManagedHooksOnly == true' /etc/claude-code/managed-settings.json >/dev/null
 
 USER 1000:1000
 WORKDIR /work

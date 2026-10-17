@@ -221,8 +221,9 @@ else
   printf '#!/bin/sh\n# an older release\nset -eu\n' >"$real/bin/review-sandbox.sh"
 fi
 case "${WRITER:-yes}" in
-  yes) printf '#!/bin/sh\n# a stand-in\nREVIEW_OUTBOX=/review-out\nset -eu\n' >"$real/bin/review-outbox.sh" ;;
-  wrongline) printf '#!/bin/sh\n# an older release\nREVIEW_OUTBOX=/elsewhere\nset -eu\n' >"$real/bin/review-outbox.sh" ;;
+  yes) printf '#!/bin/sh\n# a stand-in\nREVIEW_OUTBOX=/review-out\nset -eu\n' >"$real/bin/review-outbox.sh"; chmod 755 "$real/bin/review-outbox.sh" ;;
+  wrongline) printf '#!/bin/sh\n# an older release\nREVIEW_OUTBOX=/elsewhere\nset -eu\n' >"$real/bin/review-outbox.sh"; chmod 755 "$real/bin/review-outbox.sh" ;;
+  noexec) printf '# no shebang\nREVIEW_OUTBOX=/review-out\n' >"$real/bin/review-outbox.sh"; chmod 644 "$real/bin/review-outbox.sh" ;;
   link) ln -s review-sandbox.sh "$real/bin/review-outbox.sh" ;;
   missing) ;;
 esac
@@ -408,6 +409,8 @@ stop_case "an installed review-sandbox.sh without the marker line" plugin inst M
 check "...names the floor" grep -q 'predates the review-container marker' "$REC/stderr"
 stop_case "an installed plugin with no review-outbox.sh" plugin inst WRITER=missing
 check "...names the writer" grep -q 'has no review-outbox.sh' "$REC/stderr"
+stop_case "an installed review-outbox.sh that is not executable" plugin inst WRITER=noexec
+check "...names the mount" grep -q 'cannot be executed' "$REC/stderr"
 stop_case "an installed review-outbox.sh without the outbox line" plugin inst WRITER=wrongline
 check "...names the floor" grep -q 'predates the outbox writer' "$REC/stderr"
 if ln -s "$tmp/linktarget" "$tmp/linkprobe" 2>/dev/null && [ -L "$tmp/linkprobe" ]; then
@@ -529,6 +532,7 @@ check "Dockerfile: the rewrite takes on the committed dev-token (file)" grep -q 
 check "Dockerfile: the rewrite changes exactly those two lines" test "$(diff "$root_dir/.devcontainer/dev-token" "$tmp/dev-token.rewritten" | grep -c '^>')" -eq 2
 check "Dockerfile: the marker is created, root-owned, 0444" grep -q 'chmod 0444 /etc/way-of-working/review-container' "$df"
 check "Dockerfile: the managed settings are copied root-owned, 0444" grep -qF 'COPY --chown=root:root --chmod=0444 managed-settings.json /etc/claude-code/managed-settings.json' "$df"
+check "Dockerfile: the build requires allowManagedHooksOnly" grep -qF '.allowManagedHooksOnly == true' "$df"
 check "Dockerfile: no /review-out is created" test -z "$(grep -v '^#' "$df" | grep -e 'mkdir.*review-out' -e 'WORKDIR /review-out' || true)"
 env_names=$(awk '/^ENV /{e=1} e{print} e && !/\\$/{e=0}' "$df" | tr -s ' \\' '\n\n' | sed -n 's/^\([A-Z_][A-Z0-9_]*\)=.*/\1/p' | sort | tr '\n' ' ')
 json_names=$(jq -r '.env | keys[]' "$rdir/managed-settings.json" | tr -d '\r' | sort | tr '\n' ' ')
@@ -546,8 +550,9 @@ check "build context: ten files" test "$(printf '%s\n' "$ctx" | wc -l | tr -d ' 
 # =========================================================================================
 ms="$rdir/managed-settings.json"
 check "managed settings: parse" jq -e . "$ms" >/dev/null
-check "managed settings: the only keys are strictPluginOnlyCustomization and env" jq -e 'keys == ["env", "strictPluginOnlyCustomization"]' "$ms" >/dev/null
+check "managed settings: the only keys are allowManagedHooksOnly, env and strictPluginOnlyCustomization" jq -e 'keys == ["allowManagedHooksOnly", "env", "strictPluginOnlyCustomization"]' "$ms" >/dev/null
 check "managed settings: strictPluginOnlyCustomization is true" jq -e '.strictPluginOnlyCustomization == true' "$ms" >/dev/null
+check "managed settings: allowManagedHooksOnly is true" jq -e '.allowManagedHooksOnly == true' "$ms" >/dev/null
 check "managed settings: env holds exactly the four variables, each \"1\"" jq -e \
   '.env == {DISABLE_AUTOUPDATER: "1", DISABLE_TELEMETRY: "1", DISABLE_ERROR_REPORTING: "1", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"}' "$ms" >/dev/null
 

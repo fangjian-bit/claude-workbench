@@ -12,7 +12,8 @@
 # is an accident guard, not a boundary (#635's preflight is the check that counts).
 #
 # Mounts #635 must provide: a writable, empty /work (the clone target), a writable, empty
-# /review-out, a writable /tmp, and a writable, empty /home/app.
+# /review-out, a writable /tmp, and a writable, empty /home/app mounted with exec, because the
+# plugin's scripts run from it.
 #
 # Writes only: /review-out/outcome, /work (the clone), $HOME (Claude's config and the plugin
 # install) and one `mktemp -d` under /tmp. An explicit rm -rf removes that directory just
@@ -273,6 +274,7 @@ outbox_writer=$ipath/bin/review-outbox.sh
 { [ -f "$outbox_writer" ] && [ ! -L "$outbox_writer" ]; } || stop entry-plugin "the installed plugin has no review-outbox.sh"
 cenv grep -qxF 'REVIEW_OUTBOX=/review-out' "$outbox_writer" \
   || stop entry-plugin "the installed plugin predates the outbox writer"
+[ -x "$outbox_writer" ] || stop entry-plugin "the installed plugin's scripts cannot be executed (is HOME mounted noexec?)"
 
 # --- step 6: run ---------------------------------------------------------------------------------
 cd "$WORK" || stop entry-clone "cannot enter the clone"

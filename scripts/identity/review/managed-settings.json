@@ -1,5 +1,6 @@
 {
   "strictPluginOnlyCustomization": true,
+  "allowManagedHooksOnly": true,
   "env": {
     "DISABLE_AUTOUPDATER": "1",
     "DISABLE_TELEMETRY": "1",

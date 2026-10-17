@@ -497,10 +497,14 @@ dkp run -d --name "$H" --network none --read-only --cap-drop ALL --security-opt 
 # ---- 9. create, preflight, re-mint, start, unlock --------------------------------------------
 # compress=false: the `local` log driver (Docker Desktop's default) compresses unless told not to,
 # and refuses max-file=1 with compression on, at start, after create succeeded. json-file accepts it too.
+# The home tmpfs takes `exec`: the plugin is installed under it and its scripts are run by name. /work already
+# allows execution, so noexec on the home tmpfs stopped the plugin's own scripts without stopping anything the
+# session could not already run (its SessionStart hook is switched off by the image's managed settings).
+# nosuid stays, and so does Docker's default nodev.
 dkp create --name "$S" --label wow.review=1 --label "wow.review.deadline=$DL" --network "$NET" \
   --read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit 512 --memory 4g --cgroupns private --ipc private \
   --log-opt max-size=10m --log-opt max-file=1 --log-opt compress=false \
-  --tmpfs /tmp:rw,nosuid,size=512m --tmpfs /home/app:rw,nosuid,uid=1000,gid=1000,mode=0700,size=1g \
+  --tmpfs /tmp:rw,nosuid,size=512m --tmpfs /home/app:rw,exec,nosuid,uid=1000,gid=1000,mode=0700,size=1g \
   --mount "type=volume,source=$WORK,target=/work,volume-nocopy=true" \
   --mount "type=volume,source=$OUTV,target=/review-out,volume-nocopy=true" \
   --mount "type=bind,source=$(hp "$MDIR"),target=/run/glunk-identity/review,readonly" \
