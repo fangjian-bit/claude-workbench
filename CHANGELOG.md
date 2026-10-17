@@ -19,11 +19,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 `v0.5.0` are summarized from their tags; the full record is `docs/decisions.md` (`WB-D*`) and
 the GitHub release notes.
 
-## [Unreleased]
+## [0.19.0] — 2026-10-17
+
+**⚠️ Migration** — move every session that reads a repo's cursor to this release together
+(#637, `WB-D27`). Under `planning.kind: github_milestones`, `/way-of-working:handoff` no longer
+records `description_sha256` in `pointers.plan_anchor`, and a 0.18.0 `plan-anchor.sh verify` reads
+an anchor without it as `unreadable`, so a `/way-of-working:resume` still on 0.18.0 (another
+machine, another worktree) waits. Anchors written before this release still verify.
 
 **⚠️ Migration** — after this release, a map repo's in-session review posts nothing:
 `/way-of-working:architect-review` on a host prints the `wow-review` command and stops, and App-mode
-review needs the host tools (`install-host-tools.ps1`, `wow-review`) and the reviewer App's new
+review needs Docker, the host tools (`install-host-tools.ps1`, `wow-review`; optionally
+`wow-review-poll`) and the reviewer App's new
 permissions (Issues write, Actions read), accepted by each installation. Repos with
 `identities: null` are unchanged.
 
@@ -31,39 +38,82 @@ permissions (Issues write, Actions read), accepted by each installation. Repos w
 find the spec with `bin/spec-find.sh` (#662, #678, `WB-D30`): a spec comment without the
 `spec-task:` marker is no longer used, so post it with `/way-of-working:spec-task`; every spec
 comment, a maintainer's included, needs a declared maintainer's approving reaction after its last
-edit; and `/way-of-working:handoff` no longer anchors the spec. Repos with `identities: null` are
-unchanged.
+edit; and `/way-of-working:handoff` no longer anchors the spec (`plan-anchor.sh verify` takes the
+finder's `found` pair as `--spec-comment <id> <updated_at>` instead). Repos with `identities: null`
+find the spec as before.
 
 ### Added
 
-- **`bin/spec-find.sh`** (#662, part 1): finds the one approved spec comment on a task issue and
+- **`bin/spec-find.sh`** (#662, #678): finds the one approved spec comment on a task issue and
   prints its id and `updated_at`, or a word that means wait. Called by `resume`, the `coder` agent
-  and `architect-review` since part 2 (#678). Tested by `tests/spec-find.test.sh`; invariants checks 16 and 17
-  now cover it.
-- **`bin/spec-post.sh`** (#661, `WB-D29`, supersedes `WB-D26`): `spec-task` now posts its checked draft as
+  and `architect-review`. Tested by `tests/spec-find.test.sh`; invariants checks 16 and 17 cover it.
+- **`/way-of-working:spec-task <N>`** (#611, #659, #661, `WB-D26`, `WB-D29`): drafts a task issue's
+  spec comment in a fixed shape (goal, files touched, done when, tests, out of scope, restated from
+  the issue body), reading `#N` only for a trusted author and checking every name it cites against a
+  pinned commit, then posts or holds it through `bin/spec-post.sh`. As the declared dev App it posts
+  with no terminal stop, so it needs Issues write on `backlog.repo`; any other login, or a repo with
+  no `identities` map, gets the composed comment held for a human to post. Read the reaction rule in
+  `WB-D29` before bumping the pin.
+- **`bin/spec-post.sh`** (#661, `WB-D29`): posts `spec-task`'s checked draft as
   one new comment on the issue when the session acts as the declared dev App, with a first-line marker
   naming the issue, base and commit, and otherwise holds the composed comment for a human to post.
   Approval is unchanged: a declared maintainer still reacts on GitHub. Tested by `tests/spec-post.test.sh`;
-  invariants check 18 now pins its two `gh` lines.
-
+  invariants check 18 pins its two `gh` lines and keeps any posting form out of the skill's text.
+- **`bin/spec-issue.sh`** (#659): `spec-task`'s one fetch of the task issue and its author-trust
+  decision, made before any of the issue's text is read; it prints `ok` or a fixed stop word. Tested
+  by `tests/spec-issue.test.sh`.
+- **`bin/spec-shape.sh`** (#611): checks a drafted spec has its six sections, in order, each with a
+  non-empty body; `spec-task` posts or holds only on `ok`. Tested by `tests/spec-shape.test.sh`.
+- **`bin/spec-comment.sh`** (#614, #660): the one implementation of the spec comment's checks
+  (comment id, `updated_at`, issue, author and, under a map, a declared maintainer's approving
+  reaction after its last edit). Its `body` verb prints the comment only after every check passes,
+  so unchecked text never reaches a reader's context. `resume`, the `coder` agent and
+  `architect-review` print the spec comment only through it (invariants check 17). Tested by
+  `tests/spec-comment.test.sh`. **Behaviour change, `identities: null` repos under
+  `github_milestones`:** `architect-review` now loads the anchored spec comment only through this
+  check (author by `author_association`), and only when the anchor's `task_issue` is the issue this
+  PR names and `review_pr`, when set, is this PR.
+- **`bin/spec-reaction.sh`** (#613): the one rule for "a declared maintainer reacted after the spec
+  comment's last edit", shared by `plan-anchor.sh verify`, `architect-review`, `spec-comment.sh`,
+  `spec-find.sh` and the loop's dispatch preflight (invariants check 16). Tested by
+  `tests/spec-reaction.test.sh`.
+- **`bin/milestone-desc.sh`** (#638, `WB-D28`): a checked writer for one milestone's description,
+  from a scratch file, read back after the write (`ok`, `refused` or `mismatch`). Called by
+  `plan-sprint`. Tested by `tests/milestone-desc.test.sh`.
+- **`bin/blocking-criteria.sh`** (#640): prints only a milestone description's `BLOCKING:` criteria,
+  sanitized and capped. Tested by `tests/blocking-criteria.test.sh`.
 - **`bin/review-outbox.sh`** (#636, `WB-D24` item 7): the one writer of the review container's
-  outbox, and the one test for "is this a review container" (`where`). `outcome`, `body` and
+  outbox, and the skills' test for "is this a review container" (`where`; `review-sandbox.sh`
+  checks the same marker itself). `outcome`, `body` and
   `findings` apply the launcher's own checks before writing, so a refusal reaches the session
   while it can still fix the text. Tested by `tests/review-outbox.test.sh`.
 - **`docs/identity/REVIEW-LIVE-RUN.md`**: the maintainer's one-time live-run checklist.
 
 ### Changed
 
-- **`spec-task` now publishes** (#661, `WB-D29`): as the declared dev App it posts the checked draft as a comment
-  on the backlog issue with no terminal stop, so it needs Issues write on `backlog.repo`; any other login, or a
-  repo with no `identities` map, gets the composed comment held for a human to post. Read the reaction rule
-  in `WB-D29` before bumping the pin.
+- **The plan anchor no longer hashes the milestone description** (#637, `WB-D27`; see the first
+  Migration line). **Behaviour change, every `github_milestones` repo:** `plan-anchor.sh write`
+  records the milestone by its number, with no description hash, and `verify` never
+  fetches the description and ignores a `description_sha256` an older anchor carries, so a
+  build-order edit no longer reads as `drift` or needs a re-anchoring handoff.
+- **`/way-of-working:plan-sprint` edits a build order live** (#639, `WB-D28`). **Behaviour change,
+  every `github_milestones` repo:** a newly placed issue goes into an existing milestone's numbered
+  build order, the anchored milestone included, through `milestone-desc.sh write` after the human
+  confirms the full `diff -u`, checked with `plan-depends.sh`'s new `order`, `frame` and `items`
+  verbs (`tests/plan-depends.test.sh`). A write that does not go
+  through falls back to the staged script, and the triage comment records the old and new order. The
+  refusal to edit the anchored milestone's description is gone.
+- **Under an `identities` map, `architect-review`'s task spec is the spec comment only, never the
+  issue body** (#566, #613, #678): the one comment `spec-find.sh` prints as `found`, loaded only
+  after `spec-comment.sh` says `ok` and labelled maintainer- or dev-App-authored,
+  maintainer-approved. Any other result loads no spec, and the review says why.
 - **The declared dev App may author a spec comment** (#660). `bin/spec-comment.sh` judges the author by
   `gh-identity.sh role`, and `plan-anchor.sh verify` takes `--dev-app-id`. A dev-App spec is used only
   with a declared maintainer's approving reaction created after its last edit (`unreacted` otherwise),
   so an agent can write the spec it obeys but never approve it. Readers that call `spec-comment.sh`
-  under an `identities` map (`resume`, the `coder` agent, `architect-review`) now fetch the comment's
-  reactions first and pass them as an optional last argument. Check 16 pins the new call line.
+  under an `identities` map (`resume`, the `coder` agent, `architect-review`) fetch the comment's
+  reactions before the comment and pass them as its last argument. Check 16 pins `spec-comment.sh`'s
+  call to `spec-reaction.sh`.
 - **The loop's dispatch preflight accepts a declared dev-App spec comment** (#666) that a declared
   maintainer reacted to after its last edit, through a new optional `--spec-reactions` file judged by
   `bin/spec-reaction.sh`. Check 16 pins its call. The task issue's author stays maintainer-only.
@@ -71,13 +121,16 @@ unchanged.
   it reviews with no local execution and writes the launcher's outbox; it never posts, files or
   mints a token. On a host or in a dev container under a map it prints the launcher command and
   stops. The in-session App-mode post is gone. The legacy post under `identities: null` is
-  unchanged.
+  unchanged. `review-sandbox.sh make` and `run` refuse wherever the image's root-owned marker file
+  exists, before any argument check (#634).
 - **`/way-of-working:pr-checks` in the review container** never runs `gh run rerun`, polls or
   reschedules; STALE-RED is reported as the verdict.
 - `bin/review-token.sh` is no longer called by any skill; it is kept until a later cleanup.
-
-- **`ship` and `archive-sprint` read a milestone description only through `bin/blocking-criteria.sh`** (`#640`).
-  Under `planning.kind: github_milestones`, `ship`'s blocking-precondition step, `archive-sprint`'s
+- `reference/conventions.md`: *Bumping a pinned plugin* gains a step that clears a phantom
+  `.claude/settings.json` change left by the marketplace re-add (#570), and *Sign commits* now
+  separates host commits from dev-container commits (`WB-D25`).
+- **`ship` and `archive-sprint` read a milestone description only through `bin/blocking-criteria.sh`** (#640).
+  **Behaviour change, every `github_milestones` repo:** `ship`'s blocking-precondition step, `archive-sprint`'s
   precondition 5 and its close step's display each captured the whole, author-editable description
   into the session. They now write it to a file and print only the `BLOCKING:` criteria, each with
   its item header and continuation lines (the `— gates:` line included), sanitized and capped by
