@@ -85,6 +85,19 @@ unchanged.
   the state. A new invariants check (19) keeps an unprojected milestone read from coming back. This
   narrows exposure and binds nothing: whoever edits the description still chooses the lines selected.
 
+### Fixed
+
+- **`/way-of-working:pr-checks` counts an app-pinned context posted as a commit status** (#673).
+  **Behaviour change, every repo:** a context the branch's rule pins to an app now reads as met when
+  the newest commit status for that context, from any poster, was posted by the pinned app at
+  `success`, so a status-shaped pinned gate no longer reads NOT READY while a green PR waits for
+  approval. A passing check-run no longer meets a pin when the context has a status whose newest
+  entry is not the pinned app's `success`; with no status for the context, the check-run rule is
+  unchanged. A status carries no app id, so its poster is matched by `creator`: a `Bot` whose login is
+  `<slug>[bot]` is the app `GET /apps/<slug>` returns, and a user or any other login never meets a pin.
+  The new statuses read needs Commit statuses read on the token; without it `pr-checks` reads COULD NOT
+  TELL on a BLOCKED PR wherever a pin exists.
+
 ## [0.18.0] — 2026-10-13
 
 **⚠️ Migration required** — one new required `.ai/project.yml` key, `identities`. Answer

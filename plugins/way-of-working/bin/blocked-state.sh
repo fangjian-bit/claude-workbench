@@ -25,7 +25,9 @@
 #                       required checks and the contexts the branch's own
 #                       required_status_checks rule names; a non-empty required-check
 #                       list; and, for each context that rule pins to an app
-#                       (`integration_id`), a run of that name posted BY that app. Else 0.
+#                       (`integration_id`), met by that app: the context's newest status, if
+#                       any, is that app's success, else a run of that name posted BY that
+#                       app. Else 0.
 #                       The review is NOT part of it any more: <reviewDecision> carries it.
 #                       The caller computes it; this script cannot see any of it, so a
 #                       wrong 1 is a wrong verdict.
@@ -64,7 +66,7 @@
 # Prints exactly one word to stdout and exits 0:
 #   not-blocked        -- the state is not BLOCKED; this script has nothing to say
 #   blocked            -- BLOCKED, and either `green` is 0 (a check red, pending or missing,
-#                         a pinned check from the wrong app, an empty check list) or
+#                         a pinned context its app did not meet, an empty check list) or
 #                         <reviewDecision> is CHANGES_REQUESTED: what the caller found
 #                         wrong, not a rule, is what to report
 #   awaiting-approval  -- BLOCKED, `green` is 1, <reviewDecision> is REVIEW_REQUIRED, and a
@@ -104,7 +106,7 @@
 #                         such a rule contradicts it, so that is refused too
 #   required_status_checks -- a line without `app_pinned=` means the caller dropped the
 #                         parameters. app_pinned>0 is evaluated by the CALLER, inside
-#                         <green> (a pinned context needs a run from its pinned app); the
+#                         <green> (a pinned context must be met by its pinned app); the
 #                         word is only validated here
 # Bypass actors are deliberately not read: `current_user_can_bypass` is `never` to a
 # non-admin viewer, so for the viewers who most need the answer it cannot be reached

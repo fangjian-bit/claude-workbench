@@ -100,7 +100,7 @@ what is actually enforced.
      read **inside** each block, validated, and used only as `"$B"` — never typed into a
      command by hand, which is how an attacker's branch name would run on this machine
      (`bin/review-base-anchor.sh` reads its branch inside the script too, though it
-     validates with `git check-ref-format` rather than a character set). Two blocks, each one
+     validates with `git check-ref-format` rather than a character set). Three blocks, each one
      chain, for the same reason the review-gate block below is one — a failed call must
      never reach what follows it:
 
@@ -116,28 +116,60 @@ what is actually enforced.
      `<green>` from `{ruleset.required_checks}` alone, which is the stale-list failure this
      call exists to close.
 
-     A context the rule **pins to an app** (`integration_id`) is met only by a run that app
-     posted: a same-named check from another workflow, or a commit status, does not count.
-     The rollup the checks above are read from cannot say which app posted a run, so block
-     (a2) reads the head commit's check-runs, which carry `app.id`:
+     A context the rule **pins to an app** (`integration_id`) is met only by that app. When
+     at least one commit status exists for the context, the newest of them, whoever posted
+     it, decides alone: the pin is met only when that status was posted by the pinned app
+     and is `success`, and a passing run does not override it. When no status exists for the
+     context, a passing run from the pinned app meets the pin. A same-named check from
+     another app does not count. The rollup the checks above are read from cannot say which
+     app posted a run, so block (a2) reads the head commit's check-runs, which carry
+     `app.id`, and, when a pin exists, the head commit's statuses, which carry no app id and
+     are matched by `creator`: a `Bot` creator whose login is `<slug>[bot]` is the app
+     `GET /apps/<slug>` returns, and nothing else (a user, or a login that is not
+     `<slug>[bot]`) is ever matched to an app:
 
      ```bash
-     # (a2) every context the branch's rule pins to an app has a passing run from that app
+     # (a2) every context the branch's rule pins to an app is met by that app: the context's newest status, if any, is that app's success, else a passing run from it
      B=$(gh pr view <N> --repo {repo} --json baseRefName -q .baseRefName) &&
      case "$B" in '' | *[!A-Za-z0-9._/-]*) false ;; esac &&
      P=$(gh api --paginate "repos/{repo}/rules/branches/$B" --jq '.[] | select(.type=="required_status_checks") | .parameters.required_status_checks[]? | select(.integration_id != null) | "\(.integration_id) \(.context)"') &&
      S=$(gh pr view <N> --repo {repo} --json headRefOid -q .headRefOid) &&
+     case "$S" in *[!0123456789abcdef]*) false ;; esac && [ ${#S} -eq 40 ] &&
      R=$(gh api --paginate "repos/{repo}/commits/$S/check-runs" --jq '.check_runs[] | select((.name | test("\n") | not) and .status=="completed" and (.conclusion=="success" or .conclusion=="neutral" or .conclusion=="skipped")) | "\(.app.id) \(.name)"') &&
+     ST=$([ -z "$P" ] || gh api --paginate "repos/{repo}/commits/$S/statuses" --jq '.[] | select(.context | test("\n") | not) | "\(.creator.type) \(.creator.login) \(.state) \(.context)"') &&
+     cache= &&
      U=$(printf '%s\n' "$P" | while IFS= read -r pin; do
            [ -n "$pin" ] || continue
-           printf '%s\n' "$R" | grep -Fxq -- "$pin" || printf 'unmet %s\n' "$pin"
+           d= slug= id= met=0
+           pid=${pin%% *}
+           pctx=${pin#* }
+           d=$(printf '%s\n' "$ST" | while IFS= read -r l; do t=${l%% *}; r=${l#* }; login=${r%% *}; r=${r#* }; st=${r%% *}; ctx=${r#* }; if [ "$ctx" = "$pctx" ]; then printf '%s\n' "$l"; break; fi; done)
+           if [ -z "$d" ]; then
+             printf '%s\n' "$R" | grep -Fxq -- "$pin" && met=1
+           else
+             t=${d%% *}; r=${d#* }; login=${r%% *}; r=${r#* }; st=${r%% *}
+             case "$login" in *'[bot]') slug=${login%'[bot]'} ;; *) slug= ;; esac
+             case "$slug" in '' | [!a-z0-9]* | *[!a-z0-9_-]*) slug= ;; esac
+             [ "$t" = Bot ] || slug=
+             if [ -n "$slug" ]; then
+               id=$(printf '%s\n' "$cache" | while IFS=' ' read -r cs ci; do [ "$cs" = "$slug" ] && { printf '%s\n' "$ci"; break; }; done)
+               if [ -z "$id" ]; then
+                 id=$(gh api "apps/$slug" --jq .id </dev/null) || exit 1
+                 cache=$(printf '%s\n%s %s' "$cache" "$slug" "$id")
+               fi
+               [ "$id" = "$pid" ] && [ "$st" = success ] && met=1
+             fi
+           fi
+           [ "$met" = 1 ] || printf 'unmet %s\n' "$pin"
          done) &&
      { [ -n "$U" ] && printf '%s\n' "$U" || echo pins-ok; }
      ```
 
      `pins-ok` (also what a rule with no pinned context prints) leaves `<green>` as the
      checks above decide; any `unmet` line makes `<green>` `0` and is named in the report as
-     a check that only counts from its pinned app. A failed call is COULD NOT TELL, as for (a).
+     a check that only counts from its pinned app. A failed call or check (including the head SHA not exactly 40
+     lowercase hex characters, the statuses read, or the app lookup for a deciding status's
+     login) is COULD NOT TELL, as for (a).
 
      ```bash
      # (b) ask the predicate
@@ -184,7 +216,8 @@ what is actually enforced.
        human reviewer can give it (a code owner, where the rule requires one). The verdict is AWAITING APPROVAL, below.
      - **`blocked`** — the checks, the review, or the check list are not in order
        (including an empty `{ruleset.required_checks}`, a context (a) named that has no
-       run, a pinned context (a2) that only a different app posted, or a `reviewDecision` of
+       run, a pinned context (a2) its pinned app did not meet (the context's newest status is not
+       that app's `success`, or, with no status, no passing run from it), or a `reviewDecision` of
        `CHANGES_REQUESTED`); report those, not the rule. The verdict is NOT READY or
        PENDING by what is actually wrong.
      - **Could not tell** (exit 2, a failed call, or any other output) — never lag and
@@ -291,7 +324,7 @@ what is actually enforced.
      Name every failing check and, for each, the one-line reason from its job log
      (`gh run view <run-id> --job <job-id> --log` grep'd to the failure). Also the verdict
      when `blocked-state.sh` printed `blocked` with every present check green: say the
-     review is blocking (`reviewDecision`), that a context the rule pins to an app has no passing run from that app (block (a2), also true of one posted only as a commit status), that `{ruleset.required_checks}` is empty, or
+     review is blocking (`reviewDecision`), that a context the rule pins to an app was not met by that app (block (a2)), that `{ruleset.required_checks}` is empty, or
      name the branch-rule context with no run (*also required by the branch's rule*) when
      it is not merely queued — a run that has not started yet is PENDING, not red.
    - **PENDING** — name which checks are still running; or, when `blocked-state.sh`

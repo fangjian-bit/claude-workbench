@@ -55,6 +55,9 @@ fi
 # base branch name and STUB_SHA the head commit; STUB_RULES is the already-projected rule
 # list the real --jq would print for block (b), STUB_PINS the projected "<app id> <context>"
 # lines block (a2) asks for, STUB_RUNS the projected "<app id> <name>" passing check-runs.
+# STUB_STATUSES is the projected "<type> <login> <state> <context>" commit statuses, newest
+# first; STUB_STATUSES_RC makes that read fail. STUB_APPS is "<slug> <id>" lines for
+# `gh api apps/<slug>`, which exits non-zero for an unknown slug or when STUB_APPS_RC is not 0.
 cat >"$stub/gh" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$*" >>"$STUB_LOG"
@@ -70,9 +73,18 @@ case "$1 $2" in
     case "$*" in
       */check-runs*) [ "${STUB_RUNS_RC:-0}" = 0 ] || { echo "stub gh: runs failed" >&2; exit 1; }
                     [ -z "${STUB_RUNS-}" ] || printf '%s\n' "$STUB_RUNS" ;;
+      */statuses*) [ "${STUB_STATUSES_RC:-0}" = 0 ] || { echo "stub gh: statuses failed" >&2; exit 1; }
+                   [ -z "${STUB_STATUSES-}" ] || printf '%s\n' "$STUB_STATUSES" ;;
       *'\(.integration_id) '*) [ -z "${STUB_PINS-}" ] || printf '%s\n' "$STUB_PINS" ;;
       *) [ -z "${STUB_RULES-}" ] || printf '%s\n' "$STUB_RULES" ;;
     esac ;;
+  "api apps/"*)
+    [ "${STUB_APPS_RC:-0}" = 0 ] || { echo "stub gh: app lookup failed" >&2; exit 1; }
+    app_id="$(printf '%s\n' "${STUB_APPS-}" | while read -r a b; do
+      if [ "$a" = "${2#apps/}" ]; then printf '%s\n' "$b"; break; fi
+    done)"
+    [ -n "$app_id" ] || { echo "stub gh: no such app" >&2; exit 1; }
+    printf '%s\n' "$app_id" ;;
   *) exit 99 ;;
 esac
 EOF
@@ -132,7 +144,7 @@ done
 assert_eq "slashes, dots, dashes in a branch are allowed" "lag|0" \
   "$(STUB_BASE='feat/v1.2_x-y' run_block "$work/block.sh")"
 
-# --- block (a2): a pinned context needs a run from its pinned app (#384) --------
+# --- block (a2): a pinned context must be met by its pinned app (its newest status, else a run) (#384) --
 awk '/^ *# \(a2\) every context/ { p = 1 } p && /^ *```/ { exit } p' "$skill" |
   sed -e 's/^ *//' -e 's/<N>/7/g' -e 's/{repo}/o\/r/g' >"$work/blocka2.sh"
 if [ ! -s "$work/blocka2.sh" ] || grep -Eq '(^|[^$])[<{][A-Za-z0-9_.-]+[>}]' "$work/blocka2.sh"; then
@@ -159,6 +171,92 @@ for b in 'x$(touch PWN)' 'a;b' ''; do
   assert_eq "branch [$b] -> no output, non-zero" "|1" "$(STUB_BASE="$b" run_block "$work/blocka2.sh")"
   assert_eq "branch [$b] -> no gh api call" "0" "$(calls '^api')"
 done
+
+# --- block (a2): a status for the context decides, else its run (#673) ----------
+# a2f <block-file> <pins> <runs> <statuses> -> "<stdout>|<rc>". Runs are empty unless a fixture
+# states one, or the default runs above would meet `15368 lint` and make each fixture vacuous.
+a2f() { STUB_PINS="$2" STUB_RUNS="$3" STUB_STATUSES="$4" run_block "$1"; }
+a2() { a2f "$work/blocka2.sh" "$@"; }
+nl2() { printf '%s\n%s' "$1" "$2"; }
+export STUB_APPS="$(printf 'github-actions 15368\nother-app 9999')"
+gha='Bot github-actions[bot] success lint'
+# Met.
+assert_eq "REPRODUCTION: a pin met only by the pinned app's success status -> pins-ok" "pins-ok|0" \
+  "$(a2 '15368 lint' '' "$gha")"
+assert_eq "a pinned context with a space in it is met by a status" "pins-ok|0" \
+  "$(a2 '15368 Run tests' '' 'Bot github-actions[bot] success Run tests')"
+assert_eq "one pin met by a run, one by a status" "pins-ok|0" \
+  "$(a2 "$(nl2 '15368 lint' '15368 coupling')" '15368 coupling' "$gha")"
+assert_eq "pins of two apps, each met by its own status -> pins-ok" "pins-ok|0" \
+  "$(a2 "$(nl2 '15368 lint' '9999 coupling')" '' "$(nl2 "$gha" 'Bot other-app[bot] success coupling')")"
+assert_eq "  one apps/github-actions lookup" "1" "$(calls '^api apps/github-actions ')"
+assert_eq "  one apps/other-app lookup" "1" "$(calls '^api apps/other-app ')"
+assert_eq "two pins decided by the same app -> pins-ok" "pins-ok|0" \
+  "$(a2 "$(nl2 '15368 lint' '15368 coupling')" '' "$(nl2 "$gha" 'Bot github-actions[bot] success coupling')")"
+assert_eq "  one apps/github-actions lookup for both" "1" "$(calls '^api apps/github-actions ')"
+assert_eq "a run and a newest success status both from the pinned app -> pins-ok" "pins-ok|0" \
+  "$(a2 '15368 lint' '15368 lint' "$gha")"
+# Unmet, with a lookup.
+assert_eq "a success status from another app -> unmet" "unmet 15368 lint|0" \
+  "$(a2 '15368 lint' '' 'Bot other-app[bot] success lint')"
+assert_eq "a newest failure from the pinned app over an older success -> unmet" "unmet 15368 lint|0" \
+  "$(a2 '15368 lint' '' "$(nl2 'Bot github-actions[bot] failure lint' "$gha")")"
+assert_eq "a newest pending from the pinned app over an older success -> unmet" "unmet 15368 lint|0" \
+  "$(a2 '15368 lint' '' "$(nl2 'Bot github-actions[bot] pending lint' "$gha")")"
+assert_eq "a newest failure from another app over an older success -> unmet" "unmet 15368 lint|0" \
+  "$(a2 '15368 lint' '' "$(nl2 'Bot other-app[bot] failure lint' "$gha")")"
+assert_eq "a passing run does not override a newest failure status -> unmet" "unmet 15368 lint|0" \
+  "$(a2 '15368 lint' '15368 lint' 'Bot github-actions[bot] failure lint')"
+# Unmet, with no apps/ call: noapp <what> <pins> <statuses> <expected> (runs empty).
+noapp() {
+  assert_eq "$1" "$4" "$(a2 "$2" '' "$3")"
+  assert_eq "  $1: no apps/ call" "0" "$(calls '^api apps/')"
+}
+noapp "a newest user failure over an older app success -> unmet" '15368 lint' \
+  "$(nl2 'User someone failure lint' "$gha")" "unmet 15368 lint|0"
+noapp "a user success -> unmet" '15368 lint' 'User someone success lint' "unmet 15368 lint|0"
+noapp "a Bot login without [bot] -> unmet" '15368 lint' 'Bot github-actions success lint' "unmet 15368 lint|0"
+noapp "a Bot slug with command substitution -> unmet" '15368 lint' 'Bot x$(touch PWN)[bot] success lint' "unmet 15368 lint|0"
+noapp "a Bot slug with command substitution and no space -> unmet" '15368 lint' 'Bot x$(touch${IFS}PWN)[bot] success lint' "unmet 15368 lint|0"
+assert_eq "  nothing ran" "no" "$([ -e "$sandbox/PWN" ] && echo yes || echo no)"
+noapp "a Bot login ending in b, o or t without [bot] -> unmet" '15368 lint' 'Bot robot success lint' "unmet 15368 lint|0"
+noapp "a Bot slug with a slash -> unmet" '15368 lint' 'Bot a/b[bot] success lint' "unmet 15368 lint|0"
+noapp "a Bot slug with a leading dash -> unmet" '15368 lint' 'Bot -x[bot] success lint' "unmet 15368 lint|0"
+noapp "a User creator with a [bot] login (type check alone) -> unmet" '15368 lint' \
+  'User github-actions[bot] success lint' "unmet 15368 lint|0"
+noapp "a null creator -> unmet" '15368 lint' 'null null success lint' "unmet 15368 lint|0"
+noapp "a context with a trailing space is not the pin's" '15368 lint' 'Bot github-actions[bot] success lint ' "unmet 15368 lint|0"
+noapp "a context with a leading space is not the pin's" '15368 lint' 'Bot github-actions[bot] success  lint' "unmet 15368 lint|0"
+noapp "a context that extends the pin's is not the pin's" '15368 lint' 'Bot github-actions[bot] success lint-extra' "unmet 15368 lint|0"
+noapp "a pin that is a word of the context is not that context" '15368 Run' 'Bot github-actions[bot] success Run tests' "unmet 15368 Run|0"
+noapp "neither a run nor a status -> unmet" '15368 lint' '' "unmet 15368 lint|0"
+assert_eq "a status for one pin does not meet the other" "unmet 15368 coupling|0" \
+  "$(a2 "$(nl2 '15368 lint' '15368 coupling')" '' "$gha")"
+assert_eq "  only the pin with a status made a lookup" "1" "$(calls '^api apps/')"
+# Across pins, and the cache.
+assert_eq "a pin's lookup is not inherited by the next pin" "unmet 15368 coupling|0" \
+  "$(a2 "$(nl2 '15368 lint' '15368 coupling')" '' "$(nl2 "$gha" 'User someone success coupling')")"
+assert_eq "  one apps/github-actions lookup" "1" "$(calls '^api apps/github-actions ')"
+assert_eq "a slug that is the tail of a cached slug is looked up on its own" "unmet 15368 coupling|0" \
+  "$(STUB_APPS="$(printf 'github-actions 15368\nactions 4242')" \
+     a2 "$(nl2 '15368 lint' '15368 coupling')" '' "$(nl2 "$gha" 'Bot actions[bot] success coupling')")"
+assert_eq "  one apps/actions lookup" "1" "$(calls '^api apps/actions ')"
+assert_eq "a slug that is the head of a cached slug is looked up on its own" "unmet 9999 lint|0" \
+  "$(STUB_APPS="$(printf 'other 7777\nother-app 9999')" \
+     a2 "$(nl2 '9999 coupling' '9999 lint')" '' "$(nl2 'Bot other-app[bot] success coupling' 'Bot other[bot] success lint')")"
+assert_eq "  one apps/other-app lookup" "1" "$(calls '^api apps/other-app ')"
+assert_eq "  one apps/other lookup" "1" "$(calls '^api apps/other ')"
+# Reads and the SHA.
+assert_eq "failing statuses read -> no output, non-zero" "|1" \
+  "$(STUB_STATUSES_RC=1 a2 '15368 lint' '' "$gha")"
+assert_eq "failing app lookup -> no output, non-zero" "|1" \
+  "$(STUB_APPS_RC=1 a2 '15368 lint' '' "$gha")"
+for s in abc '' 0123456789ABCDEF0123456789ABCDEF01234567 0123456789abcdef0123456789abcdef0123456; do
+  assert_eq "head SHA [$s] -> no output, non-zero" "|1" "$(STUB_SHA="$s" a2 '15368 lint' '' "$gha")"
+  assert_eq "  no check-runs or statuses call" "0" "$(calls 'commits/')"
+done
+assert_eq "no pinned context -> pins-ok" "pins-ok|0" "$(a2 '' '' "$gha")"
+assert_eq "  no statuses call" "0" "$(calls 'statuses')"
 unset STUB_PINS STUB_RUNS
 
 # --- mutants: the assertions above must be able to fail ------------------------
@@ -206,6 +304,41 @@ fi
 assert_eq "mutant 5 (substring match) wrongly accepts lint-extra for lint" "pins-ok|0" \
   "$(STUB_RUNS='15368 lint-extra' run_block "$work/mut5.sh")"
 unset STUB_PINS
+
+# (6)-(13) block (a2), the status rule (#673). Each mutant is a one-line sed, proven to change
+# the block, and must fail open exactly the way it models.
+mutant_a2() { # <n> <sed script>
+  sed -e "$2" "$work/blocka2.sh" >"$work/mut$1.sh"
+  if cmp -s "$work/blocka2.sh" "$work/mut$1.sh"; then
+    echo "FAIL - mutant $1 did not change block (a2) (the mutation no longer applies)" >&2
+    fail=1
+  fi
+}
+mutant_a2 6 '/^ST=\$(/ s/ &&$//'
+assert_eq "mutant 6 (statuses read not chained) carries on past a failed read" "unmet 15368 lint|0" \
+  "$(STUB_STATUSES_RC=1 a2f "$work/mut6.sh" '15368 lint' '' "$gha")"
+mutant_a2 7 's/\[ "\$id" = "\$pid" \]/true/'
+assert_eq "mutant 7 (app id not compared) accepts another app's status" "pins-ok|0" \
+  "$(a2f "$work/mut7.sh" '15368 lint' '' 'Bot other-app[bot] success lint')"
+mutant_a2 8 's/if \[ "\$ctx" = "\$pctx" \]; then/if [ "$ctx" = "$pctx" ] \&\& [ "$t" = Bot ]; then/'
+assert_eq "mutant 8 (newest Bot status, not newest overall) skips a newer user failure" "pins-ok|0" \
+  "$(a2f "$work/mut8.sh" '15368 lint' '' "$(nl2 'User someone failure lint' "$gha")")"
+mutant_a2 9 's/ || exit 1//'
+assert_eq "mutant 9 (lookup failure swallowed) reads unmet, exit 0" "unmet 15368 lint|0" \
+  "$(STUB_APPS_RC=1 a2f "$work/mut9.sh" '15368 lint' '' "$gha")"
+mutant_a2 10 's/^if \[ -z "\$d" \]; then$/if printf "%s\\n" "$R" | grep -Fxq -- "$pin" || [ -z "$d" ]; then/'
+assert_eq "mutant 10 (check-run short-circuit) lets a run override a newest failure" "pins-ok|0" \
+  "$(a2f "$work/mut10.sh" '15368 lint' '15368 lint' 'Bot github-actions[bot] failure lint')"
+mutant_a2 11 '/^d= slug= id= met=0$/d'
+assert_eq "mutant 11 (per-pin reset dropped) leaks the first pin's met into the second" "pins-ok|0" \
+  "$(a2f "$work/mut11.sh" "$(nl2 '15368 lint' '15368 coupling')" '' "$(nl2 "$gha" 'User someone success coupling')")"
+mutant_a2 12 '/^\[ "\$t" = Bot \] || slug=$/d'
+assert_eq "mutant 12 (type check dropped) accepts a User with a [bot] login" "pins-ok|0" \
+  "$(a2f "$work/mut12.sh" '15368 lint' '' 'User github-actions[bot] success lint')"
+mutant_a2 13 's/^id=\$(printf .*cache.*$/case "$cache" in *"$slug "*) id=${cache#*"$slug "}; id=${id%%[!0-9]*} ;; *) id= ;; esac/'
+assert_eq "mutant 13 (unanchored cache hit) lets one slug pick up another's id" "pins-ok|0" \
+  "$(STUB_APPS="$(printf 'github-actions 15368\nactions 4242')" \
+     a2f "$work/mut13.sh" "$(nl2 '15368 lint' '15368 coupling')" '' "$(nl2 "$gha" 'Bot actions[bot] success coupling')")"
 
 if [ "$fail" -ne 0 ]; then
   echo "blocked-state-block.test.sh: FAILED" >&2
