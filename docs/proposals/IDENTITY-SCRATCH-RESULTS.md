@@ -3858,3 +3858,83 @@ to close #464 with the third criterion recorded as superseded by #384.
   the repo's rulesets are `wb-approval`, `wb-checks` and `wb-tags` again, and `main`'s rule types
   are as before. While it existed nothing could merge into `main`. No App or org setting was
   changed.
+
+## Session 8 (#636): the App-mode review live run, first pass
+
+Run on 2026-10-17 against `603-Identity/identity-ruleset-scratch`, following
+[docs/identity/REVIEW-LIVE-RUN.md](../identity/REVIEW-LIVE-RUN.md). The host tools were installed
+by `install-host-tools.ps1` into a separate `WOW_HOME`, `~/.config/603id-identity` (the 603 org's
+App config; the default `~/.config/glunk-identity` holds the glunk-works Apps), from `ea6dbd8`,
+with that `bin/` first on Git Bash's PATH. Docker Desktop 29.8.2, default log driver `local`. The
+reviewed repo pins way-of-working `v0.19.0` (scratch PR #25) and sets `review.ci_gate` to
+infrastructure-core's check name and wire strings, with `architect-review` added to `wb-checks`
+as a required check from GitHub Actions (PR #26, then a ruleset edit). The PR under review is #27:
+one line added to `s5/a.txt`, authored by `603id-dev[bot]` (id 340163647), head `46d6c4f`.
+
+This first pass covers items 9 and 10 and part of item 1. The launcher's run log keeps only the
+session's final message, not its init output, so items 2 to 8 need a run that records the
+session's `system/init` and its own probes. Items 11 and 12 need deliberate setups (a push
+mid-run, a second shell) that this pass did not make. Rows below say which.
+
+**First attempt failed before the session started.** `wow-review … 27` printed `docker start
+failed (1) and the session never started` (exit 1; both session tokens revoked; no ledger entry
+kept). The launcher discards `docker start`'s stderr, so the start was reproduced with no
+credentials (same image and flags, an empty bind source): `failed to initialize logging driver:
+compression cannot be enabled when max file count is 1`. The `local` driver compresses unless told
+not to, and refuses `max-file=1` with compression on, at start, after create succeeds. Fixed by
+#695 (`--log-opt compress=false`), merged as `ea6dbd8`; the host tools were reinstalled from it
+before the second attempt.
+
+| Item | Result |
+|---|---|
+| 1. The skill loaded | **Partly recorded.** The session's final message names PR #27 and the pinned head `46d6c4f5…`, says it ran in container mode, and says it wrote the launcher's outbox through `review-outbox.sh`, consistent with `WOW_REVIEW_PR`/`WOW_REVIEW_SHA` reaching it. A `review-outbox.sh where` result was not captured. The run log held no token-shaped string. |
+| 2. Plugin skills and agents load | **Not recorded.** The skill evidently ran (item 10); the agent list was not captured. |
+| 3. `system/init` path | **Not recorded.** |
+| 4. A managed `env` value reaches the session | **Not recorded.** |
+| 5. Managed settings load under `--setting-sources user` | **Not recorded.** |
+| 6. A mid-session project settings file is not loaded | **Not run.** |
+| 7. Root `CLAUDE.md` under `--setting-sources user` | **Not recorded.** |
+| 8. Output styles | **Not recorded.** |
+| 9. Tag rulesets on the marketplace repo | **Pass**, read as an admin (Seuss27, `.permissions.admin` true). `protected-release-tags` (20554576): `active`, target `tag`, include `refs/tags/v*`, rules `deletion`, `non_fast_forward`, `update`, `bypass_actors` an empty array. `release-tag-creation` (23936220): `active`, target `tag`, include `refs/tags/v*`, rule `creation`, one bypass actor, Integration 5051322 (`claude-workbench-release`), mode `always`. |
+| 10. One review through `wow-review` as the reviewer App | **Pass.** Launcher exit `0 (reviewed)`, 16:33:19 to 16:36:00 UTC. Review 5558811678 by `603id-review[bot]` (id 340164886), state `COMMENTED`, `commit_id` `46d6c4f`, submitted 16:35:56. Gate on the head afterwards: `architect-review` `success`, "Fresh-session review found (2026-10-17T16:35:56Z)". No findings filed; the review's one minor note (the `#636` in the added line resolves to the scratch repo's own #636) stayed in the body. **But the launcher's own gate poll logged `gate poll 1: failure`** two seconds after the post and stopped: it took the pre-review `failure` as final before the gate workflow re-ran (#699). The exit code does not depend on the poll. |
+| 11. A moved head posts nothing | **Not run.** |
+| 12. Session-token revocation | **Not measured.** The launcher logged `revoked a session token` for `review-sessions/<id>/session-token` and `review-host/<id>/copy-m0` at 16:35:43, before the post; no second-shell test of either copy was made. |
+
+**Found by the session itself, in its final message.**
+
+- The plugin's scripts can't be run by name in the container: `/home/app` is a Docker tmpfs, which
+  Docker mounts `noexec` unless told otherwise, and the plugin is installed under it. The session
+  ran each script as `bash <path>`. Filed as #697.
+- The container-mode exempt-PR check at `architect-review/SKILL.md:543` fails as written: the
+  `--jq` filter treats the `pulls/<N>/files` array as an object. Read literally, the skill then
+  stops `needs-human` on every PR. **The session repaired the filter on its own initiative** (added
+  `.[] |`), got `review`, and reported the departure. The outcome was right (the PR touches the
+  gated `s5/`), but a reviewer repairing a fail-closed step unprompted is a finding in itself.
+  Filed as #698.
+
+**Found by the `security-critic` pass on #695**, not caused by it: the proxy, injector and holder
+containers get no `--log-opt`, so under `json-file` their logs are unbounded, and the session
+drives the proxy's (#696).
+
+## Status against the live-run sheet
+
+Items 9 and 10 pass. Items 1 to 8 are partly or not recorded, and 11 and 12 were not run. #636
+stays open, and the poller (#626) is not registered: the sheet registers it only after every item
+has passed. #697 and #698 change what the skill does in the container, so the remaining items are
+best run after they land. #699 changes only the launcher's log.
+
+## Configuration changes made during session 8
+
+- `glunk-works/claude-workbench`: v0.19.0 released (#693) and pinned here (#694); #695 merged.
+- `603-Identity/identity-ruleset-scratch`: PRs #25 (`.claude/settings.json` pinning v0.19.0, by
+  `603id-dev[bot]`) and #26 (`review.ci_gate`, `architect-review` in `required_checks`, the ported
+  `architect-review-gate.yml`, by `603id-admin[bot]`, since the dev App has no Workflows
+  permission) merged. The `wb-checks` ruleset (24792209) gained a required `architect-review`
+  context from integration 15368, applied with the maintainer's token after #26 merged. PR #27
+  (the reviewed PR) is open and not to be merged.
+- Tokens: two dev-App tokens (`contents`/`pull_requests` write, for #25 and #27; a third request
+  adding `workflows: write` was refused at mint, 422), one admin-App token the maintainer minted
+  (`contents`, `pull_requests`, `workflows` write), all scoped to the scratch repo, minted to files,
+  never printed, and revoked when done (HTTP 204, or `wow-admin --revoke`).
+- Host: tools installed into `~/.config/603id-identity/bin` from `ea6dbd8`; a Claude credential
+  stored in `~/.config/603id-identity/claude-credential`. No App or org setting was changed.
