@@ -540,7 +540,7 @@ schema read included:
   ```bash
   T=$(mktemp -d) && git show "refs/remotes/origin/<default>:./.ai/project.yml" >"$T/def.yml" &&
   TRIG=$(yq -o=json -I=0 '((.review.ci_gate.triggers_on | select(tag != "!!null")) // .code_paths)' "$T/def.yml") &&
-  gh api --paginate "repos/{repo}/pulls/<N>/files" --jq '{f: .filename, p: (.previous_filename // null), s: .status}' >"$T/files.jsonl" &&
+  gh api --paginate "repos/{repo}/pulls/<N>/files" --jq '.[] | {f: .filename, p: (.previous_filename // null), s: .status}' >"$T/files.jsonl" &&
   jq -rs --argjson t "$TRIG" '["*","?","[","]","{","}","!"] as $bad
     | ([.[] | .f, .p | select(. != null)]) as $names
     | if ($t | type) != "array" or ($t | length) == 0

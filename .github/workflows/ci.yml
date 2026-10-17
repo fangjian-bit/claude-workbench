@@ -45,9 +45,9 @@ jobs:
   # Also its own job, for the same reason `coupling` is: it answers a third question --
   # has a specific already-shipped defect come back? -- and should report a verdict
   # independently of the other two. No toolchain to INSTALL (ubuntu-latest ships mikefarah
-  # yq already), but WB-D17 (#142) made yq a hard dependency of this job's own
-  # schema-completeness assertions -- a runner image without it must fail this gate, not
-  # silently skip them.
+  # yq and jq already), but WB-D17 (#142) made yq a hard dependency of this job's own
+  # schema-completeness assertions, and check 20 (#698) does the same for jq -- a runner
+  # image without either must fail this gate, not silently skip them.
   invariants:
     runs-on: ubuntu-latest
     steps:
@@ -140,6 +140,8 @@ jobs:
         run: sh tests/blocking-criteria.test.sh
       - name: invariants-check.sh check 19 (milestone reads) fixtures
         run: sh tests/invariants-milestone-jq.test.sh
+      - name: invariants-check.sh check 20 (pulls files filter) fixtures
+        run: sh tests/invariants-files-filter.test.sh
 
   # WB-D15 (#45): workflow security scanner, modeled on bounty-infra's own `zizmor` job
   # (`ci.yml`). Unchained like `coupling`/`invariants` above -- a future required check

@@ -1057,6 +1057,98 @@ if [ -n "$mjq_hits" ]; then
     "Fetch with --jq naming a field; send a description to a file and print it with blocking-criteria.sh."
 fi
 
+# --- 20. The pulls/<N>/files --jq filter reads the endpoint's page shape (#698) ---------------
+#
+# architect-review's container-mode exempt check passed `--jq '{f: .filename, ...}'` to a
+# `gh api --paginate` call on `pulls/<N>/files`. That endpoint returns a JSON ARRAY per page and
+# --jq runs once per page, so the object filter failed with "expected an object but got: array"
+# and the skill read the failure as `stopped needs-human`: every container-mode review stopped
+# before reviewing anything. Shipped in v0.19.0; nothing executed the filter.
+#
+# Per skill, appendix and agent, after CRs are stripped and backslash-continued lines joined as
+# checks 18 and 19 do, each joined line that calls `gh api` on `pulls/<x>/files` with `--jq` has
+# its LAST `--jq` argument taken: after `--jq` and its spaces (or `=`) one single-quoted string
+# that is followed by a space, a tab or the end of the line, does not start with `-`, holds no
+# control character, and names none of import, include, env, halt, input, debug, stderr, $__, modulemeta or
+# get_ (substrings, so a future field name holding one is refused too). Anything
+# else (a double quote, a spliced string, no closing quote) is reported, never skipped. The filter
+# is run as `timeout 10 jq -c <filter>` on a canned three-file page (one renamed, two without
+# `previous_filename`, so `// null` is exercised), and the slurped output must equal the three
+# expected objects exactly: a filter that cannot read the shape, names a wrong field or drops
+# files fails. Every matching line in every skill is held to that one output; a skill that needs
+# another projection of this endpoint changes this check deliberately. Only the pipeline status is
+# used and only a fixed message is reported, never the status or anything jq prints: a filter
+# could choose its own exit status with halt_error, so the status must not travel back. architect-review must carry such a
+# line, so a reworded call cannot drop out of the check. jq is required, never skipped.
+# Residual: gh runs its built-in gojq and this runs jq, so a filter that depends on a difference
+# between the two engines is outside the check; a prose mention wrapped across two lines without a
+# backslash is not seen. The filter text comes from the tree under test and is run with its output
+# discarded under a 10-second timeout.
+ff_hits=""
+ff_arch=0
+ff_page='[{"filename":"a/x.md","status":"modified"},{"filename":"b/y.md","previous_filename":"b/old.md","status":"renamed"},{"filename":"c/z.md","status":"added"}]'
+ff_want='. == [{"f":"a/x.md","p":null,"s":"modified"},{"f":"b/y.md","p":"b/old.md","s":"renamed"},{"f":"c/z.md","p":null,"s":"added"}]'
+ff_prog='
+BEGIN { SQ = sprintf("%c", 39) }
+index($0, "gh api") == 0 { next }
+$0 !~ /pulls\/[^\/ \t]+\/files/ { next }
+{
+  pos = 0; found = 0
+  while ((q = index(substr($0, pos + 1), "--jq")) > 0) { pos += q; found = pos }
+  if (found == 0) next
+  after = substr($0, found + 4)
+  sub(/^[ \t=]+/, "", after)
+  if (substr(after, 1, 1) != SQ) { printf "%d\tBAD\tthe --jq argument is not a single-quoted string\n", NR; next }
+  r = substr(after, 2); e = index(r, SQ)
+  if (e == 0) { printf "%d\tBAD\tthe --jq argument has no closing single quote\n", NR; next }
+  nx = substr(r, e + 1, 1)
+  if (nx != "" && nx != " " && nx != "\t") { printf "%d\tBAD\tthe --jq string is spliced with more text\n", NR; next }
+  f = substr(r, 1, e - 1)
+  if (substr(f, 1, 1) == "-") { printf "%d\tBAD\tthe --jq filter starts with a dash\n", NR; next }
+  if (f ~ /[\001-\037\177]/) { printf "%d\tBAD\tthe --jq filter holds a control character\n", NR; next }
+  if (f ~ /(import|include|[$]ENV|env|halt|input|debug|stderr|[$]__|get_|modulemeta)/) { printf "%d\tBAD\tthe --jq filter names a jq builtin this check refuses (file, environment, exit or output access)\n", NR; next }
+  printf "%d\tOK\t%s\n", NR, f
+}'
+if ! command -v jq >/dev/null 2>&1; then
+  report "jq is not on PATH -- check 20 (the pulls/<N>/files filter, #698) cannot run" \
+    "This check runs the skills' --jq filter with jq. A gate that cannot look must fail, not pass."
+else
+  for f in "${SKILLS[@]}" "${AGENTS[@]}"; do
+    [ -f "$f" ] || continue
+    joined=$(tr -d '\r' <"$f" | sed -e ':a' -e '/\\$/N; s/\\\n[[:space:]]*/ /; ta')
+    arc=0
+    rows=$(printf '%s\n' "$joined" | awk "$ff_prog") || arc=$?
+    if [ "$arc" -ne 0 ]; then
+      ff_hits+="$f (the matcher itself failed, status $arc)"$'\n'
+      continue
+    fi
+    nrows=0
+    while IFS=$'\t' read -r ln kind filt; do
+      [ -n "$ln" ] || continue
+      nrows=$((nrows + 1))
+      if [ "$kind" = "BAD" ]; then
+        ff_hits+="$f (joined line $ln): $filt"$'\n'
+        continue
+      fi
+      rc=0
+      printf '%s' "$ff_page" | timeout 10 jq -c "$filt" 2>/dev/null | jq -s -e "$ff_want" >/dev/null 2>&1 || rc=$?
+      [ "$rc" -eq 0 ] || ff_hits+="$f (joined line $ln): the filter did not turn the canned page into the expected objects"$'\n'
+    done <<<"$rows"
+    case "$f" in
+      plugins/*/skills/architect-review/SKILL.md)
+        ff_arch=1
+        [ "$nrows" -gt 0 ] || ff_hits+="$f (carries no gh api call on pulls/<N>/files with --jq)"$'\n'
+        ;;
+    esac
+  done
+  [ "$ff_arch" -eq 1 ] || ff_hits+="(no plugins/*/skills/architect-review/SKILL.md found)"$'\n'
+fi
+if [ -n "$ff_hits" ]; then
+  report "a pulls/<N>/files --jq filter does not read the endpoint's page (#698)" \
+    "$ff_hits" \
+    "The endpoint returns an array per page and --jq runs once per page: start the filter with .[] |, keep a single-quoted argument, and project f, p and s."
+fi
+
 if [ "$fail" -ne 0 ]; then
   cat >&2 <<'EOF'
 

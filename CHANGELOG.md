@@ -47,6 +47,14 @@ with `/way-of-working:spec-task`, and move the maintainer's reaction to the new 
   map, a config listing the dev App's id among the maintainers is refused, and a maintainer's comment under
   a malformed non-null `dev_app` is unreadable. Repos with `identities: null` are unchanged.
 
+### Fixed
+
+- **`architect-review`'s container-mode exempt check reads the file list again** (#698). In v0.19.0 its
+  `pulls/<N>/files` filter applied an object projection to each page's array, failed with `expected an
+  object but got: array`, and stopped every container-mode review as `needs-human`. Invariants check 20
+  now runs the skill's `pulls/<N>/files` filter on a canned page and compares the output; tested by
+  `tests/invariants-files-filter.test.sh`.
+
 ## [0.19.0] — 2026-10-17
 
 **⚠️ Migration** — move every session that reads a repo's cursor to this release together
