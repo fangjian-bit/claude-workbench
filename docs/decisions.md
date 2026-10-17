@@ -2023,7 +2023,7 @@ take effect. Full reasoning and the task breakdown that implements them:
       comment that readers use with a declared maintainer's fresh approving reaction, and every
       reader at the time refuses it without one. Posting under any other trusted login would make
       agent text "maintainer-authored", which `spec-comment.sh` and `architect-review` then
-      loaded without a reaction (since `WB-D30`, no skill reader loads a spec under a map without one; the loop preflight still does, `#682`).
+      loaded without a reaction (since `WB-D30` no skill reader loads a spec under a map without one, and since `#682` neither does the loop preflight).
     - **"Approval as a reflex" is answered by the reaction.** The maintainer reads the posted
       comment on GitHub before reacting, and an unreacted dev-App comment is never used. There is
       no per-task terminal stop.
@@ -2151,7 +2151,11 @@ take effect. Full reasoning and the task breakdown that implements them:
     10. **The marker is checked once.** Only the finder checks it: `verify --spec-comment` and
         `spec-comment.sh` trust the finder's selection from the same call. *Amended by `WB-D31`:
         `spec-fresh.sh` also reads the marker, after `spec-comment.sh check`, to find the commit.*
-    11. **The loop preflight.** `scripts/loop/preflight.sh` does not yet apply the reaction rule
+    11. **The loop preflight.** *Closed by `#682`, which applied the reaction rule to a
+        maintainer-authored spec comment and refused `--no-spec-comment` under a map. The preflight
+        still checks no `spec-task:` marker, and trusts the driver to supply `spec-find.sh`'s `found`
+        comment and that comment's reactions (its header's* Not checked here; *compare residual 10).
+        The text that follows is the record of what was open.* `scripts/loop/preflight.sh` does not yet apply the reaction rule
         to a maintainer-authored spec comment, and its `github-dispatch --no-spec-comment` path
         still treats a trusted issue body as the spec, which handoff's `null` anchor makes the
         default shape. Nothing calls it yet. `#682` tracks both.

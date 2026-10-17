@@ -151,15 +151,15 @@ approval gate is on `pr_base` -- a `pull_request` rule with `required_approving_
 `require_code_owner_review` and `require_last_push_approval`, each satisfied by some rule that applies, as
 GitHub takes the strictest of overlapping rulesets; an `update` rule is neither required nor enough
 (`WB-D24`) -- and the task issue and spec comment authors are trusted: by `identities` once the repo has
-cut over, by `author_association` before; a spec comment by the declared dev App passes only with a declared
-maintainer's reaction after its last edit, from `--spec-reactions`, judged by `spec-reaction.sh`); `github-push` runs once the token exists (it reaches exactly the
+cut over, by `author_association` before; under a map any spec comment, a maintainer's included, passes only with a declared
+maintainer's reaction after its last edit, from `--spec-reactions`, judged by `spec-reaction.sh`, and `--no-spec-comment` is refused, since the issue body is never the spec there); `github-push` runs once the token exists (it reaches exactly the
 dispatched repo, every ruleset on `pr_base` reads `current_user_can_bypass: never` -- the App's own view,
 the only bypass read, since `bypass_actors` is hidden from a non-admin -- the App's bot login
 is `orchestration.loop_identity`). stdout is `pass` (exit 0) or one `refused <rule>: <detail>` /
 `unreadable <rule>: <detail>` line per finding (exit 3); a missing field, a file that does not parse or a
 truncated list is `unreadable`, never a pass. No gateway address is ever derived from a subnet. The
 session may hold only named volumes and tmpfs (any bind is refused), no added capabilities, and one
-network. Not checked: which ruleset the approval rule comes from; that stale approvals are dismissed; that CODEOWNERS on `pr_base` exists and covers the changed paths; that the rules come only from active rulesets; a named volume backed by a host path (needs `docker volume inspect`); how many containers sit on
+network. Not checked: that the spec comment carries the `spec-task:` marker or is the one `spec-find.sh` selects (the driver takes it from the `found` line); which ruleset the approval rule comes from; that stale approvals are dismissed; that CODEOWNERS on `pr_base` exists and covers the changed paths; that the rules come only from active rulesets; a named volume backed by a host path (needs `docker volume inspect`); how many containers sit on
 the network and the credential-not-in-inspect grep (`launch.sh` still does both). A paginated `gh api`
 capture must be one complete document (the header says how). The live run against the real App is M2b. Tests: `sh tests/loop-preflight.test.sh`.
 

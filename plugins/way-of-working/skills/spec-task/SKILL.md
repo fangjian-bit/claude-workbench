@@ -22,8 +22,8 @@ reviewed spec instead of improvising one. **This skill drafts, posts or holds, a
 (`WB-D29`). When the session acts as the declared dev App it posts the draft itself, as one new
 comment on `#N`, through `bin/spec-post.sh`. As any other login, or in a repo with no `identities`
 map, the script composes the same comment and holds it for a human to post. Approval does not
-move: a declared maintainer reacts to the comment on GitHub, and every skill reader under a map refuses a dev-App
-spec, or a maintainer's own, without that reaction (the loop preflight does not yet for a maintainer's own, `#682`). Once a maintainer has reacted, the
+move: a declared maintainer reacts to the comment on GitHub, and every reader under a map, the loop preflight included, refuses a dev-App
+spec, or a maintainer's own, without that reaction. Once a maintainer has reacted, the
 readers find the comment themselves with `bin/spec-find.sh` (`WB-D30`); `/way-of-working:handoff`
 no longer anchors it under a map.
 

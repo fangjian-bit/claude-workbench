@@ -18,7 +18,8 @@
 #       Run at dispatch, with the maintainer's view (a pre-cutover author check reads
 #       author_association, which is viewer-relative; the rules read needs no admin).
 #       FILE for --rules     `GET /repos/R/rules/branches/{pr_base}` (the rules that apply)
-#       --issue/--spec-comment  the task issue and the anchored spec comment, as fetched
+#       --issue/--spec-comment  the task issue and the spec comment, as fetched: under a map the one
+#                            `spec-find.sh find` prints `found` for, under null the anchored one
 #       FILE for --identities  the `identities` value of .ai/project.yml on the DEFAULT branch,
 #                            as one JSON document: null before the repo cuts over, a map
 #                            after. Produce it with `yq -o=json 'select(has("identities")) |
@@ -32,8 +33,8 @@
 #                            reads), captured to a file with the fetch's exit status checked:
 #                            gh api "repos/R/issues/comments/<id>/reactions" --paginate \
 #                              --jq '.[] | [(.user.id|tostring), .content, .created_at] | @tsv'
-#                            A file from a failed fetch is never passed. Optional; needed only when
-#                            the spec comment is by the declared dev_app. Excluded with
+#                            A file from a failed fetch is never passed. Optional; needed under a map
+#                            whenever a spec comment is supplied, whoever wrote it. Excluded with
 #                            --no-spec-comment.
 #
 #   preflight.sh github-push --installation FILE --repo OWNER/NAME --rules FILE --rulesets FILE \
@@ -88,9 +89,10 @@
 #                   !!int, a declared `1001.0` reads as 1001 to jq's numeric ==, and a
 #                   fractional id can never equal GitHub's integer author id). The dev,
 #                   review and loop Apps are not maintainers: an agent never trusts its own text.
-#                   One exception, for the spec comment only (#666, matching #660): a comment by the
-#                   declared dev_app passes when a declared maintainer reacted to it (+1, heart,
-#                   hooray, rocket) strictly after its last edit (`updated_at`). The rule is
+#                   One rule, for the spec comment only (#666, #682, matching #660 and WB-D30): under a
+#                   map a comment by the declared dev_app or by a declared maintainer passes when a declared
+#                   maintainer reacted to it (+1, heart, hooray, rocket) strictly after its last edit
+#                   (`updated_at`), the author's own reaction included. The rule is
 #                   spec-reaction.sh, called, not restated. As in spec-comment.sh, one malformed
 #                   maintainer entry (anything but a string login and an id whose exact JSON value is
 #                   an integer in 1..2^53-1: `1001.0` and a literal that only rounds to an integer,
@@ -99,10 +101,15 @@
 #                   is accepted here, where spec-comment.sh sees a !!float; the literal-exact part
 #                   needs jq 1.7 or later, which keeps number literals, and on older jq the
 #                   collision cases still end unreadable) means
-#                   no dev-App spec is approved, and the dev App is never an approver. A dev-App
-#                   comment with no --spec-reactions, or with no well-formed `updated_at`, is
-#                   unreadable. The task issue's author stays maintainer-only, and the review and
-#                   loop Apps stay refused as spec authors. A pass covers only the text in the
+#                   no spec comment under a map is approved, and the dev App is never an approver:
+#                   as in spec-find.sh, a dev_app whose id is on the maintainer list refuses a spec
+#                   comment by a declared maintainer, and a dev_app that is neither null nor a
+#                   well-formed entry makes one unreadable (for a dev-App-authored comment the
+#                   first ends at the duplicate-id check, as unreadable, and the second is not checked). Under a map, a spec comment with no --spec-reactions, or with no
+#                   well-formed `updated_at`, is unreadable, and --no-spec-comment is refused (the
+#                   issue body is never the spec, #496). The task issue's author stays
+#                   maintainer-only and needs no reaction, and the review and loop Apps stay refused
+#                   as spec authors. A pass covers only the text in the
 #                   --spec-comment file: the driver builds the task prompt from that same captured
 #                   file, never from a second fetch, and any re-read means re-running this
 #                   preflight on a new capture after a new reactions read.
@@ -129,7 +136,8 @@
 # GET /app takes the App's JWT, not the installation token; the other github-push reads take the
 # minted token.
 #
-# Not checked here: that --spec-reactions was fetched for --spec-comment-id (the TSV carries no comment
+# Not checked here: that the spec comment carries the `spec-task:` marker, and that it is the comment
+# spec-find.sh selects (the driver is expected to take the id from its `found` line); that --spec-reactions was fetched for --spec-comment-id (the TSV carries no comment
 # id), and anything about spec-reaction.sh beyond trusting the checkout this script runs from; a non-root name that /etc/passwd or /etc/group maps to id 0 inside the image
 # (inspect cannot show it); which ruleset the approval rule comes from (the task asks only that
 # the rules on pr_base carry it); that stale approvals are dismissed (dismiss_stale_reviews_on_push:
@@ -331,23 +339,31 @@ case "$mode" in
       def declared: [ ( ($ID.maintainer // []) | if type == "array" then .[] else empty end | {role: "maintainer", e: .} ),
                       ( ["dev_app", "reviewer_app", "loop_app"][] as $k | {role: $k, e: $ID[$k]} ) ]
         | map(select((.e | type) == "object" and ((.e.id | type) == "number") and .e.id > 0 and ((.e.login | type) == "string")));
-      # A dev-App spec comment (#666): the all-or-nothing maintainer list of spec-comment.sh, then the
+      # An id spec-comment.sh accepts: an exact JSON integer in 1..2^53-1.
+      def exactid: type == "number" and . > 0 and . == floor and . <= 9007199254740991
+        and ((tojson) == (floor | tostring)) and ((floor | tostring) | test("^[1-9][0-9]*$"));
+      def wellformed: type == "object" and ((.login | type) == "string") and ((.id | type) == "number") and (.id | exactid);
+      # A spec comment under a map (#666, #682), by the declared dev_app or by a declared maintainer: the
+      # all-or-nothing maintainer list of spec-comment.sh, the dev-App-id check of spec-find.sh, then the
       # updated_at of the comment itself. The reaction itself is judged by the shell, through spec-reaction.sh;
-      # this emits one "D <updated_at> <ids>" marker for it, which no input-chosen text can start.
-      def devapp(rule; o):
+      # this emits one "D <role> <updated_at> <ids>" marker for it, which no input-chosen text can start. The
+      # role is a literal from the two keys below, and only the wording of the output depends on it.
+      def approvable(rule; o; role):
         ($ID.maintainer) as $m |
-        if ($m | type) != "array" or ($m | length) == 0
-           or (all($m[]; type == "object" and ((.login | type) == "string") and ((.id | type) == "number")
-                 and .id > 0 and .id == (.id | floor) and .id <= 9007199254740991
-                 and ((.id | tojson) == (.id | floor | tostring))
-                 and ((.id | floor | tostring) | test("^[1-9][0-9]*$"))) | not)
-          then "R \(rule): spec comment \(o.id) is by the declared dev_app and the maintainer list has a malformed entry, so no maintainer can approve it"
-        elif any($m[]; .id == o.user.id)
+        ($ID.dev_app) as $D |
+        (if role == "dev_app" then "the declared dev_app" else "a declared maintainer" end) as $who |
+        if ($m | type) != "array" or ($m | length) == 0 or (all($m[]; wellformed) | not)
+          then "R \(rule): spec comment \(o.id) is by \($who) and the maintainer list has a malformed entry, so no maintainer can approve it"
+        elif role == "dev_app" and any($m[]; .id == o.user.id)
           then "R \(rule): spec comment \(o.id) is by the declared dev_app, whose id is on the maintainer list"
+        elif role == "maintainer" and $D != null and ($D | wellformed | not)
+          then "U \(rule): spec comment \(o.id) is by a declared maintainer and the declared dev_app is neither null nor a well-formed entry"
+        elif role == "maintainer" and $D != null and any($m[]; .id == $D.id)
+          then "R \(rule): spec comment \(o.id) is by a declared maintainer and the id of the declared dev_app is on the maintainer list"
         elif ((o.updated_at | type) != "string") or ((o.updated_at | length) != 20)
              or ((o.updated_at | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")) | not)
           then "U \(rule): spec comment \(o.id) has no well-formed updated_at"
-        else "D \(o.updated_at) \([$m[].id | floor | tostring] | join(","))" end;
+        else "D \(role) \(o.updated_at) \([$m[].id | floor | tostring] | join(","))" end;
       def author(rule; o; what; devok):
         if $ID == null then
           if (o.author_association // null) == null then "U \(rule): \(what) has no author_association"
@@ -361,12 +377,17 @@ case "$mode" in
           if ($hit | length) > 1 then "U \(rule): author id \(o.user.id) is declared more than once"
           elif ($hit | length) == 0 then "R \(rule): \(what) author \(o.user.login) is not a declared maintainer"
           elif ($hit[0].e.login | lc) != (o.user.login | lc) then "U \(rule): \(what) author id \(o.user.id) is declared under a different login"
-          elif $hit[0].role == "dev_app" and devok then devapp(rule; o)
+          elif devok and ($hit[0].role == "dev_app" or $hit[0].role == "maintainer") then approvable(rule; o; $hit[0].role)
           elif $hit[0].role != "maintainer" then "R \(rule): \(what) author \(o.user.login) is the declared \($hit[0].role), not a maintainer"
           else empty end
         end;
       ($r[0]) as $R | ($i[0]) as $I | ($c[0]) as $c |
-      if ($R | type) != "array" or any($R[]; type != "object")
+      # Under a map the issue body is never the spec (#496), so no spec comment means no spec. This line
+      # depends only on those two facts, never on the findings below.
+      ( if $haveC == "" and ($ID | type) == "object"
+          then "R author: no spec comment was supplied, and under an identities map the issue body is never the spec"
+          else empty end ),
+      ( if ($R | type) != "array" or any($R[]; type != "object")
         then "U approval-rule: rules are not a list of rule objects"
       elif ($I | type) != "object" then "U author: issue is not an object"
       else
@@ -391,9 +412,9 @@ case "$mode" in
           elif ($c.id // null) != $cid then "U author: spec comment id is not \($cid)"
           elif ((($c.issue_url // null) | type) != "string") or (($c.issue_url | test("/issues/\($inum)$")) | not) then "U author: spec comment \($cid) is not shown to belong to issue #\($inum)"
           else author("author"; $c; "spec comment \($cid)"; true) end )
-      end | explode | map(if . < 32 or . == 127 then 63 else . end) | implode' 2>/dev/null | tr -d '\r') || report "U github-dispatch: evaluator failed on the input"
-    # Resolve the dev-App marker (#666). Every other jq line starts "R " or "U ", so input-chosen
-    # text never begins a line and a marker is only ever a line starting "D ".
+      end ) | explode | map(if . < 32 or . == 127 then 63 else . end) | implode' 2>/dev/null | tr -d '\r') || report "U github-dispatch: evaluator failed on the input"
+    # Resolve the spec-comment marker (#666, #682), for either role. Every other jq line starts "R " or
+    # "U ", so input-chosen text never begins a line and a marker is only ever a line starting "D ".
     markers=0 mline= rebuilt=
     while IFS= read -r line; do
       case "$line" in
@@ -403,16 +424,24 @@ case "$mode" in
       esac
     done <<<"$out"
     if [ "$markers" -gt 0 ]; then
-      judged="U author: spec comment $comment_id is by the declared dev_app and its reactions could not be judged"
+      # With no readable role the line names none; the role only ever chooses wording.
+      judged="U author: spec comment $comment_id's reactions could not be judged"
       extra=
-      c_updated= maint_ids= rest=
+      tag= role= c_updated= maint_ids= rest= who=
       if [ "$markers" -gt 1 ]; then
         extra=$judged
       else
-        read -r tag c_updated maint_ids rest <<<"$mline"
+        read -r tag role c_updated maint_ids rest <<<"$mline"
+        ok=1
+        case "$role" in
+          dev_app)    who="the declared dev_app" ;;
+          maintainer) who="a declared maintainer" ;;
+          *)          ok= ;;
+        esac
+        [ -z "$who" ] || judged="U author: spec comment $comment_id is by $who and its reactions could not be judged"
         # Load-bearing: this is what keeps anything but the two validated fields out of the call.
         case "$c_updated" in
-          [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) ok=1 ;;
+          [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) ;;
           *) ok= ;;
         esac
         case "$maint_ids" in
@@ -422,11 +451,11 @@ case "$mode" in
         if [ -z "$ok" ]; then
           extra=$judged
         elif [ -z "$reactions" ]; then
-          extra="U author: spec comment $comment_id is by the declared dev_app and no reactions were supplied to judge it"
+          extra="U author: spec comment $comment_id is by $who and no reactions were supplied to judge it"
         elif res=$(sh "$sr" "$c_updated" "$maint_ids" <"$reactions" 2>/dev/null); then
           case "$res" in
             approved)  ;;
-            unreacted) extra="R author: spec comment $comment_id is by the declared dev_app and no declared maintainer approved it after its last edit" ;;
+            unreacted) extra="R author: spec comment $comment_id is by $who and no declared maintainer approved it after its last edit" ;;
             *)         extra=$judged ;;
           esac
         else

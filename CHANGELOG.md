@@ -39,6 +39,14 @@ with `/way-of-working:spec-task`, and move the maintainer's reaction to the new 
   `tests/draft-identity.test.sh` and the new `pending` fixtures in `tests/spec-find.test.sh`; invariants
   check 17 now covers `spec-fresh.sh`.
 
+### Changed
+
+- **The loop's dispatch preflight needs a maintainer's reaction on every spec comment under a map** (#682,
+  `WB-D30`). A maintainer-authored spec comment now passes only with a declared maintainer's approving
+  reaction after its last edit, as a dev-App one already did (#666), `--no-spec-comment` is refused under a
+  map, a config listing the dev App's id among the maintainers is refused, and a maintainer's comment under
+  a malformed non-null `dev_app` is unreadable. Repos with `identities: null` are unchanged.
+
 ## [0.19.0] — 2026-10-17
 
 **⚠️ Migration** — move every session that reads a repo's cursor to this release together

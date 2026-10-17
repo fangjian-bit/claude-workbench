@@ -692,7 +692,7 @@ fi
 # Whether a declared maintainer reacted to a spec comment after its last edit is asked by
 # plan-anchor.sh (resume's auto-start), by architect-review's Map branch, and by spec-comment.sh
 # for every declared author under a map (#660, WB-D30), and by the loop's dispatch preflight (scripts/loop/preflight.sh)
-# for a dev-App-authored comment only (#666; #682 tracks the maintainer case), and by bin/spec-find.sh, which finds the approved spec comment on a
+# for every declared author under a map (#666, #682), and by bin/spec-find.sh, which finds the approved spec comment on a
 # task issue (#662). Two
 # implementations would let the approval rule drift between the gate that starts work and the
 # review that labels it. Five things are the invariant: plan-anchor.sh, spec-comment.sh and spec-find.sh carry their
@@ -843,9 +843,10 @@ fi
 
 # --- 18. The spec-task skill carries no posting form; its one write lives in spec-post.sh (#611, #661, WB-D29) --
 #
-# A dev-App spec comment is used only with a declared maintainer's fresh approving reaction, and a
-# comment a human-trusted login posted would be read as "maintainer-authored", which the loop preflight
-# still loads without one (#682). So the spec-task skill carries no posting form: no `gh issue comment`, `gh pr
+# A dev-App spec comment is used only with a declared maintainer's fresh approving reaction. A comment
+# posted under a human-trusted login would be read as "maintainer-authored": it would credit a human with
+# agent text, and a maintainer's own reaction approves their own comment (WB-D30 residual 7), even though
+# since #682 every reader, the loop preflight included, needs that reaction. So the spec-task skill carries no posting form: no `gh issue comment`, `gh pr
 # comment` or other `gh issue`/`gh pr` write verb (flags may sit between the words), no `gh label`,
 # and no `gh api` call with `-X`/`--method` POST|PATCH|PUT|DELETE or with `-f`/`-F` (a value may be
 # attached) or `--field`/`--raw-field`/`--input` (any of which turns a read into a write). A command

@@ -323,6 +323,13 @@ EOF
 cat >"$tmp/ident-dup.json" <<EOF
 {"maintainer":[{"login":"alice-dev","id":1001}],"dev_app":{"login":"alice-dev","id":1001},"reviewer_app":null,"loop_app":null}
 EOF
+UPD=2026-10-01T12:00:00Z
+rx() { # file uid content created_at  (appends one TSV row)
+  printf '%s\t%s\t%s\n' "$2" "$3" "$4" >>"$1"
+}
+rdisp() { # rules identities issue comment reactions
+  run github-dispatch --rules "$1" --identities "$2" --issue "$3" --issue-number 320 --spec-comment "$4" --spec-comment-id 777 --spec-reactions "$5"
+}
 idisp() { # identities-file issue [comment|-]
   IDENT=$1 disp "$tmp/rules.json" "$2" "$3"
 }
@@ -330,39 +337,45 @@ mkissue() { # file assoc login id
   printf '{"number":320,"author_association":"%s","user":{"login":"%s","id":%s}}' "$2" "$3" "$4" >"$1"
 }
 mkissue "$tmp/i-app-view.json" CONTRIBUTOR alice-dev 1001
-idisp "$tmp/ident-map.json" "$tmp/i-app-view.json" -
+# bob (1002, a declared maintainer) wrote this spec comment; a fresh +1 by 1001 approves it, so a fixture
+# that moves to it is judged on its issue author alone (#682).
+printf '{"id":777,"author_association":"CONTRIBUTOR","user":{"login":"bob","id":1002},"updated_at":"%s","issue_url":"https://api.github.com/repos/glunk-works/claude-workbench/issues/320"}' "$UPD" >"$tmp/c-ok.json"
+: >"$tmp/rx-fresh.tsv"; rx "$tmp/rx-fresh.tsv" 1001 '+1' 2026-10-01T12:00:01Z
+mdisp() { # identities-file issue
+  rdisp "$tmp/rules.json" "$1" "$2" "$tmp/c-ok.json" "$tmp/rx-fresh.tsv"
+}
+mdisp "$tmp/ident-map.json" "$tmp/i-app-view.json"
 assert_eq "dispatch (identities): the maintainer passes though an App token reads CONTRIBUTOR" "pass/0" "$out/$rc"
 mkissue "$tmp/i-case.json" NONE ALICE-DEV 1001
-idisp "$tmp/ident-map.json" "$tmp/i-case.json" -
+mdisp "$tmp/ident-map.json" "$tmp/i-case.json"
 assert_eq "dispatch (identities): login compared case-folded" "pass/0" "$out/$rc"
 mkissue "$tmp/i-stranger.json" OWNER stranger 9999
-idisp "$tmp/ident-map.json" "$tmp/i-stranger.json" -
-assert_has "dispatch (identities): an OWNER association no longer trusts an undeclared author" "$out" "refused author"
+mdisp "$tmp/ident-map.json" "$tmp/i-stranger.json"
+assert_eq "dispatch (identities): an OWNER association no longer trusts an undeclared author" "refused author: task issue #320 author stranger is not a declared maintainer/3" "$out/$rc"
 mkissue "$tmp/i-dev.json" MEMBER 'acme-dev[bot]' 2001
-idisp "$tmp/ident-map.json" "$tmp/i-dev.json" -
-assert_has "dispatch (identities): the dev App's own issue is refused" "$out" "refused author"
+mdisp "$tmp/ident-map.json" "$tmp/i-dev.json"
+assert_eq "dispatch (identities): the dev App's own issue is refused" "refused author: task issue #320 author acme-dev[bot] is the declared dev_app, not a maintainer/3" "$out/$rc"
 mkissue "$tmp/i-loop.json" MEMBER 'acme-loop[bot]' 2003
-idisp "$tmp/ident-map.json" "$tmp/i-loop.json" -
-assert_has "dispatch (identities): the loop App's issue is refused" "$out" "refused author"
+mdisp "$tmp/ident-map.json" "$tmp/i-loop.json"
+assert_eq "dispatch (identities): the loop App's issue is refused" "refused author: task issue #320 author acme-loop[bot] is the declared loop_app, not a maintainer/3" "$out/$rc"
 mkissue "$tmp/i-other-id.json" MEMBER alice-dev 9999
-idisp "$tmp/ident-map.json" "$tmp/i-other-id.json" -
-assert_has "dispatch (identities): a maintainer's login on another id is refused" "$out" "refused author"
+mdisp "$tmp/ident-map.json" "$tmp/i-other-id.json"
+assert_eq "dispatch (identities): a maintainer's login on another id is refused" "refused author: task issue #320 author alice-dev is not a declared maintainer/3" "$out/$rc"
 mkissue "$tmp/i-renamed.json" MEMBER alice-renamed 1001
-idisp "$tmp/ident-map.json" "$tmp/i-renamed.json" -
-assert_has "dispatch (identities): a declared id under another login is unreadable, not guessed" "$out" "unreadable author"
+mdisp "$tmp/ident-map.json" "$tmp/i-renamed.json"
+assert_eq "dispatch (identities): a declared id under another login is unreadable, not guessed" "unreadable author: task issue #320 author id 1001 is declared under a different login/3" "$out/$rc"
 idisp "$tmp/ident-dup.json" "$tmp/i-app-view.json" -
-assert_has "dispatch (identities): an id declared twice is unreadable" "$out" "unreadable author"
+assert_has "dispatch (identities): an id declared twice is unreadable" "$out" "unreadable author: author id 1001 is declared more than once"
 idisp "$tmp/ident-bad.json" "$tmp/i-app-view.json" -
-assert_has "dispatch (identities): only malformed entries match nothing, so the author is refused" "$out" "refused author"
+assert_has "dispatch (identities): only malformed entries match nothing, so the author is refused" "$out" "refused author: task issue #320 author alice-dev is not a declared maintainer"
 printf '{"number":320,"author_association":"OWNER"}' >"$tmp/i-nouser.json"
-idisp "$tmp/ident-map.json" "$tmp/i-nouser.json" -
-assert_has "dispatch (identities): an issue with no author login and id is unreadable" "$out" "unreadable author"
+mdisp "$tmp/ident-map.json" "$tmp/i-nouser.json"
+assert_eq "dispatch (identities): an issue with no author login and id is unreadable" "unreadable author: task issue #320 has no author login and id/3" "$out/$rc"
 printf '"yes"' >"$tmp/ident-str.json"
 idisp "$tmp/ident-str.json" "$tmp/i-app-view.json" -
-assert_has "dispatch (identities): identities neither null nor a map is unreadable" "$out" "unreadable author"
-printf '{"id":777,"author_association":"CONTRIBUTOR","user":{"login":"bob","id":1002},"issue_url":"https://api.github.com/repos/glunk-works/claude-workbench/issues/320"}' >"$tmp/c-ok.json"
-idisp "$tmp/ident-map.json" "$tmp/i-app-view.json" "$tmp/c-ok.json"
-assert_eq "dispatch (identities): a second maintainer's spec comment passes" "pass/0" "$out/$rc"
+assert_eq "dispatch (identities): identities neither null nor a map is unreadable" "unreadable author: identities is neither null nor a map/3" "$out/$rc"
+mdisp "$tmp/ident-map.json" "$tmp/i-app-view.json"
+assert_eq "dispatch (identities): a second maintainer's spec comment passes with a fresh reaction" "pass/0" "$out/$rc"
 printf '{"id":777,"author_association":"OWNER","user":{"login":"stranger","id":9999},"issue_url":"https://api.github.com/repos/glunk-works/claude-workbench/issues/320"}' >"$tmp/c-bad2.json"
 idisp "$tmp/ident-map.json" "$tmp/i-app-view.json" "$tmp/c-bad2.json"
 assert_has "dispatch (identities): an undeclared spec comment author is refused" "$out" "refused author"
@@ -370,26 +383,21 @@ assert_has "dispatch (identities): an undeclared spec comment author is refused"
 # nothing for it): unreadable, never read as "not cut over" and the association fallback.
 : >"$tmp/ident-absent.json"
 idisp "$tmp/ident-absent.json" "$tmp/i-stranger.json" -
-assert_has "dispatch (identities): an absent key (empty file) is unreadable, not the association fallback" "$out" "unreadable input"
+assert_eq "dispatch (identities): an absent key (empty file) is unreadable, not the association fallback" "unreadable input: ident-absent.json is missing, empty or not exactly one JSON value/3" "$out/$rc"
 run github-dispatch --rules "$tmp/rules.json" --issue "$tmp/issue.json" --issue-number 320 --no-spec-comment
 assert_eq "dispatch: --identities is required" "2" "$rc"
 
 # --- dev-App spec comment (#666): accepted only with a declared maintainer's reaction after its -
 # --- last edit, judged by spec-reaction.sh. The reactions file is TSV, one reaction per line. ---
-UPD=2026-10-01T12:00:00Z
 mkdev() { # file [updated_at-json-fragment, default the fixed one]
   printf '{"id":777,"author_association":"NONE","user":{"login":"acme-dev[bot]","id":2001},%s"issue_url":"https://api.github.com/repos/glunk-works/claude-workbench/issues/320"}' "${2-\"updated_at\":\"$UPD\",}" >"$1"
 }
 mkdev "$tmp/c-dev.json"
 mkissue "$tmp/i-maint.json" CONTRIBUTOR alice-dev 1001
-rx() { # file uid content created_at  (appends one TSV row)
-  printf '%s\t%s\t%s\n' "$2" "$3" "$4" >>"$1"
-}
-rdisp() { # rules identities issue comment reactions
-  run github-dispatch --rules "$1" --identities "$2" --issue "$3" --issue-number 320 --spec-comment "$4" --spec-comment-id 777 --spec-reactions "$5"
-}
 DEVREF="refused author: spec comment 777 is by the declared dev_app and no declared maintainer approved it after its last edit"
 UNJ="unreadable author: spec comment 777 is by the declared dev_app and its reactions could not be judged"
+MREF="refused author: spec comment 777 is by a declared maintainer and no declared maintainer approved it after its last edit"
+MUNJ="unreadable author: spec comment 777 is by a declared maintainer and its reactions could not be judged"
 
 for content in '+1' heart hooray rocket; do
   : >"$tmp/rx-ok.tsv"; rx "$tmp/rx-ok.tsv" 1001 "$content" 2026-10-01T12:00:01Z
@@ -469,7 +477,7 @@ assert_eq "dev-App spec: no --spec-reactions is unreadable" "unreadable author: 
 rdisp "$tmp/rules.json" "$tmp/ident-map.json" "$tmp/i-maint.json" "$tmp/c-ok.json" "$tmp/nope.tsv"
 assert_eq "a missing reactions file is unreadable input, whatever the author" "unreadable input: nope.tsv is missing or not a readable file/3" "$out/$rc"
 rdisp "$tmp/rules.json" "$tmp/ident-map.json" "$tmp/i-maint.json" "$tmp/c-ok.json" "$tmp/rx-empty.tsv"
-assert_eq "a maintainer's spec comment passes with an empty reactions file" "pass/0" "$out/$rc"
+assert_eq "a maintainer's spec comment is refused with an empty reactions file" "$MREF/3" "$out/$rc"
 printf '{"id":777,"author_association":"MEMBER","issue_url":"https://api.github.com/repos/glunk-works/claude-workbench/issues/320"}' >"$tmp/c-assoc.json"
 rdisp "$tmp/rules.json" "$tmp/ident-null.json" "$tmp/issue.json" "$tmp/c-assoc.json" "$tmp/rx-empty.tsv"
 assert_eq "--identities null: an association-trusted comment passes with a reactions file" "pass/0" "$out/$rc"
@@ -494,6 +502,77 @@ assert_eq "a refusal line containing D  is not read as the marker" "refused auth
 run github-dispatch --rules "$tmp/rules.json" --identities "$tmp/ident-map.json" --issue "$tmp/i-maint.json" --issue-number 320 --no-spec-comment --spec-reactions "$tmp/rx-ok.tsv"
 assert_eq "--spec-reactions with --no-spec-comment is a usage fault" "/2" "$out/$rc"
 
+# --- a maintainer-authored spec comment needs the same reaction (#682) ---------------------------
+mrd() { # identities reactions [comment, default bob's c-ok.json]
+  rdisp "$tmp/rules.json" "$1" "$tmp/i-maint.json" "${3:-$tmp/c-ok.json}" "$2"
+}
+IDENT="$tmp/ident-map.json" disp "$tmp/rules.json" "$tmp/i-maint.json" "$tmp/c-ok.json"
+assert_eq "maintainer spec: no --spec-reactions is unreadable" "unreadable author: spec comment 777 is by a declared maintainer and no reactions were supplied to judge it/3" "$out/$rc"
+mrd "$tmp/ident-map.json" "$tmp/rx-empty.tsv"
+assert_eq "maintainer spec: an empty reactions file is refused" "$MREF/3" "$out/$rc"
+mrd "$tmp/ident-map.json" "$tmp/rx-old.tsv"
+assert_eq "maintainer spec: a reaction before updated_at is refused" "$MREF/3" "$out/$rc"
+mrd "$tmp/ident-map.json" "$tmp/rx-eq.tsv"
+assert_eq "maintainer spec: a reaction at exactly updated_at is refused" "$MREF/3" "$out/$rc"
+for content in '+1' heart hooray rocket; do
+  : >"$tmp/rx-m.tsv"; rx "$tmp/rx-m.tsv" 1001 "$content" 2026-10-01T12:00:01Z
+  mrd "$tmp/ident-map.json" "$tmp/rx-m.tsv"
+  assert_eq "maintainer spec: another maintainer's $content after updated_at passes" "pass/0" "$out/$rc"
+done
+: >"$tmp/rx-m.tsv"; rx "$tmp/rx-m.tsv" 1002 heart 2026-10-01T12:00:01Z
+mrd "$tmp/ident-map.json" "$tmp/rx-m.tsv"
+assert_eq "maintainer spec: the author's own reaction approves their own comment" "pass/0" "$out/$rc"
+mrd "$tmp/ident-map.json" "$tmp/rx-own.tsv"
+assert_eq "maintainer spec: only the dev App's reaction is refused" "$MREF/3" "$out/$rc"
+: >"$tmp/rx-m.tsv"; rx "$tmp/rx-m.tsv" 9999 '+1' 2026-10-01T12:00:01Z
+mrd "$tmp/ident-map.json" "$tmp/rx-m.tsv"
+assert_eq "maintainer spec: an undeclared id's reaction is refused" "$MREF/3" "$out/$rc"
+mrd "$tmp/ident-map.json" "$tmp/rx-eyes.tsv"
+assert_eq "maintainer spec: a content outside the four is refused" "$MREF/3" "$out/$rc"
+
+printf '{"id":777,"author_association":"CONTRIBUTOR","user":{"login":"alice-dev","id":1001},"updated_at":"%s","issue_url":"https://api.github.com/repos/glunk-works/claude-workbench/issues/320"}' "$UPD" >"$tmp/c-alice.json"
+mrd "$tmp/ident-malf.json" "$tmp/rx-fresh.tsv" "$tmp/c-alice.json"
+assert_eq "maintainer spec: a malformed maintainer entry refuses even with a fresh reaction" "refused author: spec comment 777 is by a declared maintainer and the maintainer list has a malformed entry, so no maintainer can approve it/3" "$out/$rc"
+
+cat >"$tmp/ident-devlist.json" <<EOT
+{"maintainer":[{"login":"alice-dev","id":1001},{"login":"bob","id":1002},{"login":"acme-dev[bot]","id":2001}],
+ "dev_app":{"login":"acme-dev[bot]","id":2001},"reviewer_app":null,"loop_app":null}
+EOT
+: >"$tmp/rx-m.tsv"; rx "$tmp/rx-m.tsv" 2001 '+1' 2026-10-01T12:00:01Z
+mrd "$tmp/ident-devlist.json" "$tmp/rx-m.tsv"
+assert_eq "maintainer spec: the dev App's id on the maintainer list refuses, even with its own fresh reaction" "refused author: spec comment 777 is by a declared maintainer and the id of the declared dev_app is on the maintainer list/3" "$out/$rc"
+cat >"$tmp/ident-devstr.json" <<EOT
+{"maintainer":[{"login":"alice-dev","id":1001},{"login":"bob","id":1002}],
+ "dev_app":"acme-dev[bot]","reviewer_app":null,"loop_app":null}
+EOT
+mrd "$tmp/ident-devstr.json" "$tmp/rx-fresh.tsv"
+assert_eq "maintainer spec: a dev_app that is a bare string is unreadable" "unreadable author: spec comment 777 is by a declared maintainer and the declared dev_app is neither null nor a well-formed entry/3" "$out/$rc"
+cat >"$tmp/ident-devfrac.json" <<EOT
+{"maintainer":[{"login":"alice-dev","id":1001},{"login":"bob","id":1002}],
+ "dev_app":{"login":"acme-dev[bot]","id":2001.5},"reviewer_app":null,"loop_app":null}
+EOT
+mrd "$tmp/ident-devfrac.json" "$tmp/rx-fresh.tsv"
+assert_eq "maintainer spec: a dev_app with a fractional id is unreadable" "unreadable author: spec comment 777 is by a declared maintainer and the declared dev_app is neither null nor a well-formed entry/3" "$out/$rc"
+cat >"$tmp/ident-devexp.json" <<EOT
+{"maintainer":[{"login":"alice-dev","id":1001},{"login":"bob","id":1002},{"login":"carol","id":2001}],
+ "dev_app":{"login":"acme-dev[bot]","id":2.001e3},"reviewer_app":null,"loop_app":null}
+EOT
+mrd "$tmp/ident-devexp.json" "$tmp/rx-fresh.tsv"
+assert_eq "maintainer spec: an exponent-spelled dev_app id is compared like any other id" "refused author: spec comment 777 is by a declared maintainer and the id of the declared dev_app is on the maintainer list/3" "$out/$rc"
+cat >"$tmp/ident-nodev.json" <<EOT
+{"maintainer":[{"login":"alice-dev","id":1001},{"login":"bob","id":1002}],
+ "dev_app":null,"reviewer_app":null,"loop_app":null}
+EOT
+mrd "$tmp/ident-nodev.json" "$tmp/rx-fresh.tsv"
+assert_eq "maintainer spec: a null dev_app means no dev App and passes with a fresh reaction" "pass/0" "$out/$rc"
+
+printf '{"id":777,"author_association":"CONTRIBUTOR","user":{"login":"bob","id":1002},"issue_url":"https://api.github.com/repos/glunk-works/claude-workbench/issues/320"}' >"$tmp/c-ok-noupd.json"
+mrd "$tmp/ident-map.json" "$tmp/rx-fresh.tsv" "$tmp/c-ok-noupd.json"
+assert_eq "maintainer spec: no updated_at is unreadable, with the role-free line" "unreadable author: spec comment 777 has no well-formed updated_at/3" "$out/$rc"
+
+IDENT="$tmp/ident-map.json" disp "$tmp/rules.json" "$tmp/i-maint.json" -
+assert_eq "no spec comment under a map is refused" "refused author: no spec comment was supplied, and under an identities map the issue body is never the spec/3" "$out/$rc"
+
 # preflight.sh resolves spec-reaction.sh from its own location only.
 mkdir -p "$tmp/lone/scripts/loop"
 cp "$script" "$tmp/lone/scripts/loop/preflight.sh"
@@ -510,6 +589,12 @@ assert_eq "a spec-reaction.sh that prints another word is unreadable" "$UNJ/3" "
 printf '#!/bin/sh\necho approved\n' >"$tmp/lone/plugins/way-of-working/bin/spec-reaction.sh"
 lone
 assert_eq "the stub that prints approved passes (the call is the only judge)" "pass/0" "$out/$rc"
+lonem() { set +e; out=$(bash "$tmp/lone/scripts/loop/preflight.sh" github-dispatch --rules "$tmp/rules.json" --identities "$tmp/ident-map.json" --issue "$tmp/i-maint.json" --issue-number 320 --spec-comment "$tmp/c-ok.json" --spec-comment-id 777 --spec-reactions "$tmp/rx-empty.tsv" 2>"$tmp/err"); rc=$?; set -e; }
+lonem
+assert_eq "maintainer spec: the stub that prints approved passes (the call is the only judge)" "pass/0" "$out/$rc"
+printf '#!/bin/sh\nexit 2\n' >"$tmp/lone/plugins/way-of-working/bin/spec-reaction.sh"
+lonem
+assert_eq "maintainer spec: a spec-reaction.sh that exits non-zero is unreadable" "$MUNJ/3" "$out/$rc"
 
 set +e; out=$(cd "$root_dir/scripts/loop" && bash preflight.sh github-dispatch --rules "$tmp/rules.json" --identities "$tmp/ident-map.json" --issue "$tmp/i-maint.json" --issue-number 320 --spec-comment "$tmp/c-dev.json" --spec-comment-id 777 --spec-reactions "$tmp/rx-ok.tsv" 2>"$tmp/err"); rc=$?; set -e
 assert_eq "a slash-less BASH_SOURCE[0] is a usage fault" "/2" "$out/$rc"
