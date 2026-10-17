@@ -1,8 +1,9 @@
 # The claude-workbench dev container
 
 WB-D24, issue #393. The container is `.devcontainer/`, from the 603-Identity/devcontainers
-template. A session in it reaches GitHub only as the dev App, provided the host setting
-`dev.containers.gitCredentialHelperConfigLocation` is `none` (see Hazards that remain).
+template. A session in it is meant to reach GitHub only as the dev App. It does not yet: with
+the host setting `dev.containers.gitCredentialHelperConfigLocation` at `none`, VS Code's IPC
+channel still serves the host's git credential (#720, see Hazards that remain).
 
 ## How it gets its token
 
@@ -22,7 +23,8 @@ template. A session in it reaches GitHub only as the dev App, provided the host 
   refused, the helper answers `quit=1`, so git stops instead of trying another helper; the
   container also sets `GIT_TERMINAL_PROMPT=0` and turns off VS Code's `github.gitAuthentication`
   and `git.terminalAuthentication`. For the host side, `dev.containers.gitCredentialHelperConfigLocation`
-  set to `none` stops Dev Containers from injecting a helper at all.
+  set to `none` keeps Dev Containers' helper out of git's config. It does not stop the channel
+  behind that helper from answering (#720).
 - The container holds no `gh` login. The template's GitHub VS Code extensions are left out, as
   they sign in with the human's account.
 
@@ -45,19 +47,30 @@ template. A session in it reaches GitHub only as the dev App, provided the host 
 - **`/workspace` is read-write**, so a session can edit `.devcontainer/` (an `initializeCommand`,
   wider mounts) and the host runs it at the next Reopen or Rebuild. Compare `.devcontainer/`
   with the committed blob, from a different clone, before every Rebuild.
-- **VS Code's forwarded git credential channel (required setting).** Set the VS Code user setting
-  `dev.containers.gitCredentialHelperConfigLocation` to `none` **before the first open**. Otherwise
-  the helper script and IPC socket Dev Containers injects stay reachable, and a session can call
-  them directly for the host's GitHub credential even though git itself asks `dev-token` first.
-  Whether the channel answers with the option set to `none` has not been tested; check in a live
-  container (`env | grep REMOTE_CONTAINERS_IPC`).
+- **VS Code's forwarded git credential channel (open, #720).** Set the VS Code user setting
+  `dev.containers.gitCredentialHelperConfigLocation` to `none` **before the first open**, in every
+  VS Code profile that keeps its own settings (a profile's `settings.json` replaces the default
+  one). That keeps the helper out of git's config, but it does not close the channel. Tested on
+  2026-10-17 with the setting at `none`: every attach still creates the helper client
+  (`/tmp/vscode-remote-containers-<uuid>.js`), its socket and `REMOTE_CONTAINERS_IPC`, and calling
+  the client directly returned the host's GitHub credential. Until #720 is fixed, a process in the
+  container can act on GitHub as the human. The test, from a VS Code-attached terminal after
+  attach, hides any secret it gets; a pass prints no `password=` line and raises no sign-in prompt
+  on the host:
+  ```sh
+  N=$(ls -d ~/.vscode-server/bin/*/node | head -n 1)
+  H=$(ls /tmp/vscode-remote-containers-[0-9a-f]*.js | head -n 1)
+  printf 'protocol=https\nhost=github.com\n\n' | timeout 30 "$N" "$H" git-credential-helper get 2>&1 \
+    | sed -E 's/^(password|oauth_refresh_token)=.*/\1=<present, hidden>/'
+  ```
 - **A forwarded host ssh-agent** is not blocked: git's SSH remotes are rewritten to https, but
   `ssh git@github.com` would authenticate with a GitHub key loaded in the host agent. Keep no
   GitHub key in the agent that VS Code forwards, and no key that is registered on GitHub as a
   signing key: `git -c gpg.format=ssh -c user.signingkey=... commit -S` (or `tag -s`) would sign as the human through
   it, and the commit would show Verified.
-- **A forwarded GPG agent socket** may remain after the GPG tools are deleted; see "What it
-  still carries from the template" for the check that settles it (`WB-D25`, #574).
+- **A forwarded GPG agent socket** was not found by the live check on 2026-10-17; rerun the
+  check in "What it still carries from the template" after a VS Code or Dev Containers update
+  (`WB-D25`, #574).
 - **A reused home volume** can hold a human `gh auth login` PAT from an earlier container; the
   shim overrides it, but `/usr/local/libexec/gh-real` does not. `docker volume rm <checkout folder>-home`
   before first use.
@@ -75,9 +88,9 @@ It carries **no commit signing** (`WB-D25`, #574). Container commits and tags ar
 
 Deleting the tools does not by itself prove VS Code stops forwarding the agent socket, and if an
 agent is still forwarded, any process in the container can sign as the human by talking to the
-socket directly. Until the live check on #574 comes back empty, treat a forwarded socket as a
-hazard that may remain. Run it from a VS Code-attached terminal after attach (forwarding happens
-at attach, so `docker exec` beforehand proves nothing):
+socket directly. The live check came back empty on 2026-10-17, during the #397 cutover attempt.
+Run it from a VS Code-attached terminal after attach (forwarding happens at attach, so
+`docker exec` beforehand proves nothing):
 
 ```sh
 find /home/app /tmp /run /var/tmp /dev/shm -type s -name 'S.gpg-agent*'
