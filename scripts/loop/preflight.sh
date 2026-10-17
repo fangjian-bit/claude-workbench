@@ -87,8 +87,15 @@
 #                   another login, is unreadable, and a malformed entry matches nothing (here a
 #                   non-positive or non-numeric id; unlike gh-identity.sh, which wants a YAML
 #                   !!int, a declared `1001.0` reads as 1001 to jq's numeric ==, and a
-#                   fractional id can never equal GitHub's integer author id). The dev,
-#                   review and loop Apps are not maintainers: an agent never trusts its own text.
+#                   fractional id can never equal GitHub's integer author id). For a spec
+#                   comment the review and loop Apps are not maintainers and stay refused (see
+#                   below). For the TASK ISSUE only (WB-D32, #664) the declared dev_app and
+#                   reviewer_app also pass, with no reaction consulted: the dispatched work is
+#                   built from the spec comment alone, which needs a declared maintainer's
+#                   reaction, so the issue's author does not approve its content. The loop_app and
+#                   an undeclared author are still refused. This jq is the one reader that does not
+#                   call `gh-identity.sh task-author`; it mirrors that verb's table (trusted and
+#                   agent pass, loop_app and undeclared are refused) and is held to it by fixtures.
 #                   One rule, for the spec comment only (#666, #682, matching #660 and WB-D30): under a
 #                   map a comment by the declared dev_app or by a declared maintainer passes when a declared
 #                   maintainer reacted to it (+1, heart, hooray, rocket) strictly after its last edit
@@ -107,9 +114,9 @@
 #                   well-formed entry makes one unreadable (for a dev-App-authored comment the
 #                   first ends at the duplicate-id check, as unreadable, and the second is not checked). Under a map, a spec comment with no --spec-reactions, or with no
 #                   well-formed `updated_at`, is unreadable, and --no-spec-comment is refused (the
-#                   issue body is never the spec, #496). The task issue's author stays
-#                   maintainer-only and needs no reaction, and the review and loop Apps stay refused
-#                   as spec authors. A pass covers only the text in the
+#                   issue body is never the spec, #496). The task issue's author is a
+#                   maintainer or, per WB-D32, the dev or reviewer App, and needs no reaction; the
+#                   review and loop Apps stay refused as spec authors. A pass covers only the text in the
 #                   --spec-comment file: the driver builds the task prompt from that same captured
 #                   file, never from a second fetch, and any re-read means re-running this
 #                   preflight on a new capture after a new reactions read.
@@ -364,7 +371,7 @@ case "$mode" in
              or ((o.updated_at | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")) | not)
           then "U \(rule): spec comment \(o.id) has no well-formed updated_at"
         else "D \(role) \(o.updated_at) \([$m[].id | floor | tostring] | join(","))" end;
-      def author(rule; o; what; devok):
+      def author(rule; o; what; devok; agentok):
         if $ID == null then
           if (o.author_association // null) == null then "U \(rule): \(what) has no author_association"
           elif (o.author_association | type) == "string" and (o.author_association | trusted) then empty
@@ -378,6 +385,7 @@ case "$mode" in
           elif ($hit | length) == 0 then "R \(rule): \(what) author \(o.user.login) is not a declared maintainer"
           elif ($hit[0].e.login | lc) != (o.user.login | lc) then "U \(rule): \(what) author id \(o.user.id) is declared under a different login"
           elif devok and ($hit[0].role == "dev_app" or $hit[0].role == "maintainer") then approvable(rule; o; $hit[0].role)
+          elif agentok and ($hit[0].role == "dev_app" or $hit[0].role == "reviewer_app") then empty
           elif $hit[0].role != "maintainer" then "R \(rule): \(what) author \(o.user.login) is the declared \($hit[0].role), not a maintainer"
           else empty end
         end;
@@ -406,12 +414,12 @@ case "$mode" in
         ( if ($I.number // null) != $inum then "U author: issue number is not \($inum)"
           elif ($I | has("pull_request")) then "U author: #\($inum) is a pull request, not an issue"
           else empty end ),
-        author("author"; $I; "task issue #\($inum)"; false),
+        author("author"; $I; "task issue #\($inum)"; false; true),
         ( if $haveC == "" then empty
           elif ($c | type) != "object" then "U author: spec comment is not an object"
           elif ($c.id // null) != $cid then "U author: spec comment id is not \($cid)"
           elif ((($c.issue_url // null) | type) != "string") or (($c.issue_url | test("/issues/\($inum)$")) | not) then "U author: spec comment \($cid) is not shown to belong to issue #\($inum)"
-          else author("author"; $c; "spec comment \($cid)"; true) end )
+          else author("author"; $c; "spec comment \($cid)"; true; false) end )
       end ) | explode | map(if . < 32 or . == 127 then 63 else . end) | implode' 2>/dev/null | tr -d '\r') || report "U github-dispatch: evaluator failed on the input"
     # Resolve the spec-comment marker (#666, #682), for either role. Every other jq line starts "R " or
     # "U ", so input-chosen text never begins a line and a marker is only ever a line starting "D ".

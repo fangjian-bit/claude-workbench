@@ -354,7 +354,30 @@ mdisp "$tmp/ident-map.json" "$tmp/i-stranger.json"
 assert_eq "dispatch (identities): an OWNER association no longer trusts an undeclared author" "refused author: task issue #320 author stranger is not a declared maintainer/3" "$out/$rc"
 mkissue "$tmp/i-dev.json" MEMBER 'acme-dev[bot]' 2001
 mdisp "$tmp/ident-map.json" "$tmp/i-dev.json"
-assert_eq "dispatch (identities): the dev App's own issue is refused" "refused author: task issue #320 author acme-dev[bot] is the declared dev_app, not a maintainer/3" "$out/$rc"
+assert_eq "dispatch (identities): the dev App's own issue passes the author rule (WB-D32)" "pass/0" "$out/$rc"
+# These cases mirror gh-identity.sh task-author: trusted and agent pass, loop_app and undeclared are
+# refused, a login that does not match its id and an id declared twice are unreadable.
+cat >"$tmp/ident-rev2.json" <<EOF
+{"maintainer":[{"login":"Alice-Dev","id":1001},{"login":"bob","id":1002}],
+ "dev_app":{"login":"acme-dev[bot]","id":2001},"reviewer_app":{"login":"acme-review[bot]","id":2002},"loop_app":{"login":"acme-loop[bot]","id":2003}}
+EOF
+mkissue "$tmp/i-rev.json" NONE 'acme-review[bot]' 2002
+mdisp "$tmp/ident-rev2.json" "$tmp/i-rev.json"
+assert_eq "dispatch (identities): a reviewer-App task issue passes the author rule (WB-D32)" "pass/0" "$out/$rc"
+mkissue "$tmp/i-rev-renamed.json" NONE 'acme-other[bot]' 2002
+mdisp "$tmp/ident-rev2.json" "$tmp/i-rev-renamed.json"
+assert_eq "dispatch (identities): an App id under another login is unreadable, not passed" "unreadable author: task issue #320 author id 2002 is declared under a different login/3" "$out/$rc"
+cat >"$tmp/ident-appdup.json" <<EOF
+{"maintainer":[{"login":"Alice-Dev","id":1001},{"login":"bob","id":1002}],
+ "dev_app":{"login":"acme-dev[bot]","id":2001},"reviewer_app":{"login":"acme-dev[bot]","id":2001},"loop_app":null}
+EOF
+mdisp "$tmp/ident-appdup.json" "$tmp/i-dev.json"
+assert_eq "dispatch (identities): an App id declared twice is unreadable, not passed" "unreadable author: author id 2001 is declared more than once/3" "$out/$rc"
+mkissue "$tmp/i-app-stranger.json" NONE 'acme-stranger[bot]' 9997
+mdisp "$tmp/ident-rev2.json" "$tmp/i-app-stranger.json"
+assert_eq "dispatch (identities): an undeclared App is still refused as a task issue author" "refused author: task issue #320 author acme-stranger[bot] is not a declared maintainer/3" "$out/$rc"
+rdisp "$tmp/rules.json" "$tmp/ident-rev2.json" "$tmp/i-rev.json" "$tmp/c-ok.json" "$tmp/rx-fresh.tsv"
+assert_eq "dispatch (identities): no reaction is read for the task issue (only the spec comment's approving row)" "pass/0" "$out/$rc"
 mkissue "$tmp/i-loop.json" MEMBER 'acme-loop[bot]' 2003
 mdisp "$tmp/ident-map.json" "$tmp/i-loop.json"
 assert_eq "dispatch (identities): the loop App's issue is refused" "refused author: task issue #320 author acme-loop[bot] is the declared loop_app, not a maintainer/3" "$out/$rc"
@@ -492,7 +515,7 @@ printf '{"id":777,"author_association":"NONE","user":{"login":"acme-review[bot]"
 rdisp "$tmp/rules.json" "$tmp/ident-rev.json" "$tmp/i-maint.json" "$tmp/c-revapp.json" "$tmp/rx-ok.tsv"
 assert_eq "a reviewer-App spec comment is refused despite an approving reaction" "refused author: spec comment 777 author acme-review[bot] is the declared reviewer_app, not a maintainer/3" "$out/$rc"
 rdisp "$tmp/rules.json" "$tmp/ident-map.json" "$tmp/i-dev.json" "$tmp/c-ok.json" "$tmp/rx-ok.tsv"
-assert_eq "a dev-App task issue is refused despite an approving reactions file" "refused author: task issue #320 author acme-dev[bot] is the declared dev_app, not a maintainer/3" "$out/$rc"
+assert_eq "a dev-App task issue passes the author rule with an approving reactions file (WB-D32)" "pass/0" "$out/$rc"
 rdisp "$tmp/r-co.json" "$tmp/ident-map.json" "$tmp/i-maint.json" "$tmp/c-dev.json" "$tmp/rx-ok.tsv"
 assert_eq "an approved dev-App comment leaves other findings alone" "refused approval-rule: require_code_owner_review is not set/3" "$out/$rc"
 mkissue "$tmp/i-evil.json" NONE evilD 9998

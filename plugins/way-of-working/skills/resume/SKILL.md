@@ -7,7 +7,7 @@ description: >-
   unattended IF the cursor is clean and unambiguous (hitl_gate reads closed to hitl-gate-closed.sh, sprint_status
   implementing, model matches, no drift, no orchestrator-driver lock, no open cursor-sync PR and no unmerged sync branch
   under HEAD — an unreadable check counts as one — and — under planning.kind: github_milestones — the
-  plan anchor verifies and the task issue's author is trusted); otherwise state the pick-up
+  plan anchor verifies and the task issue's author is trusted, or, under a map, the declared dev or reviewer App); otherwise state the pick-up
   point and wait. As the declared dev App only, it may instead draft and post one spec comment
   (when the finder finds no spec comment at all, or the approved one is stale) and end without building. Fails
   closed — an open, missing, or unreadable gate always waits. Run this
@@ -857,11 +857,14 @@ edited it. **Default to the full checklist whenever unsure.**
      call in the **same** call, as the review-step block above does; an empty `DEF_YML` exits 2
      and waits:
      ```bash
-     gh-identity.sh author "$AUTHOR_LOGIN" "$AUTHOR_ID" "$DEF_YML_FILE"
+     gh-identity.sh task-author "$AUTHOR_LOGIN" "$AUTHOR_ID" "$DEF_YML_FILE"
      ```
      (bare name, same `bin/` `PATH`; `$AUTHOR_LOGIN`/`$AUTHOR_ID` are the response's `.user.login`
      and `.user.id`, bound as variables, never pasted). **`trusted`** — a declared
-     `identities.maintainer` matched on `id` — passes. **`untrusted`**, an exit of 2, or an
+     `identities.maintainer` matched on `id` — passes, and so does **`agent`** (`WB-D32`, `#664`):
+     the declared dev or reviewer App, which may originate a task, since under a map the body is
+     never read and the spec comment's maintainer reaction (below) is the one approval of its
+     content. **`untrusted`** (the loop App or an undeclared account), an exit of 2, or an
      unreadable `identities` **waits**. (The spec comment's author is judged by `spec-comment.sh`'s rule instead, below: a declared maintainer or the declared dev App.) **`legacy`** (`identities: null`, the repo has not cut
      over) falls back to the allowlist below, judged against this session's own identity, the
      one the reach check above named. Under a map `author_association` is never consulted.
@@ -873,7 +876,7 @@ edited it. **Default to the full checklist whenever unsure.**
      the body is used for anything. Two accounts are checked — against the
      allowlist (`OWNER`, `MEMBER`, `COLLABORATOR`; anything else — `NONE`, `CONTRIBUTOR`, or an
      identity that sees less — **waits**, availability-only, fails closed) under `legacy`:
-     - `#N`'s own author. An issue authored by an account that is not trusted (not a declared maintainer, or outside the org/collaborator set under `legacy`)
+     - `#N`'s own author. An issue authored by an account that is not trusted (under a map, not a declared maintainer, dev App or reviewer App; under `legacy`, outside the org/collaborator set)
        never auto-starts, whoever milestoned it.
      - **The spec comment's author too** — under a map, the comment the finder printed as
        `found`; under `legacy`, the anchored one when `plan_anchor.spec_comment` is non-null.
@@ -882,7 +885,8 @@ edited it. **Default to the full checklist whenever unsure.**
        silently read as "the approved spec". A trusted `#N` with an untrusted spec-comment
        author still waits. That author may also be the declared dev App, which `spec-comment.sh`
        judges (with a fresh maintainer reaction, below, a maintainer's own comment included
-       under a map); `#N`'s own author may not.
+       under a map); `#N`'s own author may be the declared dev or reviewer App under a map
+       (`task-author`'s `agent`), never under `legacy`, which stays the allowlist.
 
      **The maintainer's reaction (`WB-D24`, `#383`).** A trusted author's comment is not an
      approval. Under a map (`.identities | tag` is `!!map`), `plan-anchor.sh verify` also needs
@@ -951,7 +955,7 @@ edited it. **Default to the full checklist whenever unsure.**
    > 2. Fetch `#N` projected as `[.number, .state, .user.login, .user.id, (.milestone.number // 0)] | @tsv`
    >    (the milestone is the last field, so an empty value cannot shift the others). Check that
    >    the number is `TASK`, the state is `open`, the milestone is the anchor's, and that `#N`'s
-   >    author is trusted.
+   >    author is trusted (`gh-identity.sh task-author`: `trusted` or, under a map, `agent` passes).
    > 3. Run the finder (`spec-find.sh find "$TASK" "$DEF_YML_FILE"`, the *reader rule* in the
    >    *Read the cursor* step) and check its pair against the session's pin. `found` is the
    >    only word that goes on; any other, or a mismatch with the pin, is a stop.

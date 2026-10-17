@@ -283,7 +283,7 @@ description and cannot be mistaken for the human's approval.
   cursor: `hitl_gate` reading `closed` to `bin/hitl-gate-closed.sh` (its header defines the form), `sprint_status` `implementing`, the model
   matching `assigned_model`, no cursor/HEAD drift, no open cursor-sync PR and no unmerged
   sync branch under HEAD, and —
-  under `github_milestones` — the plan anchor verified and the task issue's author trusted
+  under `github_milestones` — the plan anchor verified and the task issue's author trusted (or, under a map, the declared dev or reviewer App, `WB-D32`)
   (the skill's own *Auto-start* rule is the complete list). Before reading the cursor it
   reports a forgotten handoff cursor-sync PR, which it never merges (`WB-D24`).
   Anything else — a `planning`
@@ -353,7 +353,7 @@ description and cannot be mistaken for the human's approval.
 - **`/way-of-working:spec-task <N>`** — the spec-comment half of the Opus planning role. May
   be run ahead for any task whose `depends_on` is met, since the build re-checks the paths the
   spec lists and refuses a stale one (`WB-D31`): it reads the issue only when its author is
-  trusted, drafts the spec comment in the fixed shape against the PR base's tree, then **posts it as the dev App or holds it for a human to post, and stops
+  trusted (or, under a map, an App-filed issue a maintainer reacted to, `WB-D32`), drafts the spec comment in the fixed shape against the PR base's tree, then **posts it as the dev App or holds it for a human to post, and stops
   (`bin/spec-post.sh`)**. A declared maintainer reacts on GitHub, and once they have,
   under a map, the readers find it. Never edits, deletes or reacts (`WB-D29`). Runs on `models.architect`.
 - **`/way-of-working:park-sprint <next-id>`** — set the live sprint aside mid-flight:

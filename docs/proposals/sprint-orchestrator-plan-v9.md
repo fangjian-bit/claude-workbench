@@ -989,7 +989,8 @@ defaults. [V]
    Code's sandbox, which cannot start in the container (§ 8.8).
 7. **Plan-then-execute.** The step set and writable locations are fixed before any session
    reads issue text. Only human-anchored issues by trusted authors are dispatched (existing
-   stop). No quarantined-extraction layer (see § 7).
+   stop). *Amended by `WB-D32`: the task must still be human-anchored and its spec
+   maintainer-approved, but its author may be the declared dev or reviewer App.* No quarantined-extraction layer (see § 7).
 8. **Human-only paths** are a schema key (`orchestration.human_only_paths`, WB-D17 style:
    present, explicit). Enforced twice: in-session deny rules supplied by the driver, and a
    post-exit `git diff --name-only origin/{pr_base}...head` check. Either failing stops the

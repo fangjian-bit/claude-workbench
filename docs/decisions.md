@@ -1853,6 +1853,8 @@ take effect. Full reasoning and the task breakdown that implements them:
   - **The rule.**
     - The skill reads `#N` only when its author is trusted, by the same
       `gh-identity.sh author` test `resume` uses, from the default branch's `identities`.
+      *Amended by `WB-D32`: the test is `task-author`, and the declared dev or reviewer App's issue
+      is read once a declared maintainer has reacted to it.*
       It reads no other issue's body and no comments, and treats the body as data.
     - It drafts in a fixed shape (goal, files touched, done when, tests, out of scope, restated
       from the issue body), checks every file, function and test it names on `origin/{pr_base}`
@@ -1889,7 +1891,8 @@ take effect. Full reasoning and the task breakdown that implements them:
       name the same `task #N`, or `resume` waits. On the auto-start path `resume` fetched the
       description only so that `verify` could hash it.
     - **On a repo whose `identities` is a map, three further checks stand between a task and a
-      merge:** a trusted issue author, a declared maintainer's approving reaction on the spec
+      merge** *(amended by `WB-D32`: the issue author may now be the declared dev or reviewer App, so
+      that check constrains less)*: a trusted issue author, a declared maintainer's approving reaction on the spec
       comment after its last edit (`WB-D24`, `#383`), and code-owner approval on the PR. Where
       `identities` is `null`, only the author check applies.
     - **The hash made every build-order change a hand edit, a handoff and a cursor-PR
@@ -2053,7 +2056,10 @@ take effect. Full reasoning and the task breakdown that implements them:
     - The script refuses on its own: a commit that is not on the base, a draft that fails the shape
       check, carries a line beginning with the marker prefix, matches an obvious local-path or
       secret shape, or makes the body longer than 65536 bytes; and an issue that is a pull request,
-      closed, locked, or authored by an untrusted login. The POST is never retried.
+      closed, locked, or authored by an untrusted login. The POST is never retried. *Amended by
+      `WB-D32`: an issue by the dev or reviewer App is read, not stopped `untrusted`: it stops
+      `unreacted` until a declared maintainer reacts after its last update, and `hidden` if the
+      screen refuses it; the loop App and undeclared logins still stop `untrusted`.*
     - An `architect` subagent only drafts; the parent writes the file and posts. An unconfirmed
       model provenance line is posted inside the comment.
   - **Rejected.**
@@ -2086,7 +2092,8 @@ take effect. Full reasoning and the task breakdown that implements them:
       `tests/spec-post.test.sh` counts every logged `gh` call that is not a known read and is the control.
     - **Body-influenced `@mentions` and cross-references** notify and backlink under the dev App.
     - **The default-branch reads** (`gh repo view`) take the host from the origin URL. The issue
-      read, the viewer read and the write pin `github.com`. The host residuals `spec-issue.sh`
+      read, the viewer read and the write pin `github.com`. *Amended by `WB-D32`: an App-filed issue
+      adds two more pinned reads, its reactions and a second issue read.* The host residuals `spec-issue.sh`
       records also apply.
     - **A `gh` call has no per-call timeout.** A hang ends with no word, which the skill treats as
       `post-unknown`.
@@ -2252,6 +2259,76 @@ take effect. Full reasoning and the task breakdown that implements them:
         `[slug]` always read `bad-shape` for an adopter that has them.
     18. The `none` drafting branch does not check that `#N` is open or on the milestone before
         drafting; `spec-post.sh` stops a closed issue after the draft is made.
+- **WB-D32 (`#664`) — an issue the dev or reviewer App filed can be drafted once a declared
+  maintainer reacts to it, and built and dispatched once its spec comment is approved.** Amends
+  `WB-D26` (the author `spec-task` reads), `WB-D27` (the trusted issue author as a further check),
+  `WB-D29` (the untrusted-login stop and the pinned reads) and plan v9 principle 7. Under an `identities` map only.
+  - **The decision.**
+    - **The verb.** `gh-identity.sh task-author` judges a task issue's author: `trusted` for a declared
+      maintainer, `agent` for the declared `dev_app` or `reviewer_app`, `untrusted` for the `loop_app`
+      or an undeclared account, `legacy` under a null `identities`. `author` is unchanged and still
+      judges comment and PR authors.
+    - **Drafting.** `spec-issue.sh` and `spec-post.sh` read an `agent` author's issue only when a
+      declared maintainer reacted approvingly to the issue strictly after its last update
+      (`spec-reaction.sh`, the rule spec comments follow), reading the reactions before a second issue
+      read, and only when the decoded title and body pass the `hidden` screen.
+    - **Building and dispatch.** `resume`'s body read and auto-start, the `coder` agent,
+      `architect-review`'s map branch and the loop's dispatch preflight accept an `agent` author of
+      `#N` as they accept a maintainer's. None of them reads the body under a map; the spec comment
+      is the whole spec, and every builder already requires a declared maintainer's reaction on it.
+    - **Who may originate a task changes, not who approves its text.** The spec reaction stays the one
+      approval of content.
+  - **Why.** The reviewer App files review findings and the dev App files follow-ups. Both were
+    refused twice, so the maintainer re-filed each by hand.
+  - **Measured on 2026-10-17 (scratch issue `#706`, since closed).** Adding a reaction does not move an
+    issue's `updated_at` (a reaction at 20:10:39 left it at 20:10:28, on two reads). A body edit moved
+    it (20:10:46) and so did a title edit (20:10:52). So the rule can approve, and an edit after the
+    reaction makes the reaction stale. `plan-anchor.sh`'s header records the same for comments (`#498`).
+  - **Rejected.**
+    - **An issue reaction at build or dispatch time.** Posting the spec moves `#N`'s `updated_at`
+      (`WB-D30`), so no builder can ask for one, and none needs it, since none reads the body.
+    - **The loop App.** It neither drafts, builds nor is dispatched.
+    - **A distinct reaction content for this path.** It uses the same four as spec comments.
+  - **Accepted residuals.**
+    1. An agent can now originate and specify a task, and the spec reaction is the only approval of
+       its content. `WB-D31` residual 6 therefore covers work an agent authored end to end: `HID` is
+       refused only in *Files touched*, and tag characters and soft hyphens not at all.
+    2. The issue reaction gates only `spec-task`'s read of the body, not the build.
+    3. The loop can dispatch the reviewer App's findings on its own PRs, so it can steer which work
+       it gets next, bounded by the spec reaction.
+    4. If a comment, a label or a milestone move changes the issue's `updated_at` (residual 14: only
+       reactions, body and title edits were measured), it makes the reaction stale, and anyone who can
+       do it can force a re-reaction.
+    5. A pre-existing approving reaction gains meaning (none existed on 2026-10-17).
+    6. The reviewer App's filing token can edit the issue it filed.
+    7. The preflight carries its own copy of the role set, held to `task-author` by fixtures only.
+    8. `HID` now has three copies (`spec-fresh.sh`, `spec-issue.sh`, `spec-post.sh`); a fixture holds
+       the two new ones byte for byte to `spec-fresh.sh`'s.
+    9. The `hidden` check is a filter, not a boundary, and this list is not exhaustive. It refuses `<!`
+       and `<?` (HTML comments, declarations, CDATA sections, processing instructions), a lone CR, a
+       `HID` character and a one-line link reference definition. Raw-HTML attribute text (`alt`,
+       `title`), Markdown link titles, Unicode tag characters, variation selectors and other
+       default-ignorable characters, soft hyphens, an HTML `<script>` element (GitHub drops its
+       content from the rendered issue), GitHub math that renders blank, a link definition
+       whose label spans lines, and a link definition inside a quote or list item or with
+       an escaped bracket in its label still pass, so `WB-D31` residual 1 (the drafting session reads
+       injected text with the dev App's permissions) still holds for an unfenced dev-App body.
+    10. A reviewer finding that quotes `<!` or `<?` inside wow-review's code fence stops
+        `hidden` although the text is visible: a known false positive, which fails closed.
+    11. **The builders' "no body under a map" premise is enforced by prose** in `resume` and the
+        `coder` (check 15 covers `architect-review` only). A builder that fetched `#N` unprojected would
+        hold an App-authored body that now passes the author rule where it used to stop. A follow-up
+        extends check 15 to them.
+    12. The preflight reads an App id as a JSON number, so an oddly written id (`2002.0`) matches
+        there where `task-author` (`!!int` only) says `untrusted`. It needs a maintainer-committed id.
+    13. The issue reaction separates the writer from the approver only where the drafting session
+        holds no maintainer credential (`WB-D29`). A host session running as a declared maintainer
+        could add the reaction itself.
+    14. That a label, a comment or a milestone move changes an issue's `updated_at` was not measured;
+        only reactions, body and title edits were.
+  - **Follow-ups named.** Widen `spec-fresh.sh`'s `HID` refusal to the whole spec body; show the
+    `task-author` word in `plan-sprint`'s author display; extend check 15 (a projected fetch only) to
+    `resume`'s map body read and the `coder` (residual 11).
 
 ## Status
 

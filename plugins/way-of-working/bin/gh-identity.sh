@@ -82,6 +82,20 @@
 #                 to its pre-WB-D24 `author_association` allowlist. Never a trust grant.
 # A caller that gets exit 2 treats it as neither trusted nor untrusted, and waits.
 #
+# task-author (WB-D32, #664) judges the author of a TASK issue only: spec-issue.sh, spec-post.sh,
+# and the author checks of resume, the coder agent and /way-of-working:architect-review. It shares `author`'s
+# lookup and exit-2 cases, and prints exactly one word:
+#   trusted    -- a declared maintainer
+#   agent      -- the declared dev_app or reviewer_app. The caller must not read the issue body on
+#                 this word alone: spec-issue.sh and spec-post.sh require a declared maintainer's
+#                 fresh approving reaction on the issue first (spec-reaction.sh); the builders read
+#                 no body under a map and take the spec comment's own reaction as the approval.
+#   untrusted  -- the loop_app, or an account identities does not declare
+#   legacy     -- identities is null: the caller falls back to its author_association allowlist
+# `author` is unchanged and still judges comment and PR authors. The preflight's jq
+# (scripts/loop/preflight.sh) is the one reader that cannot call this verb; it mirrors the table
+# and its fixtures hold it to it.
+#
 # role is the lookup itself, for a caller that needs WHICH declared account is acting
 # (token-check.sh, #436; spec-comment.sh, #660). It prints maintainer, dev_app, reviewer_app or loop_app; undeclared
 # when identities is a map and the account is not in it; legacy when identities is null.
@@ -117,7 +131,7 @@
 # working tree (the same stance as `orchestration` and the review gate): a PR under review
 # can edit its own `identities`.
 #
-# Permitted toolset: POSIX sh, tr(1), yq (mikefarah v4) for classify, author, role and pr-actor.
+# Permitted toolset: POSIX sh, tr(1), yq (mikefarah v4) for classify, author, task-author, role and pr-actor.
 set -eu
 
 die() { echo "gh-identity.sh: $1" >&2; exit 2; }
@@ -213,6 +227,17 @@ author() {
   if [ "$ROLE" = maintainer ]; then echo trusted; else echo untrusted; fi
 }
 
+task_author() {
+  [ "$#" -eq 3 ] || { echo "usage: gh-identity.sh task-author <login> <id> <project.yml>" >&2; exit 2; }
+  find_role "$1" "$2" "$3"
+  if [ "$LEGACY" = 1 ]; then echo legacy; return 0; fi
+  case "$ROLE" in
+    maintainer) echo trusted ;;
+    dev_app|reviewer_app) echo agent ;;
+    *) echo untrusted ;;
+  esac
+}
+
 role() {
   [ "$#" -eq 3 ] || { echo "usage: gh-identity.sh role <login> <id> <project.yml>" >&2; exit 2; }
   find_role "$1" "$2" "$3"
@@ -255,8 +280,9 @@ reach() {
 case "${1:-}" in
   classify) shift; classify "$@" ;;
   author) shift; author "$@" ;;
+  task-author) shift; task_author "$@" ;;
   role) shift; role "$@" ;;
   pr-actor) shift; pr_actor "$@" ;;
   reach) shift; reach "$@" ;;
-  *) echo "usage: gh-identity.sh classify|author|role|pr-actor <login> <id> <project.yml> | reach <owner/repo>" >&2; exit 2 ;;
+  *) echo "usage: gh-identity.sh classify|author|task-author|role|pr-actor <login> <id> <project.yml> | reach <owner/repo>" >&2; exit 2 ;;
 esac

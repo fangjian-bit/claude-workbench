@@ -81,8 +81,18 @@ case "$*" in
     [ -z "${FX_POST_FAIL:-}" ] || fail_with
     "$FX_CAT" "$FX_RESP"
     ;;
+  *"issues/"*"/reactions"*)
+    [ -z "${FX_RX_FAIL:-}" ] || fail_with
+    if [ -n "${FX_RX:-}" ]; then "$FX_CAT" "$FX_RX"; fi
+    ;;
   *"issues/"*)
     [ -z "${FX_ISSUE_FAIL:-}" ] || fail_with
+    # the second issue read of a run is the one that can differ
+    nreads="$(grep -c '^api|--hostname|github.com|repos/[^|]*/issues/[0-9]*|$' "$FX_GHLOG" || true)"
+    if [ "$nreads" -ge 2 ]; then
+      [ -z "${FX_ISSUE2_FAIL:-}" ] || fail_with
+      if [ -n "${FX_ISSUE2:-}" ]; then "$FX_CAT" "$FX_ISSUE2"; exit 0; fi
+    fi
     "$FX_CAT" "$FX_ISSUE"
     ;;
   *) exit 1 ;;
@@ -213,13 +223,28 @@ mkdraft() { # mkdraft <file> [extra-line] -- a draft in the fixed shape; the ext
   } >"$1"
 }
 
-mkissue() { # mkissue <login> <id-json> <assoc-json> [state] [locked] [pr]
-  st="${4:-open}"
-  lk="${5:-false}"
+mkissue_to() { # mkissue_to <file> <login> <id-json> <assoc-json> [state] [locked] [pr|-] [updated_at] [title-json] [body-json]
+  st="${5:-open}"
+  lk="${6:-false}"
   pr=
-  [ "${6:-}" != pr ] || pr=',"pull_request":{"url":"x"}'
-  printf '{"number":661,"title":"%s title","body":"%s body","user":{"login":"%s","id":%s},"author_association":%s,"state":"%s","locked":%s%s}\n' \
-    "$MARK" "$MARK" "$1" "$2" "$3" "$st" "$lk" "$pr" >"$tmp/issue.json"
+  [ "${7:-}" != pr ] || pr=',"pull_request":{"url":"x"}'
+  _upd="${8:-2026-10-17T20:10:28Z}"
+  _dq='"'
+  _title="${9:-$_dq$MARK title$_dq}"
+  _body="${10:-$_dq$MARK body$_dq}"
+  printf '{"number":661,"title":%s,"body":%s,"updated_at":"%s","user":{"login":"%s","id":%s},"author_association":%s,"state":"%s","locked":%s%s}\n' \
+    "$_title" "$_body" "$_upd" "$2" "$3" "$4" "$st" "$lk" "$pr" >"$1"
+}
+mkissue() { mkissue_to "$tmp/issue.json" "$@"; }
+mkissue2() { mkissue_to "$tmp/issue2.json" "$@"; }
+# mkrx <file> <rows...> -- each row "id content created_at", written tab-separated
+mkrx() {
+  _f="$1"; shift
+  : >"$_f"
+  for _r in "$@"; do
+    set -- $_r
+    printf '%s\t%s\t%s\n' "$1" "$2" "$3" >>"$_f"
+  done
 }
 mkresp() { # mkresp <id> <login> <uid> <issue-no> -- the POST response
   printf '{"id":%s,"user":{"login":"%s","id":%s},"issue_url":"https://api.github.com/repos/acme/backlog/issues/%s","html_url":"https://github.com/acme/backlog/issues/661#issuecomment-%s"}\n' \
@@ -230,7 +255,9 @@ reset_fx() {
   FX_NWO=acme/repo FX_DEF=main FX_ISSUE="$tmp/issue.json" FX_RESP="$tmp/resp.json"
   FX_VLOGIN='dev[bot]' FX_VID=200
   FX_VIEW_FAIL= FX_ISSUE_FAIL= FX_VIEWER_FAIL= FX_POST_FAIL= FX_HOOK=
+  FX_RX= FX_RX_FAIL= FX_ISSUE2= FX_ISSUE2_FAIL=
   export FX_NWO FX_DEF FX_ISSUE FX_RESP FX_VLOGIN FX_VID FX_VIEW_FAIL FX_ISSUE_FAIL FX_VIEWER_FAIL FX_POST_FAIL FX_HOOK
+  export FX_RX FX_RX_FAIL FX_ISSUE2 FX_ISSUE2_FAIL
   mkissue maint 100 '"OWNER"'
   mkresp 777 'dev[bot]' 200 661
 }
@@ -242,8 +269,8 @@ calls() { # calls <log> -- the number of lines
   while IFS= read -r _; do n=$((n + 1)); done <"$1"
   echo "$n"
 }
-writes() { # every gh call that is not a known read (repo view, the issue GET, the exact viewer query)
-  grep -vc -e '^repo|view|' -e '^api|--hostname|github.com|repos/[^|]*/issues/[0-9]*|$' -e '^api|--hostname|github.com|graphql|-f|query={ viewer { login databaseId } }|--jq|' "$glog" || true
+writes() { # every gh call that is not a known read (repo view, the issue GET, its reactions GET, the exact viewer query)
+  grep -vc -e '^repo|view|' -e '^api|--hostname|github.com|repos/[^|]*/issues/[0-9]*|$' -e '^api|--hostname|github.com|repos/[^|]*/issues/[0-9]*/reactions|--paginate|--jq|' -e '^api|--hostname|github.com|graphql|-f|query={ viewer { login databaseId } }|--jq|' "$glog" || true
 }
 
 # run <args...>: sets rc, out, err. SCRIPT, RUNDIR and XPATH override the defaults.
@@ -518,13 +545,21 @@ post "$dr/draft.md" "$o"
 stop_is loop-identity
 setyml "$tmp/map.yml"
 
-for who in 'stranger 9' 'dev[bot] 200'; do
+for who in 'stranger 9' 'loop[bot] 400'; do
   set -- $who
   desc="stop: an untrusted author under a map ($1)"
   mkissue "$1" "$2" '"MEMBER"'
   o="$(newdir)"
   post "$dr/draft.md" "$o"
   stop_is untrusted
+done
+for who in 'dev[bot] 200' 'rev[bot] 300'; do
+  set -- $who
+  desc="stop: an App-filed issue with no reaction is unreacted under a map ($1; was untrusted before WB-D32)"
+  mkissue "$1" "$2" '"MEMBER"'
+  o="$(newdir)"
+  post "$dr/draft.md" "$o"
+  stop_is unreacted
 done
 
 desc="stop: gh-identity.sh cannot judge the config"
@@ -681,6 +716,13 @@ cp "$bindir/gh-identity.sh" "$tmp/half/gh-identity.sh"
 SCRIPT="$tmp/half/spec-post.sh" run post 661 "$SHA" "$dr/draft.md" "$o"
 usage_is
 
+desc="a copy of the script with gh-identity.sh and spec-shape.sh but no spec-reaction.sh"
+mkdir -p "$tmp/half2"
+cp "$script" "$tmp/half2/spec-post.sh"
+cp "$bindir/gh-identity.sh" "$bindir/spec-shape.sh" "$tmp/half2/"
+SCRIPT="$tmp/half2/spec-post.sh" run post 661 "$SHA" "$dr/draft.md" "$o"
+usage_is
+
 if [ "$can_link" = yes ]; then
   desc="a symlinked draft"
   ln -s "$dr/draft.md" "$dr/link.md"
@@ -693,6 +735,295 @@ if [ "$can_link" = yes ]; then
 else
   echo "SKIP - symlink cases: ln -s copies here" >&2
 fi
+
+# -- the App-filed path (WB-D32, #664): an agent-filed issue passes once a maintainer reacted ----
+# The issue is last updated at 20:10:28; the good reaction is a maintainer's, at 20:10:39.
+# maintainer lists the App-filed path must read as unreadable
+mk mapnomaint "repo: acme/repo
+pr_base: main
+backlog:
+  repo: acme/backlog
+identities:
+  maintainer: { login: maint, id: 100 }
+  dev_app: { login: \"dev[bot]\", id: 200 }
+  reviewer_app: { login: \"rev[bot]\", id: 300 }
+  loop_app: { login: \"loop[bot]\", id: 400 }"
+mk mapemptymaint "repo: acme/repo
+pr_base: main
+backlog:
+  repo: acme/backlog
+identities:
+  maintainer: []
+  dev_app: { login: \"dev[bot]\", id: 200 }
+  reviewer_app: { login: \"rev[bot]\", id: 300 }
+  loop_app: { login: \"loop[bot]\", id: 400 }"
+mk mapbadmaint "repo: acme/repo
+pr_base: main
+backlog:
+  repo: acme/backlog
+identities:
+  maintainer:
+    - { login: maint, id: 100 }
+    - { login: other, id: \"101\" }
+  dev_app: { login: \"dev[bot]\", id: 200 }
+  reviewer_app: { login: \"rev[bot]\", id: 300 }
+  loop_app: { login: \"loop[bot]\", id: 400 }"
+RXF="$tmp/rx.tsv"
+RX_GOOD='100 +1 2026-10-17T20:10:39Z'
+setyml "$tmp/map.yml"
+mkrx "$RXF" "$RX_GOOD"
+dr2="$(newdir)"
+mkdraft "$dr2/draft.md"
+expect2="$tmp/expect2.md"
+{ printf 'spec-task: issue=661 base=main sha=%s\n\n' "$SHA"; "$real_cat" "$dr2/draft.md"; } >"$expect2"
+
+desc="reacted pass: the dev App's issue is posted, one write, the reactions read before the second issue read"
+mkissue 'dev[bot]' 200 '"CONTRIBUTOR"'
+mkissue2 'dev[bot]' 200 '"NONE"' open false - 2026-10-17T20:10:28Z '"second title"' '"second body"'
+o="$(newdir)"
+FX_RX="$RXF" FX_ISSUE2="$tmp/issue2.json" post "$dr2/draft.md" "$o"
+assert_eq "$desc (line)" "posted 777 dev[bot] https://github.com/acme/backlog/issues/661#issuecomment-777" "$out"
+assert_eq "$desc (rc)" 0 "$rc"
+assert_eq "$desc (stderr)" "" "$err"
+assert_eq "$desc (exactly one POST)" 1 "$(writes)"
+assert_eq "$desc (stdin is marker, blank line, draft bytes)" yes "$(cmp -s "$expect2" "$gstdin" && echo yes || echo no)"
+assert_eq "$desc (gh log)" "repo|view|$ourl|--json|nameWithOwner|--jq|.nameWithOwner|
+repo|view|$ourl|--json|defaultBranchRef|--jq|.defaultBranchRef.name // \"\"|
+api|--hostname|github.com|repos/acme/backlog/issues/661|
+api|--hostname|github.com|repos/acme/backlog/issues/661/reactions|--paginate|--jq|.[] | [(.user.id|tostring), .content, .created_at] | @tsv|
+api|--hostname|github.com|repos/acme/backlog/issues/661|
+api|--hostname|github.com|graphql|-f|query={ viewer { login databaseId } }|--jq|[.data.viewer.login, .data.viewer.databaseId] | @tsv|
+api|--hostname|github.com|--method|POST|repos/acme/backlog/issues/661/comments|-F|body=@-|" "$("$real_cat" "$glog")"
+
+for c in '+1' heart hooray rocket; do
+  desc="reacted pass: the reviewer App's issue, a maintainer's $c (held for a non-App viewer)"
+  mkissue 'rev[bot]' 300 '"NONE"'
+  mkrx "$RXF" "100 $c 2026-10-17T20:10:39Z"
+  o="$(newdir)"
+  FX_RX="$RXF" FX_VLOGIN=maint FX_VID=100 post "$dr2/draft.md" "$o"
+  held_is not-dev-app "$o"
+done
+mkrx "$RXF" "$RX_GOOD"
+
+desc="reacted pass: a CRLF body"
+mkissue 'dev[bot]' 200 '"NONE"' open false - 2026-10-17T20:10:28Z '"t"' '"line one\r\nline two\r\n"'
+o="$(newdir)"
+FX_RX="$RXF" post "$dr2/draft.md" "$o"
+assert_eq "$desc (line)" "posted 777 dev[bot] https://github.com/acme/backlog/issues/661#issuecomment-777" "$out"
+
+desc="reacted pass: a null body"
+mkissue 'dev[bot]' 200 '"NONE"' open false - 2026-10-17T20:10:28Z '"t"' null
+o="$(newdir)"
+FX_RX="$RXF" post "$dr2/draft.md" "$o"
+assert_eq "$desc (line)" "posted 777 dev[bot] https://github.com/acme/backlog/issues/661#issuecomment-777" "$out"
+
+noout() { assert_eq "$desc (out-dir empty)" "" "$(ls -A "$o")"; }
+
+# unreacted
+mkissue 'dev[bot]' 200 '"NONE"'
+desc="unreacted: no reaction at all"
+mkrx "$RXF"
+o="$(newdir)"
+FX_RX="$RXF" post "$dr2/draft.md" "$o"
+stop_is unreacted
+noout
+
+desc="unreacted: only non-maintainers reacted (either App's own +1 included)"
+mkrx "$RXF" "200 +1 2026-10-17T20:10:39Z" "300 +1 2026-10-17T20:10:39Z" "9 +1 2026-10-17T20:10:39Z"
+mkissue 'dev[bot]' 200 '"NONE"'
+o="$(newdir)"
+FX_RX="$RXF" post "$dr2/draft.md" "$o"
+stop_is unreacted
+
+for c in '-1' eyes laugh confused; do
+  desc="unreacted: a maintainer's $c does not approve"
+  mkrx "$RXF" "100 $c 2026-10-17T20:10:39Z"
+  mkissue 'dev[bot]' 200 '"NONE"'
+  o="$(newdir)"
+  FX_RX="$RXF" post "$dr2/draft.md" "$o"
+  stop_is unreacted
+done
+
+desc="unreacted: an approving reaction at the issue's updated_at"
+mkrx "$RXF" "100 +1 2026-10-17T20:10:28Z"
+mkissue 'dev[bot]' 200 '"NONE"'
+o="$(newdir)"
+FX_RX="$RXF" post "$dr2/draft.md" "$o"
+stop_is unreacted
+
+desc="unreacted: an approving reaction before the issue's updated_at"
+mkrx "$RXF" "100 +1 2026-10-17T20:10:27Z"
+mkissue 'dev[bot]' 200 '"NONE"'
+o="$(newdir)"
+FX_RX="$RXF" post "$dr2/draft.md" "$o"
+stop_is unreacted
+
+desc="unreacted: the second copy's updated_at moved past the reaction"
+mkrx "$RXF" "$RX_GOOD"
+mkissue2 'dev[bot]' 200 '"NONE"' open false - 2026-10-17T20:10:46Z
+mkissue 'dev[bot]' 200 '"NONE"'
+o="$(newdir)"
+FX_RX="$RXF" FX_ISSUE2="$tmp/issue2.json" post "$dr2/draft.md" "$o"
+stop_is unreacted
+
+# failed reads stop unreachable, never unreacted
+mkissue 'dev[bot]' 200 '"NONE"'
+mkrx "$RXF" "$RX_GOOD"
+desc="a failed reactions read is unreachable, not unreacted"
+o="$(newdir)"
+FX_RX="$RXF" FX_RX_FAIL=1 post "$dr2/draft.md" "$o"
+stop_is unreachable
+
+desc="a failed second issue read is unreachable, not unreacted"
+mkissue 'dev[bot]' 200 '"NONE"'
+o="$(newdir)"
+FX_RX="$RXF" FX_ISSUE2_FAIL=1 post "$dr2/draft.md" "$o"
+stop_is unreachable
+
+# the second copy is the one judged for closed and locked
+desc="a second copy that is closed stops closed"
+mkissue2 'dev[bot]' 200 '"NONE"' closed false
+mkissue 'dev[bot]' 200 '"NONE"'
+o="$(newdir)"
+FX_RX="$RXF" FX_ISSUE2="$tmp/issue2.json" post "$dr2/draft.md" "$o"
+stop_is closed
+
+desc="a second copy that is locked stops locked"
+mkissue2 'dev[bot]' 200 '"NONE"' open true
+mkissue 'dev[bot]' 200 '"NONE"'
+o="$(newdir)"
+FX_RX="$RXF" FX_ISSUE2="$tmp/issue2.json" post "$dr2/draft.md" "$o"
+stop_is locked
+
+desc="a second copy that is a pull request is not-an-issue"
+mkissue2 'dev[bot]' 200 '"NONE"' open false pr
+mkissue 'dev[bot]' 200 '"NONE"'
+o="$(newdir)"
+FX_RX="$RXF" FX_ISSUE2="$tmp/issue2.json" post "$dr2/draft.md" "$o"
+stop_is not-an-issue
+
+# the second copy's shape and identity
+for v in \
+  "another login|'rev[bot]' 300 '\"NONE\"'" \
+  "the maintainer as author|maint 100 '\"OWNER\"'" \
+  "the same login with another id|'dev[bot]' 201 '\"NONE\"'" \
+  "a malformed updated_at|'dev[bot]' 200 '\"NONE\"' open false - '2026-10-17 20:10:28'" \
+  "an updated_at with a zone offset|'dev[bot]' 200 '\"NONE\"' open false - '2026-10-17T20:10:28+00:00'" \
+  "a non-string title|'dev[bot]' 200 '\"NONE\"' open false - 2026-10-17T20:10:28Z 5" \
+  "a null title|'dev[bot]' 200 '\"NONE\"' open false - 2026-10-17T20:10:28Z null" \
+  "a numeric body|'dev[bot]' 200 '\"NONE\"' open false - 2026-10-17T20:10:28Z '\"t\"' 5" \
+  "an object body|'dev[bot]' 200 '\"NONE\"' open false - 2026-10-17T20:10:28Z '\"t\"' '{}'"; do
+  desc="second copy with ${v%%|*} is unreadable"
+  eval "mkissue2 ${v#*|}"
+  mkissue 'dev[bot]' 200 '"NONE"'
+  o="$(newdir)"
+  FX_RX="$RXF" FX_ISSUE2="$tmp/issue2.json" post "$dr2/draft.md" "$o"
+  stop_is unreadable
+done
+
+desc="second copy that is not JSON is unreadable"
+printf '%s not json {\n' "$MARK" >"$tmp/issue2.json"
+mkissue 'dev[bot]' 200 '"NONE"'
+o="$(newdir)"
+FX_RX="$RXF" FX_ISSUE2="$tmp/issue2.json" post "$dr2/draft.md" "$o"
+stop_is unreadable
+
+for y in mapnomaint mapemptymaint mapbadmaint; do
+  desc="a maintainer list that is not well formed ($y) is unreadable"
+  setyml "$tmp/$y.yml"
+  mkissue 'dev[bot]' 200 '"NONE"'
+  o="$(newdir)"
+  FX_RX="$RXF" post "$dr2/draft.md" "$o"
+  stop_is unreadable
+done
+setyml "$tmp/map.yml"
+
+# hidden
+mkrx "$RXF" "$RX_GOOD"
+for v in \
+  "a lone CR in the body|\"t\"|\"a\\rb\"" \
+  "a zero-width space in the body|\"t\"|\"a\\u200bb\"" \
+  "a zero-width space in the title|\"a\\u200bb\"|\"b\"" \
+  "a right-to-left override in the body|\"t\"|\"a\\u202eb\"" \
+  "a byte order mark in the title|\"\\ufeffa\"|\"b\"" \
+  "a link reference definition line in the body|\"t\"|\"x\\n[//]: # (hidden)\\ny\"" \
+  "an indented link reference definition in the body|\"t\"|\"x\\n   [label]: http://x\\ny\"" \
+  "a link reference definition as the title|\"[//]: # (x)\"|\"b\"" \
+  "an HTML comment opener in the body|\"t\"|\"a <!-- x -->\"" \
+  "an HTML comment opener in the title|\"t <!-- x\"|\"b\"" \
+  "an HTML declaration opener in the body|\"t\"|\"a <!DOCTYPE x>\"" \
+  "a CDATA opener in the body|\"t\"|\"a <![CDATA[ x ]]>\"" \
+  "a processing instruction opener in the title|\"t <?x y ?>\"|\"b\"" \
+  "an HTML comment opener written as a JSON escape|\"t\"|\"a \\u003c!-- x\"" \
+  "a zero-width space written as a JSON escape|\"t\"|\"\\u200b\""; do
+  label="${v%%|*}"
+  rest="${v#*|}"
+  ttl="${rest%%|*}"
+  bdy="${rest#*|}"
+  desc="hidden: $label"
+  mkissue 'dev[bot]' 200 '"NONE"' open false - 2026-10-17T20:10:28Z "$ttl" "$bdy"
+  o="$(newdir)"
+  FX_RX="$RXF" post "$dr2/draft.md" "$o"
+  stop_is hidden
+  noout
+done
+
+desc="hidden: the screen runs on the second copy, not the first"
+mkissue 'dev[bot]' 200 '"NONE"'
+mkissue2 'dev[bot]' 200 '"NONE"' open false - 2026-10-17T20:10:28Z '"t"' '"a\u200bb"'
+o="$(newdir)"
+FX_RX="$RXF" FX_ISSUE2="$tmp/issue2.json" post "$dr2/draft.md" "$o"
+stop_is hidden
+
+# who is still refused, with a good reaction on file
+mkissue 'loop[bot]' 400 '"NONE"'
+desc="the loop App stays untrusted, and no reaction is read for it"
+o="$(newdir)"
+FX_RX="$RXF" post "$dr2/draft.md" "$o"
+stop_is untrusted
+assert_eq "$desc (no reactions read)" 0 "$(grep -c reactions "$glog" || true)"
+mkissue stranger 9 '"NONE"'
+desc="an undeclared author stays untrusted, and no reaction is read for it"
+o="$(newdir)"
+FX_RX="$RXF" post "$dr2/draft.md" "$o"
+stop_is untrusted
+assert_eq "$desc (no reactions read)" 0 "$(grep -c reactions "$glog" || true)"
+
+desc="the loop's login stops loop-identity before the author is judged, with a reaction on file"
+mk devloop "repo: acme/repo
+pr_base: main
+backlog:
+  repo: acme/backlog
+orchestration:
+  loop_identity: \"dev[bot]\"
+$MAP"
+setyml "$tmp/devloop.yml"
+mkissue 'dev[bot]' 200 '"NONE"'
+o="$(newdir)"
+FX_RX="$RXF" post "$dr2/draft.md" "$o"
+stop_is loop-identity
+assert_eq "$desc (no reactions read)" 0 "$(grep -c reactions "$glog" || true)"
+setyml "$tmp/map.yml"
+
+desc="a maintainer's issue passes as trusted with a reaction file present, and none is read"
+mkissue maint 100 '"OWNER"'
+o="$(newdir)"
+FX_RX="$RXF" post "$dr2/draft.md" "$o"
+assert_eq "$desc (line)" "posted 777 dev[bot] https://github.com/acme/backlog/issues/661#issuecomment-777" "$out"
+assert_eq "$desc (no reactions read)" 0 "$(grep -c reactions "$glog" || true)"
+
+desc="under identities null no reaction is read"
+setyml "$tmp/legacy.yml"
+mkissue someone 7 '"COLLABORATOR"'
+o="$(newdir)"
+FX_RX="$RXF" post "$dr2/draft.md" "$o"
+assert_eq "$desc (no reactions read)" 0 "$(grep -c reactions "$glog" || true)"
+setyml "$tmp/map.yml"
+
+desc="HID is spec-fresh.sh's line, byte for byte"
+assert_eq "$desc" "$(grep '^HID=' "$bindir/spec-fresh.sh")" "$(grep '^HID=' "$script")"
+assert_eq "$desc (one line)" 1 "$(grep -c '^HID=' "$script")"
+mkissue maint 100 '"OWNER"'
 
 # -- every write is the one POST --------------------------------------------------------------------
 desc="a missing yq"

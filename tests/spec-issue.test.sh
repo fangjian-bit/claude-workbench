@@ -72,8 +72,18 @@ case "$1 $2" in
     ;;
   "api repos/"*)
     case "$2" in
+      */issues/*/reactions)
+        [ -z "${FX_RX_FAIL:-}" ] || fail_with
+        if [ -n "${FX_RX:-}" ]; then "$FX_CAT" "$FX_RX"; fi
+        ;;
       */issues/*)
         [ -z "${FX_ISSUE_FAIL:-}" ] || fail_with
+        # the second issue read of a run is the one that can differ
+        nreads="$(grep -c '^api|repos/[^|]*/issues/[0-9]*|$' "$FX_GHLOG" || true)"
+        if [ "$nreads" -ge 2 ]; then
+          [ -z "${FX_ISSUE2_FAIL:-}" ] || fail_with
+          if [ -n "${FX_ISSUE2:-}" ]; then "$FX_CAT" "$FX_ISSUE2"; exit 0; fi
+        fi
         case "${FX_PLANT:-}" in
           file) printf 'planted\n' >"$FX_OUT/issue.json" ;;
           link) ln -s "$FX_LINK_TARGET" "$FX_OUT/issue.json" ;;
@@ -144,6 +154,43 @@ backlog:
 orchestration:
   loop_identity: null
 $MAP"
+mk devloop "repo: acme/repo
+pr_base: main
+backlog:
+  repo: acme/backlog
+orchestration:
+  loop_identity: \"dev[bot]\"
+$MAP"
+# maintainer lists the App-filed path must read as unreadable
+mk mapnomaint "repo: acme/repo
+pr_base: main
+backlog:
+  repo: acme/backlog
+identities:
+  maintainer: { login: maint, id: 100 }
+  dev_app: { login: \"dev[bot]\", id: 200 }
+  reviewer_app: { login: \"rev[bot]\", id: 300 }
+  loop_app: { login: \"loop[bot]\", id: 400 }"
+mk mapemptymaint "repo: acme/repo
+pr_base: main
+backlog:
+  repo: acme/backlog
+identities:
+  maintainer: []
+  dev_app: { login: \"dev[bot]\", id: 200 }
+  reviewer_app: { login: \"rev[bot]\", id: 300 }
+  loop_app: { login: \"loop[bot]\", id: 400 }"
+mk mapbadmaint "repo: acme/repo
+pr_base: main
+backlog:
+  repo: acme/backlog
+identities:
+  maintainer:
+    - { login: maint, id: 100 }
+    - { login: other, id: \"101\" }
+  dev_app: { login: \"dev[bot]\", id: 200 }
+  reviewer_app: { login: \"rev[bot]\", id: 300 }
+  loop_app: { login: \"loop[bot]\", id: 400 }"
 mk legacy 'repo: acme/repo
 pr_base: main
 backlog:
@@ -208,17 +255,38 @@ ourl="$("$real_git" -C "$co" remote get-url origin)"
 # The checkout's own copy names a different backlog, base and identities, uncommitted.
 printf 'repo: acme/repo\npr_base: tree-base\nbacklog:\n  repo: elsewhere/tree\nidentities:\n  maintainer:\n    - { login: treeuser, id: 999 }\n  dev_app: null\n  reviewer_app: null\n  loop_app: null\n' >"$co/.ai/project.yml"
 
-mkissue() { # mkissue <login> <id-json> <assoc-json> [pr]
+mkissue_to() { # mkissue_to <file> <login> <id-json> <assoc-json> [pr|-] [updated_at] [title-json] [body-json]
   pr=
-  [ "${4:-}" != pr ] || pr=',"pull_request":{"url":"x"}'
-  printf '{"number":611,"title":"%s title","body":"%s body","user":{"login":"%s","id":%s},"author_association":%s%s}\n' \
-    "$MARK" "$MARK" "$1" "$2" "$3" "$pr" >"$tmp/issue.json"
+  [ "${5:-}" != pr ] || pr=',"pull_request":{"url":"x"}'
+  _upd="${6:-2026-10-17T20:10:28Z}"
+  _dq='"'
+  _title="${7:-$_dq$MARK title$_dq}"
+  _body="${8:-$_dq$MARK body$_dq}"
+  printf '{"number":611,"title":%s,"body":%s,"updated_at":"%s","user":{"login":"%s","id":%s},"author_association":%s%s}\n' \
+    "$_title" "$_body" "$_upd" "$2" "$3" "$4" "$pr" >"$1"
+}
+mkissue() { # mkissue <login> <id-json> <assoc-json> [pr|-] [updated_at] [title-json] [body-json]
+  mkissue_to "$tmp/issue.json" "$@"
+}
+mkissue2() { # the second copy, same arguments
+  mkissue_to "$tmp/issue2.json" "$@"
+}
+# mkrx <file> <rows...> -- each row "id content created_at", written tab-separated
+mkrx() {
+  _f="$1"; shift
+  : >"$_f"
+  for _r in "$@"; do
+    set -- $_r
+    printf '%s\t%s\t%s\n' "$1" "$2" "$3" >>"$_f"
+  done
 }
 
 reset_fx() {
   FX_NWO=acme/repo FX_DEF=main FX_ISSUE="$tmp/issue.json" FX_ECHO=1
   FX_VIEW_FAIL= FX_PERM_FAIL= FX_ISSUE_FAIL= FX_PLANT= FX_OUT= FX_LINK_TARGET=
+  FX_RX= FX_RX_FAIL= FX_ISSUE2= FX_ISSUE2_FAIL=
   export FX_NWO FX_DEF FX_ISSUE FX_ECHO FX_VIEW_FAIL FX_PERM_FAIL FX_ISSUE_FAIL FX_PLANT FX_OUT FX_LINK_TARGET
+  export FX_RX FX_RX_FAIL FX_ISSUE2 FX_ISSUE2_FAIL
 }
 reset_fx
 mkissue maint 100 '"OWNER"'
@@ -269,6 +337,7 @@ assert_eq "$desc (gh log)" "repo|view|$ourl|--json|nameWithOwner|--jq|.nameWithO
 repo|view|$ourl|--json|defaultBranchRef|--jq|.defaultBranchRef.name // \"\"|
 api|repos/acme/backlog|--jq|.permissions|
 api|repos/acme/backlog/issues/611|" "$("$real_cat" "$glog")"
+assert_eq "$desc (no reactions read)" 0 "$(grep -c reactions "$glog" || true)"
 
 # -- legacy allowlist (today: legacy/OWNER|MEMBER|COLLABORATOR pass, anything else stops) ------
 setyml "$tmp/legacy.yml"
@@ -278,6 +347,7 @@ for a in OWNER MEMBER COLLABORATOR; do
   o="$(newout)"
   run fetch 611 "$o"
   assert_eq "$desc (line)" "ok B=acme/backlog BASE=main VERDICT=legacy ASSOC=$a" "$out"
+  assert_eq "$desc (no reactions read)" 0 "$(grep -c reactions "$glog" || true)"
 done
 for a in CONTRIBUTOR NONE; do
   desc="identities null, $a is untrusted"
@@ -289,7 +359,7 @@ done
 
 # -- a map: nobody but a declared maintainer (today: not-trusted) -----------------------------
 setyml "$tmp/map.yml"
-for who in 'stranger 9' 'dev[bot] 200' 'rev[bot] 300' 'loop[bot] 400'; do
+for who in 'stranger 9' 'loop[bot] 400'; do
   set -- $who
   desc="map, loop_identity another login: $1 is untrusted"
   mkissue "$1" "$2" '"MEMBER"'
@@ -297,14 +367,30 @@ for who in 'stranger 9' 'dev[bot] 200' 'rev[bot] 300' 'loop[bot] 400'; do
   run fetch 611 "$o"
   stop_is untrusted "$o"
 done
+for who in 'dev[bot] 200' 'rev[bot] 300'; do
+  set -- $who
+  desc="map, loop_identity another login: $1 with no reaction is unreacted (was untrusted before WB-D32)"
+  mkissue "$1" "$2" '"MEMBER"'
+  o="$(newout)"
+  run fetch 611 "$o"
+  stop_is unreacted "$o"
+done
 setyml "$tmp/mapnoloop.yml"
-for who in 'stranger 9' 'dev[bot] 200' 'rev[bot] 300' 'loop[bot] 400'; do
+for who in 'stranger 9' 'loop[bot] 400'; do
   set -- $who
   desc="map, loop_identity null: $1 is untrusted"
   mkissue "$1" "$2" '"MEMBER"'
   o="$(newout)"
   run fetch 611 "$o"
   stop_is untrusted "$o"
+done
+for who in 'dev[bot] 200' 'rev[bot] 300'; do
+  set -- $who
+  desc="map, loop_identity null: $1 with no reaction is unreacted"
+  mkissue "$1" "$2" '"MEMBER"'
+  o="$(newout)"
+  run fetch 611 "$o"
+  stop_is unreacted "$o"
 done
 
 desc="a map maintainer whose association reads CONTRIBUTOR (an App-token read) still passes"
@@ -320,6 +406,231 @@ o="$(newout)"
 run fetch 611 "$o"
 stop_is loop-identity "$o"
 setyml "$tmp/map.yml"
+mkissue maint 100 '"OWNER"'
+
+# -- the App-filed path (WB-D32, #664): an agent-filed issue passes once a maintainer reacted ----
+# The issue is last updated at 20:10:28; the good reaction is a maintainer's, at 20:10:39.
+RXF="$tmp/rx.tsv"
+RX_GOOD='100 +1 2026-10-17T20:10:39Z'
+setyml "$tmp/map.yml"
+
+desc="reacted pass: the dev App's issue, a maintainer's +1 after its last update"
+mkissue 'dev[bot]' 200 '"CONTRIBUTOR"'
+mkissue2 'dev[bot]' 200 '"NONE"' - 2026-10-17T20:10:28Z '"second title"' '"second body"'
+mkrx "$RXF" "$RX_GOOD"
+o="$(newout)"
+FX_RX="$RXF" FX_ISSUE2="$tmp/issue2.json" run fetch 611 "$o"
+assert_eq "$desc (line, ASSOC from the second copy)" "ok B=acme/backlog BASE=main VERDICT=reacted ASSOC=NONE" "$out"
+assert_eq "$desc (rc)" 0 "$rc"
+assert_eq "$desc (issue.json is the second copy)" yes "$(cmp -s "$tmp/issue2.json" "$o/issue.json" && echo yes || echo no)"
+assert_eq "$desc (nothing else in the out-dir)" issue.json "$(ls -A "$o")"
+assert_eq "$desc (gh log: the reactions are read before the second issue read)" "repo|view|$ourl|--json|nameWithOwner|--jq|.nameWithOwner|
+repo|view|$ourl|--json|defaultBranchRef|--jq|.defaultBranchRef.name // \"\"|
+api|repos/acme/backlog|--jq|.permissions|
+api|repos/acme/backlog/issues/611|
+api|repos/acme/backlog/issues/611/reactions|--paginate|--jq|.[] | [(.user.id|tostring), .content, .created_at] | @tsv|
+api|repos/acme/backlog/issues/611|" "$("$real_cat" "$glog")"
+
+for c in '+1' heart hooray rocket; do
+  desc="reacted pass: the reviewer App's issue, a maintainer's $c"
+  mkissue 'rev[bot]' 300 '"NONE"'
+  mkrx "$RXF" "100 $c 2026-10-17T20:10:39Z"
+  o="$(newout)"
+  FX_RX="$RXF" run fetch 611 "$o"
+  assert_eq "$desc (line)" "ok B=acme/backlog BASE=main VERDICT=reacted ASSOC=NONE" "$out"
+done
+
+mkrx "$RXF" "$RX_GOOD"
+desc="reacted pass: a CRLF body (a browser-edited issue)"
+mkissue 'dev[bot]' 200 '"NONE"' - 2026-10-17T20:10:28Z '"title"' '"line one\r\nline two\r\n"'
+o="$(newout)"
+FX_RX="$RXF" run fetch 611 "$o"
+assert_eq "$desc (line)" "ok B=acme/backlog BASE=main VERDICT=reacted ASSOC=NONE" "$out"
+
+desc="reacted pass: a null body"
+mkissue 'dev[bot]' 200 '"NONE"' - 2026-10-17T20:10:28Z '"title"' null
+o="$(newout)"
+FX_RX="$RXF" run fetch 611 "$o"
+assert_eq "$desc (line)" "ok B=acme/backlog BASE=main VERDICT=reacted ASSOC=NONE" "$out"
+
+desc="reacted pass: a bracket that is not a link definition at the start of a line"
+mkissue 'dev[bot]' 200 '"NONE"' - 2026-10-17T20:10:28Z '"title"' '"see [a]: b and [x](y)"'
+o="$(newout)"
+FX_RX="$RXF" run fetch 611 "$o"
+assert_eq "$desc (line)" "ok B=acme/backlog BASE=main VERDICT=reacted ASSOC=NONE" "$out"
+
+# unreacted: each of these stops in a map, whichever App filed the issue
+mkissue 'dev[bot]' 200 '"NONE"'
+desc="unreacted: no reaction at all"
+mkrx "$RXF"
+o="$(newout)"
+FX_RX="$RXF" run fetch 611 "$o"
+stop_is unreacted "$o"
+
+desc="unreacted: only non-maintainers reacted (either App's own +1 included)"
+mkrx "$RXF" "200 +1 2026-10-17T20:10:39Z" "300 +1 2026-10-17T20:10:39Z" "9 +1 2026-10-17T20:10:39Z"
+o="$(newout)"
+FX_RX="$RXF" run fetch 611 "$o"
+stop_is unreacted "$o"
+
+for c in '-1' eyes laugh confused; do
+  desc="unreacted: a maintainer's $c does not approve"
+  mkrx "$RXF" "100 $c 2026-10-17T20:10:39Z"
+  o="$(newout)"
+  FX_RX="$RXF" run fetch 611 "$o"
+  stop_is unreacted "$o"
+done
+
+desc="unreacted: an approving reaction at the issue's updated_at"
+mkrx "$RXF" "100 +1 2026-10-17T20:10:28Z"
+o="$(newout)"
+FX_RX="$RXF" run fetch 611 "$o"
+stop_is unreacted "$o"
+
+desc="unreacted: an approving reaction before the issue's updated_at"
+mkrx "$RXF" "100 +1 2026-10-17T20:10:27Z"
+o="$(newout)"
+FX_RX="$RXF" run fetch 611 "$o"
+stop_is unreacted "$o"
+
+desc="unreacted: the second copy's updated_at moved past the reaction"
+mkrx "$RXF" "$RX_GOOD"
+mkissue2 'dev[bot]' 200 '"NONE"' - 2026-10-17T20:10:46Z
+o="$(newout)"
+FX_RX="$RXF" FX_ISSUE2="$tmp/issue2.json" run fetch 611 "$o"
+stop_is unreacted "$o"
+
+desc="unreacted: the reviewer App's own +1 on its issue"
+mkissue 'rev[bot]' 300 '"NONE"'
+mkrx "$RXF" "300 +1 2026-10-17T20:10:39Z"
+o="$(newout)"
+FX_RX="$RXF" run fetch 611 "$o"
+stop_is unreacted "$o"
+
+# failed reads stop unreachable, never unreacted
+mkissue 'dev[bot]' 200 '"NONE"'
+mkrx "$RXF" "$RX_GOOD"
+desc="a failed reactions read is unreachable, not unreacted"
+o="$(newout)"
+FX_RX="$RXF" FX_RX_FAIL=1 run fetch 611 "$o"
+stop_is unreachable "$o"
+
+desc="a failed second issue read is unreachable, not unreacted"
+o="$(newout)"
+FX_RX="$RXF" FX_ISSUE2_FAIL=1 run fetch 611 "$o"
+stop_is unreachable "$o"
+
+# the second copy's shape and identity
+mkissue 'dev[bot]' 200 '"NONE"'
+for v in \
+  "another login|'rev[bot]' 300 '\"NONE\"'" \
+  "the maintainer as author|maint 100 '\"OWNER\"'" \
+  "the same login with another id|'dev[bot]' 201 '\"NONE\"'" \
+  "a lowercase association|'dev[bot]' 200 '\"none\"'" \
+  "a malformed updated_at|'dev[bot]' 200 '\"NONE\"' - '2026-10-17 20:10:28'" \
+  "an updated_at with a zone offset|'dev[bot]' 200 '\"NONE\"' - '2026-10-17T20:10:28+00:00'" \
+  "a non-string title|'dev[bot]' 200 '\"NONE\"' - 2026-10-17T20:10:28Z 5" \
+  "a null title|'dev[bot]' 200 '\"NONE\"' - 2026-10-17T20:10:28Z null" \
+  "a numeric body|'dev[bot]' 200 '\"NONE\"' - 2026-10-17T20:10:28Z '\"t\"' 5" \
+  "an object body|'dev[bot]' 200 '\"NONE\"' - 2026-10-17T20:10:28Z '\"t\"' '{}'"; do
+  desc="second copy with ${v%%|*} is unreadable"
+  eval "mkissue2 ${v#*|}"
+  o="$(newout)"
+  FX_RX="$RXF" FX_ISSUE2="$tmp/issue2.json" run fetch 611 "$o"
+  stop_is unreadable "$o"
+done
+
+desc="second copy that is not JSON is unreadable"
+printf '%s not json {\n' "$MARK" >"$tmp/issue2.json"
+o="$(newout)"
+FX_RX="$RXF" FX_ISSUE2="$tmp/issue2.json" run fetch 611 "$o"
+stop_is unreadable "$o"
+
+desc="second copy that is a pull request is not-an-issue"
+mkissue2 'dev[bot]' 200 '"NONE"' pr
+o="$(newout)"
+FX_RX="$RXF" FX_ISSUE2="$tmp/issue2.json" run fetch 611 "$o"
+stop_is not-an-issue "$o"
+
+for y in mapnomaint mapemptymaint mapbadmaint; do
+  desc="a maintainer list that is not well formed ($y) is unreadable"
+  setyml "$tmp/$y.yml"
+  o="$(newout)"
+  FX_RX="$RXF" run fetch 611 "$o"
+  stop_is unreadable "$o"
+done
+setyml "$tmp/map.yml"
+
+# hidden: the screen runs on the decoded title and body of a reacted issue
+mkrx "$RXF" "$RX_GOOD"
+# each row: a label, a title (JSON), a body (JSON)
+for v in \
+  "a lone CR in the body|\"t\"|\"a\\rb\"" \
+  "a zero-width space in the body|\"t\"|\"a\\u200bb\"" \
+  "a zero-width space in the title|\"a\\u200bb\"|\"b\"" \
+  "a right-to-left override in the body|\"t\"|\"a\\u202eb\"" \
+  "a byte order mark in the title|\"\\ufeffa\"|\"b\"" \
+  "a link reference definition line in the body|\"t\"|\"x\\n[//]: # (hidden)\\ny\"" \
+  "an indented link reference definition in the body|\"t\"|\"x\\n   [label]: http://x\\ny\"" \
+  "a link reference definition as the title|\"[//]: # (x)\"|\"b\"" \
+  "an HTML comment opener in the body|\"t\"|\"a <!-- x -->\"" \
+  "an HTML comment opener in the title|\"t <!-- x\"|\"b\"" \
+  "an HTML declaration opener in the body|\"t\"|\"a <!DOCTYPE x>\"" \
+  "a CDATA opener in the body|\"t\"|\"a <![CDATA[ x ]]>\"" \
+  "a processing instruction opener in the title|\"t <?x y ?>\"|\"b\"" \
+  "an HTML comment opener written as a JSON escape|\"t\"|\"a \\u003c!-- x\"" \
+  "a zero-width space written as a JSON escape|\"t\"|\"\\u200b\""; do
+  label="${v%%|*}"
+  rest="${v#*|}"
+  ttl="${rest%%|*}"
+  bdy="${rest#*|}"
+  desc="hidden: $label"
+  mkissue 'dev[bot]' 200 '"NONE"' - 2026-10-17T20:10:28Z "$ttl" "$bdy"
+  o="$(newout)"
+  FX_RX="$RXF" run fetch 611 "$o"
+  stop_is hidden "$o"
+done
+
+desc="hidden: the screen runs on the second copy, not the first"
+mkissue 'dev[bot]' 200 '"NONE"'
+mkissue2 'dev[bot]' 200 '"NONE"' - 2026-10-17T20:10:28Z '"t"' '"a\u200bb"'
+o="$(newout)"
+FX_RX="$RXF" FX_ISSUE2="$tmp/issue2.json" run fetch 611 "$o"
+stop_is hidden "$o"
+
+# who is still refused, with a good reaction on file
+mkissue 'loop[bot]' 400 '"NONE"'
+desc="the loop App stays untrusted, and no reaction is read for it"
+o="$(newout)"
+FX_RX="$RXF" run fetch 611 "$o"
+stop_is untrusted "$o"
+assert_eq "$desc (no reactions read)" 0 "$(grep -c reactions "$glog" || true)"
+mkissue stranger 9 '"NONE"'
+desc="an undeclared author stays untrusted, and no reaction is read for it"
+o="$(newout)"
+FX_RX="$RXF" run fetch 611 "$o"
+stop_is untrusted "$o"
+assert_eq "$desc (no reactions read)" 0 "$(grep -c reactions "$glog" || true)"
+
+desc="the loop's login stops loop-identity before the author is judged, with a reaction on file"
+setyml "$tmp/devloop.yml"
+mkissue 'dev[bot]' 200 '"NONE"'
+o="$(newout)"
+FX_RX="$RXF" run fetch 611 "$o"
+stop_is loop-identity "$o"
+assert_eq "$desc (no reactions read)" 0 "$(grep -c reactions "$glog" || true)"
+setyml "$tmp/map.yml"
+mkissue maint 100 '"OWNER"'
+
+desc="a maintainer's issue passes as trusted with a reaction file present, and none is read"
+o="$(newout)"
+FX_RX="$RXF" run fetch 611 "$o"
+assert_eq "$desc (line)" "ok B=acme/backlog BASE=main VERDICT=trusted ASSOC=OWNER" "$out"
+assert_eq "$desc (no reactions read)" 0 "$(grep -c reactions "$glog" || true)"
+
+desc="HID is spec-fresh.sh's line, byte for byte"
+assert_eq "$desc" "$(grep '^HID=' "$bindir/spec-fresh.sh")" "$(grep '^HID=' "$script")"
+assert_eq "$desc (one line each)" 1 "$(grep -c '^HID=' "$script")"
 mkissue maint 100 '"OWNER"'
 
 # -- gh-identity.sh exit 2 (today: not-trusted) ---------------------------------------------
@@ -521,6 +832,12 @@ desc="a copy of the script with no sibling gh-identity.sh"
 mkdir -p "$tmp/lone"
 cp "$script" "$tmp/lone/spec-issue.sh"
 SCRIPT="$tmp/lone/spec-issue.sh" run fetch 611 "$o"
+usage_is
+desc="a copy of the script with gh-identity.sh but no sibling spec-reaction.sh"
+mkdir -p "$tmp/lone2"
+cp "$script" "$tmp/lone2/spec-issue.sh"
+cp "$bindir/gh-identity.sh" "$tmp/lone2/gh-identity.sh"
+SCRIPT="$tmp/lone2/spec-issue.sh" run fetch 611 "$o"
 usage_is
 desc="an out-dir inside the checkout"
 mkdir -p "$co/inside"

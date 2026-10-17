@@ -42,8 +42,8 @@ under-specified, or requires a design decision, STOP and report back rather than
    — and check, **in that same response, before using it** (under `legacy`, before reading the body): its number is
    `plan_anchor.task_issue`; under `legacy` its `updated_at` equals `plan_anchor.task_issue_updated_at` (under a map that comparison is dropped and its state is `open` and its milestone the anchor's instead); its
    author is trusted by the rule in `/way-of-working:resume` (its *Author trust* paragraph;
-   point at it, never restate it): `gh-identity.sh author <.user.login> <.user.id> <file>` over
-   the default branch's committed `identities` — `trusted` passes, `untrusted` or an exit of 2 is
+   point at it, never restate it): `gh-identity.sh task-author <.user.login> <.user.id> <file>` over
+   the default branch's committed `identities` — `trusted` or `agent` (the declared dev or reviewer App, `WB-D32`) passes, `untrusted` or an exit of 2 is
    a stop — or, when that prints `legacy` (`identities: null`), `author_association` one of
    `OWNER`, `MEMBER`, `COLLABORATOR` (anything else — `NONE`, `CONTRIBUTOR`, or one this identity
    sees less of — is a stop, same as a mismatch below, never a silent skip). Bind the login and

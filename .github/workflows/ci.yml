@@ -142,6 +142,8 @@ jobs:
         run: sh tests/invariants-milestone-jq.test.sh
       - name: invariants-check.sh check 20 (pulls files filter) fixtures
         run: sh tests/invariants-files-filter.test.sh
+      - name: invariants-check.sh check 21 (task-author readers) fixtures
+        run: sh tests/invariants-task-author.test.sh
 
   # WB-D15 (#45): workflow security scanner, modeled on bounty-infra's own `zizmor` job
   # (`ci.yml`). Unchained like `coupling`/`invariants` above -- a future required check

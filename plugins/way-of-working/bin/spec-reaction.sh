@@ -3,7 +3,9 @@
 # implementation, for the callers that ask it: plan-anchor.sh's `verify` (resume's auto-start
 # check), /way-of-working:architect-review's *Task spec* paragraph (Map branch), which labels the spec it loaded (#613),
 # spec-comment.sh, for a comment by any author under an identities map (#660, #678), spec-find.sh
-# (#662) and the loop's dispatch preflight (#666).
+# (#662), the loop's dispatch preflight (#666), and spec-issue.sh and spec-post.sh, which ask it
+# the same question of a task issue the dev or reviewer App filed (#664, WB-D32): there the
+# "comment" is the issue and its `updated_at` is the issue's, which a reaction does not move.
 # Before this, plan-anchor.sh carried the rule inline and /way-of-working:architect-review could only say
 # "approval not re-verified".
 #

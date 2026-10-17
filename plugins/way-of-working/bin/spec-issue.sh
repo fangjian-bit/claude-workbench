@@ -21,12 +21,18 @@
 #   unreachable    the backlog's `.permissions` read or the issue fetch failed
 #   not-an-issue   the response has a `pull_request` key
 #   loop-identity  the author is `orchestration.loop_identity`, before any trust check
-#   untrusted      the author is not trusted. It also covers a config `gh-identity.sh` could not
-#                  judge (exit 2: a malformed `identities`, an id declared twice), so the word can
-#                  mean a broken config, not only a hostile author.
+#   untrusted      the author is not trusted (`gh-identity.sh task-author`: not a declared maintainer,
+#                  dev App or reviewer App, or the loop App). It also covers a config `gh-identity.sh`
+#                  could not judge (exit 2: a malformed `identities`, an id declared twice), so the
+#                  word can mean a broken config, not only a hostile author.
+#   unreacted      the author is the declared dev or reviewer App (`agent`, WB-D32, #664) and no
+#                  declared maintainer has reacted approvingly to the issue strictly after its last
+#                  update (spec-reaction.sh, the rule spec comments follow)
+#   hidden         an `agent` author's reacted title or body carries text a reader of the rendered
+#                  issue cannot see (see below)
 # Nothing is written to stderr on a stop. Any other argument count, a first argument other than
-# `fetch`, a bad <N> or <out-dir>, a slash-less $0 or a missing sibling gh-identity.sh prints a
-# usage line (or, for the last two, a one-line diagnostic) on stderr and nothing on stdout, and exits 2,
+# `fetch`, a bad <N> or <out-dir>, a slash-less $0 or a missing sibling gh-identity.sh or
+# spec-reaction.sh prints a usage line (or, for the last two, a one-line diagnostic) on stderr and nothing on stdout, and exits 2,
 # before any `gh` call. So does a run outside
 # a git work tree, where `git rev-parse --show-toplevel` fails.
 #
@@ -52,6 +58,31 @@
 # header states it as part of the script's contract). `gh api` is GET only: no -X, -f, -F, --field,
 # --raw-field or --input, and no graphql.
 #
+# The App-filed path (WB-D32, #664). `gh-identity.sh task-author` says `trusted` for a declared
+# maintainer, `legacy` under `identities: null` (both as before) and `agent` for the declared dev or
+# reviewer App. An `agent` author passes only through these steps, in this order, and its
+# VERDICT is `reacted`:
+#   1. the issue's reactions are read (GET `issues/<N>/reactions`, `--paginate`, to a file);
+#   2. the issue is fetched a SECOND time, to a fresh file; the type, pull-request, loop-identity
+#      and task-author checks are re-run on that copy, which must name the same login and id, and
+#      its `updated_at`, `title` and `body` must have the shapes a string-or-null field has;
+#   3. the maintainer ids are read from the default branch's copy, as spec-comment.sh reads them;
+#   4. `spec-reaction.sh` says `approved` for the second copy's `updated_at` (else `unreacted`);
+#   5. the second copy's title and body are screened for text a reader of the rendered issue
+#      cannot see (else `hidden`);
+#   6. the second copy is the one renamed to `issue.json`, and `ASSOC` is taken from it.
+# The reactions are read FIRST, so an edit after that read moves `updated_at` past the reaction and
+# reads `unreacted`. Measured on 2026-10-17 (scratch issue #706): adding a reaction does not move an
+# issue's `updated_at` (a reaction at 20:10:39 left it at 20:10:28, on two reads); a body edit moved
+# it (20:10:46) and so did a title edit (20:10:52). plan-anchor.sh's header records the same for
+# comments (#498). The `hidden` screen decodes the JSON first (`yq -p=json` into a file, matched with
+# `awk` under LC_ALL=C, the patterns passed through ENVIRON), so a JSON escape cannot hide a match. It
+# refuses `<!` and `<?` (an HTML comment, declaration, CDATA section or processing instruction opener), a CR that is not the last character of its line (a browser-edited
+# CRLF body passes, as in spec-fresh.sh), a character from spec-fresh.sh's HID set (zero-width and
+# bidi; copied byte for byte) and a line that is a Markdown link reference definition (renders as
+# nothing). It is a filter, not a boundary. The reaction gates this script's read of the body, never
+# a build: a builder reads no body under a map.
+#
 # `issue.json` appears only through the final rename, after every check passed, so no stop leaves
 # one. A signal landing between the rename and the `ok` line leaves a passing author's file with no
 # `ok` line, which the caller never reads, since it reads issue.json only after `ok`.
@@ -68,10 +99,10 @@
 #     uses the default host or GH_HOST (the residual milestone-desc.sh records).
 #
 # There is no environment override of `gh`, `git` or `yq`; the tests put stubs first on PATH.
-# gh-identity.sh is found as `$(dirname "$0")/gh-identity.sh` only, and run as `sh`.
+# gh-identity.sh and spec-reaction.sh are found as `$(dirname "$0")/<name>` only, and run as `sh`.
 #
 # Permitted toolset: POSIX sh, `git`, `gh` (its embedded --jq allowed), `yq` (mikefarah v4, always
-# `-p=json` on JSON), `tr`, `sed`, `mktemp`, `cp`, `mv`, `rm`, `dirname`, `uname` and `ls`. No
+# `-p=json` on JSON), `tr`, `sed`, `awk`, `mktemp`, `cp`, `mv`, `rm`, `dirname`, `uname` and `ls`. No
 # system `jq`. A missing `yq` is `unreadable`.
 set -eu
 
@@ -88,7 +119,10 @@ case "$n" in
 esac
 
 case "$0" in
-  */*) gi="$(dirname "$0")/gh-identity.sh" ;;
+  */*)
+    gi="$(dirname "$0")/gh-identity.sh"
+    sr="$(dirname "$0")/spec-reaction.sh"
+    ;;
   *)
     echo "spec-issue.sh: must be run by path (a slash-less \$0 cannot locate gh-identity.sh)" >&2
     exit 2
@@ -96,6 +130,10 @@ case "$0" in
 esac
 [ -f "$gi" ] || {
   echo "spec-issue.sh: gh-identity.sh not beside this script" >&2
+  exit 2
+}
+[ -f "$sr" ] || {
+  echo "spec-issue.sh: spec-reaction.sh not beside this script" >&2
   exit 2
 }
 
@@ -146,6 +184,9 @@ command -v yq >/dev/null 2>&1 || stop unreadable
 fold() { printf '%s' "$1" | tr 'A-Z' 'a-z' | sed 's/\[bot\]$//'; }
 # rd <file> -- the first line of a file, or nothing.
 rd() { _l=; IFS= read -r _l <"$1" || [ -n "$_l" ] || true; printf '%s' "$_l"; }
+
+# HID: spec-fresh.sh's zero-width and bidi set, byte for byte (the agent path's hidden-text screen)
+HID="$(printf '\330\234|\342\200[\213-\217]|\342\200[\252-\256]|\342\201[\240-\244]|\342\201[\246-\251]|\357\273\277')"
 
 # 1. the origin's URL
 git -C "$gtop" remote get-url origin >"$tmp/url" 2>/dev/null || stop unreadable
@@ -215,13 +256,90 @@ esac
 loopid="$(yq -r '.orchestration.loop_identity // ""' "$tmp/def.yml" 2>/dev/null)" || stop unreadable
 if [ -n "$loopid" ] && [ "$(fold "$login")" = "$(fold "$loopid")" ]; then stop loop-identity; fi
 
+# The App-filed path: see the header. Sets src, verdict and assoc, or stops.
+agent_path() {
+  # 1. the reactions, before the second read
+  gh api "repos/$backlog/issues/$n/reactions" --paginate --jq '.[] | [(.user.id|tostring), .content, .created_at] | @tsv' >"$tmp/reactions.tsv" 2>/dev/null || stop unreachable
+  # 2. the second copy
+  gh api "repos/$backlog/issues/$n" >"$tmp/issue2.json" 2>/dev/null || stop unreachable
+  J2() { yq -p=json -o=yaml "$1" "$tmp/issue2.json" 2>/dev/null; }
+  tags2="$(J2 '[(.user.login | tag), (.user.id | tag), (.author_association | tag), (.updated_at | tag), (.title | tag), (.body | tag)] | join(",")')" || stop unreadable
+  case "$tags2" in
+    '!!str,!!int,!!str,!!str,!!str,!!str' | '!!str,!!int,!!str,!!str,!!str,!!null') : ;;
+    *) stop unreadable ;;
+  esac
+  login2="$(J2 '.user.login')" || stop unreadable
+  uid2="$(J2 '.user.id')" || stop unreadable
+  assoc2="$(J2 '.author_association')" || stop unreadable
+  i_updated="$(J2 '.updated_at')" || stop unreadable
+  case "$login2" in '' | *[!]A-Za-z0-9_[-]*) stop unreadable ;; esac
+  case "$uid2" in '' | *[!0-9]*) stop unreadable ;; esac
+  case "$assoc2" in '' | *[!ABCDEFGHIJKLMNOPQRSTUVWXYZ_]*) stop unreadable ;; esac
+  case "$i_updated" in
+    [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) : ;;
+    *) stop unreadable ;;
+  esac
+  [ "$login2" = "$login" ] && [ "$uid2" = "$uid" ] || stop unreadable
+  haspr2="$(J2 'has("pull_request")')" || stop unreadable
+  case "$haspr2" in
+    true) stop not-an-issue ;;
+    false) : ;;
+    *) stop unreadable ;;
+  esac
+  if [ -n "$loopid" ] && [ "$(fold "$login2")" = "$(fold "$loopid")" ]; then stop loop-identity; fi
+  rc=0
+  sh "$gi" task-author "$login2" "$uid2" "$tmp/def.yml" >"$tmp/verdict2" 2>/dev/null || rc=$?
+  [ "$rc" -eq 0 ] || stop untrusted
+  [ "$(rd "$tmp/verdict2")" = agent ] || stop unreadable
+  # 3. the maintainer ids, as spec-comment.sh reads them
+  m_total="$(yq -r 'explode(.) | .identities.maintainer | select(tag == "!!seq") | length' "$tmp/def.yml" 2>/dev/null)" || stop unreadable
+  maint_ids="$(yq -r 'explode(.) | .identities.maintainer | select(tag == "!!seq") | [.[] | select(tag == "!!map" and ((.id | tag) == "!!int") and .id > 0 and ((.login | tag) == "!!str")) | .id] | join(",")' "$tmp/def.yml" 2>/dev/null)" || stop unreadable
+  [ -n "$maint_ids" ] || stop unreadable
+  m_good="$(printf '%s' "$maint_ids" | awk -F, '{print NF}')" || stop unreadable
+  [ "$m_good" = "$m_total" ] || stop unreadable
+  # 4. the approval
+  if got="$(sh "$sr" "$i_updated" "$maint_ids" <"$tmp/reactions.tsv" 2>/dev/null)" && [ "$got" = approved ]; then
+    :
+  else
+    stop unreacted
+  fi
+  # 5. hidden text, on the decoded title and body
+  J2 '.title' >"$tmp/title.txt" || stop unreadable
+  J2 '.body // ""' >"$tmp/body.txt" || stop unreadable
+  for f in "$tmp/title.txt" "$tmp/body.txt"; do
+    hid_word="$(LC_ALL=C SI_HID="$HID" SI_LDEF='^ ? ? ?\[[^]]+\]:' awk '
+      BEGIN { hid = ENVIRON["SI_HID"]; ldef = ENVIRON["SI_LDEF"]; bad = 0 }
+      {
+        line = $0
+        sub(/\r$/, "", line)
+        if (index(line, "<" "!") > 0 || index(line, "<" "?") > 0) bad = 1
+        if (index(line, "\r") > 0) bad = 1
+        if (line ~ hid) bad = 1
+        if (line ~ ldef) bad = 1
+      }
+      END { print (bad ? "hidden" : "clean") }
+    ' "$f" 2>/dev/null)" || stop unreadable
+    case "$hid_word" in
+      clean) : ;;
+      hidden) stop hidden ;;
+      *) stop unreadable ;;
+    esac
+  done
+  # 6. the second copy is the one kept
+  src="$tmp/issue2.json"
+  verdict=reacted
+  assoc="$assoc2"
+}
+
 # 12. the author
 rc=0
-sh "$gi" author "$login" "$uid" "$tmp/def.yml" >"$tmp/verdict" 2>/dev/null || rc=$?
+sh "$gi" task-author "$login" "$uid" "$tmp/def.yml" >"$tmp/verdict" 2>/dev/null || rc=$?
 [ "$rc" -eq 0 ] || stop untrusted
 verdict="$(rd "$tmp/verdict")"
+src="$tmp/issue.json"
 case "$verdict/$assoc" in
   trusted/* | legacy/OWNER | legacy/MEMBER | legacy/COLLABORATOR) : ;;
+  agent/*) agent_path ;;
   *) stop untrusted ;;
 esac
 
@@ -231,7 +349,7 @@ itmp="$(mktemp "$out/.issue.XXXXXX" 2>/dev/null)" && [ -n "$itmp" ] || {
   itmp=
   stop unreadable
 }
-cp "$tmp/issue.json" "$itmp" 2>/dev/null || stop unreadable
+cp "$src" "$itmp" 2>/dev/null || stop unreadable
 mv "$itmp" "$out/issue.json" 2>/dev/null || {
   rm -f "$out/issue.json"
   stop unreadable

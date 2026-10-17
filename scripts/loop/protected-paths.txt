@@ -42,3 +42,7 @@ plugins/way-of-working/bin/spec-fresh.sh
 plugins/way-of-working/bin/draft-identity.sh
 tests/spec-fresh.test.sh
 tests/draft-identity.test.sh
+plugins/way-of-working/bin/spec-issue.sh
+plugins/way-of-working/bin/spec-post.sh
+tests/spec-issue.test.sh
+tests/spec-post.test.sh

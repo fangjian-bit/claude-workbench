@@ -693,15 +693,17 @@ fi
 # plan-anchor.sh (resume's auto-start), by architect-review's Map branch, and by spec-comment.sh
 # for every declared author under a map (#660, WB-D30), and by the loop's dispatch preflight (scripts/loop/preflight.sh)
 # for every declared author under a map (#666, #682), and by bin/spec-find.sh, which finds the approved spec comment on a
-# task issue (#662). Two
+# task issue (#662), and by bin/spec-issue.sh and bin/spec-post.sh for an issue the dev or reviewer App filed (WB-D32,
+# #664). Two
 # implementations would let the approval rule drift between the gate that starts work and the
-# review that labels it. Five things are the invariant: plan-anchor.sh, spec-comment.sh and spec-find.sh carry their
+# review that labels it. The things that are the invariant: plan-anchor.sh, spec-comment.sh and spec-find.sh carry their
 # spec-reaction.sh call line (the invocation, not the name, which a header alone would satisfy),
 # architect-review's SKILL.md calls spec-reaction.sh, and no other file under plugins/*/bin/ matches an approving reaction
 # content itself (the `heart | hooray` case pattern, or a `== "hooray"` comparison). bin/spec-find.sh
 # must carry its call line (`sh "$sr" "$c_updated" "$maint_ids" <"$rx"`) on a non-comment line, the form
-# the preflight test below also uses. The preflight
-# is held to the same rule by a different test, since it is not under plugins/*/bin/: it must carry
+# the preflight test below also uses. spec-issue.sh and spec-post.sh must each carry their call line (`sh "$sr" "$i_updated" "$maint_ids" <"$tmp/reactions.tsv"`)
+# on a non-comment line, and a tree that lacks either fails (so seven things are the invariant).
+# The preflight is held to the same rule by a different test, since it is not under plugins/*/bin/: it must carry
 # its call line (`sh "$sr" "$c_updated" "$maint_ids" <"$reactions"`) on a non-comment line, and no
 # non-comment line of it may contain `hooray` or `rocket`.
 # A tree with no spec-reaction.sh, plan-anchor.sh, spec-comment.sh, spec-find.sh, preflight.sh or architect-review skill fails: a check
@@ -717,6 +719,14 @@ ls plugins/*/bin/spec-comment.sh >/dev/null 2>&1 || reaction_hits+="(no plugins/
 for f in plugins/*/bin/spec-comment.sh; do
   [ -f "$f" ] || continue
   grep -Fq 'sh "$sr" "$updated" "$ids" <"$rx"' "$f" || reaction_hits+="$f (does not call spec-reaction.sh)"$'\n'
+done
+for name in spec-issue spec-post; do
+  ls plugins/*/bin/$name.sh >/dev/null 2>&1 || reaction_hits+="(no plugins/*/bin/$name.sh found)"$'\n'
+  for f in plugins/*/bin/$name.sh; do
+    [ -f "$f" ] || continue
+    grep -Eq '^[[:space:]]*[^#[:space:]].*sh "\$sr" "\$i_updated" "\$maint_ids" <"\$tmp/reactions\.tsv"' "$f" \
+      || reaction_hits+="$f (does not call spec-reaction.sh)"$'\n'
+  done
 done
 ls plugins/*/bin/spec-find.sh >/dev/null 2>&1 || reaction_hits+="(no plugins/*/bin/spec-find.sh found)"$'\n'
 for f in plugins/*/bin/spec-find.sh; do
@@ -750,7 +760,7 @@ done
 if [ -n "$reaction_hits" ]; then
   report "a second spec-reaction implementation, or a caller no longer calls it (#613)" \
     "$reaction_hits" \
-    "plan-anchor.sh, spec-comment.sh, spec-find.sh, architect-review's SKILL.md and scripts/loop/preflight.sh must all call bin/spec-reaction.sh, not restate the rule."
+    "plan-anchor.sh, spec-comment.sh, spec-find.sh, spec-issue.sh, spec-post.sh, architect-review's SKILL.md and scripts/loop/preflight.sh must all call bin/spec-reaction.sh, not restate the rule."
 fi
 
 # --- 17. The spec comment is printed only after its checks pass, and found, not listed (#614, WB-D30) --
@@ -1147,6 +1157,35 @@ if [ -n "$ff_hits" ]; then
   report "a pulls/<N>/files --jq filter does not read the endpoint's page (#698)" \
     "$ff_hits" \
     "The endpoint returns an array per page and --jq runs once per page: start the filter with .[] |, keep a single-quoted argument, and project f, p and s."
+fi
+
+# --- 21. The three task-issue author readers call `task-author`, not `author` (#664, WB-D32) ------
+#
+# Under an identities map `gh-identity.sh author` trusts a declared maintainer only; the verb that
+# lets an issue the dev or reviewer App filed through to a builder is `task-author`. Resume's body
+# read, the coder agent's fetch and architect-review's map branch each judge the task issue's
+# author, and each said `author` before WB-D32. A reader left on `author` would refuse an App-filed
+# task the other readers take. Each of the three files must have no match of
+# `gh-identity\.sh[[:space:]]+author([^-A-Za-z]|$)` (so `task-author` and a later word do not
+# match) and at least one `gh-identity.sh task-author`; a tree that lacks any of the three fails.
+# This guards a regression to the old verb. It is not a trust control, and it does not cover
+# spec-issue.sh or spec-post.sh (protected paths, with their own fixtures) or the preflight (its
+# own fixtures).
+ta_hits=""
+ta_seen=0
+for f in plugins/*/skills/resume/SKILL.md plugins/*/agents/coder.md plugins/*/skills/architect-review/SKILL.md; do
+  [ -f "$f" ] || continue
+  ta_seen=$((ta_seen + 1))
+  if grep -Eq 'gh-identity\.sh[[:space:]]+author([^-A-Za-z]|$)' "$f"; then
+    ta_hits+="$f (names gh-identity.sh author)"$'\n'
+  fi
+  grep -Eq 'gh-identity\.sh[[:space:]]+task-author' "$f" || ta_hits+="$f (does not name gh-identity.sh task-author)"$'\n'
+done
+[ "$ta_seen" -eq 3 ] || ta_hits+="(found $ta_seen of resume's SKILL.md, coder.md and architect-review's SKILL.md, expected 3)"$'\n'
+if [ -n "$ta_hits" ]; then
+  report "a task-issue author reader is on the old verb, or a reader is missing (#664)" \
+    "$ta_hits" \
+    "Judge the task issue's author with gh-identity.sh task-author (trusted or agent passes under a map); author is for comment and PR authors (and plan-sprint's display)."
 fi
 
 if [ "$fail" -ne 0 ]; then

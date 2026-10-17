@@ -25,12 +25,16 @@
 #   has-marker          a line of the draft begins with the marker's own prefix
 #   leak                a line matches an obvious local-path or secret shape (a filter, not a boundary)
 #   too-long            the composed body is over 65536 bytes
-#   unreachable         the issue fetch failed
+#   unreachable         the issue fetch failed, or (App-filed path) the issue's reactions read or second fetch
 #   not-an-issue        the response has a `pull_request` key
 #   closed              the issue is not open
 #   locked              the issue is locked
 #   loop-identity       the issue's author is `orchestration.loop_identity`
 #   untrusted           the issue's author is not trusted (also a config gh-identity.sh could not judge)
+#   unreacted           the issue's author is the declared dev or reviewer App and no declared maintainer
+#                       has reacted approvingly to the issue strictly after its last update (WB-D32, #664)
+#   hidden              an App-filed issue's reacted title or body carries text a reader of the rendered
+#                       issue cannot see (the screen spec-issue.sh's header describes)
 #   post-unknown        the POST failed; it was made once and is never retried, so the comment may exist
 #   posted-unreadable   the POST answered, but the response is not one this run can vouch for;
 #                       the comment exists
@@ -57,6 +61,14 @@
 #                during drafting does not force a redraft
 #   content      shape, marker prefix, leak shapes and length, each on the copy
 #   issue        the issue is fetched to a file and its author judged as spec-issue.sh judges it
+#                (`gh-identity.sh task-author`). An author the dev or reviewer App declares (`agent`) passes
+#                only through spec-issue.sh's App-filed path, in its order: the issue's reactions are
+#                read first (so an edit after that read moves `updated_at` past the reaction), then the
+#                issue is fetched a second time and its type, closed, locked, loop-identity and author
+#                checks re-run on that copy (same login and id as the first), then the maintainer ids,
+#                `spec-reaction.sh` for the copy's `updated_at`, and the hidden-text screen. Adding a
+#                reaction does not move an issue's `updated_at`; an edit does (measured on 2026-10-17,
+#                scratch issue #706)
 #   compose      the body is the marker line, one empty line, then the copy byte for byte; it is
 #                renamed into <out-dir>/comment.md. This is the only place the marker is written
 #   hold         the comment is posted only when `identities` is a map and the acting account is
@@ -69,7 +81,7 @@
 #
 # Residuals, each accepted:
 #   - the default-branch reads (`gh repo view`) take the host from the origin URL; the issue
-#     read, the viewer read and the write pin github.com, so those three share one host and one
+#     read, the viewer read and the write pin github.com, so those three (five on the App-filed path) share one host and one
 #     credential;
 #   - a `gh` call has no per-call timeout. A hang ends with no word, which the caller treats as
 #     `post-unknown`;
@@ -78,14 +90,18 @@
 #     fails closed); an 8.3 short name is not recognised. A <draft-file> or <out-dir> must be the
 #     caller's own fresh mktemp -d: a planted entry or a linked worktree's git data is not checked;
 #   - text paraphrased from an issue body whose author is trusted can have been edited by an
-#     account with write access, and is posted.
+#     account with write access, and is posted; so can text paraphrased from a reacted App-filed
+#     body (the reaction gates the read, not the content, and the hidden-text screen is a filter);
+#   - the App-filed path makes four pinned reads (the default-branch reads aside): the issue, its
+#     reactions, the issue again and the viewer, then, only on a pass, the one write.
 #
 # There is no environment override of `gh`, `git` or `yq`; the tests put stubs first on PATH.
-# spec-shape.sh and gh-identity.sh are found as `$(dirname "$0")/<name>` only, and run as `sh`.
+# spec-shape.sh, gh-identity.sh and spec-reaction.sh are found as `$(dirname "$0")/<name>` only, and run
+# as `sh`.
 #
 # Permitted toolset: POSIX sh, `git`, `gh` (its embedded --jq allowed), `yq` (mikefarah v4, always
 # `-p=json` on JSON), `tr`, `sed`, `mktemp`, `cp`, `mv`, `rm`, `dirname`, `uname`, `ls`, `grep`,
-# `wc`, `cat` and `cut`. No system `jq` and no `eval`. A missing `yq` is `unreadable`.
+# `wc`, `cat`, `cut` and `awk`. No system `jq` and no `eval`. A missing `yq` is `unreadable`.
 set -eu
 
 usage() {
@@ -111,14 +127,15 @@ case "$0" in
     here="$(dirname "$0")"
     gi="$here/gh-identity.sh"
     shape="$here/spec-shape.sh"
+    sr="$here/spec-reaction.sh"
     ;;
   *)
     echo "spec-post.sh: must be run by path (a slash-less \$0 cannot locate its sibling scripts)" >&2
     exit 2
     ;;
 esac
-[ -f "$gi" ] && [ -f "$shape" ] || {
-  echo "spec-post.sh: gh-identity.sh or spec-shape.sh not beside this script" >&2
+[ -f "$gi" ] && [ -f "$shape" ] && [ -f "$sr" ] || {
+  echo "spec-post.sh: gh-identity.sh, spec-shape.sh or spec-reaction.sh not beside this script" >&2
   exit 2
 }
 
@@ -222,6 +239,9 @@ case "$def" in '' | -* | *[!A-Za-z0-9._/-]*) stop unreadable ;; esac
 git -C "$gtop" fetch -q origin "+refs/heads/$def:refs/remotes/origin/$def" >/dev/null 2>&1 || stop unreadable
 git -C "$gtop" show "refs/remotes/origin/$def:./.ai/project.yml" >"$tmp/def.yml" 2>/dev/null || stop unreadable
 
+# HID: spec-fresh.sh's zero-width and bidi set, byte for byte (the App-filed path's hidden-text screen)
+HID="$(printf '\330\234|\342\200[\213-\217]|\342\200[\252-\256]|\342\201[\240-\244]|\342\201[\246-\251]|\357\273\277')"
+
 # the repo it names
 yrepo="$(yq -r '.repo // ""' "$tmp/def.yml" 2>/dev/null)" || stop unreadable
 [ "$(fold "$yrepo")" = "$(fold "$nwo")" ] || stop repo-mismatch
@@ -303,13 +323,92 @@ esac
 loopid="$(yq -r '.orchestration.loop_identity // ""' "$tmp/def.yml" 2>/dev/null)" || stop unreadable
 if [ -n "$loopid" ] && [ "$(fold "$login")" = "$(fold "$loopid")" ]; then stop loop-identity; fi
 
+# The App-filed path, in spec-issue.sh's order (see its header). Sets nothing the caller reads: it
+# returns when the author is cleared and stops otherwise.
+agent_path() {
+  # 1. the reactions, before the second read
+  gh api --hostname github.com "repos/$backlog/issues/$n/reactions" --paginate --jq '.[] | [(.user.id|tostring), .content, .created_at] | @tsv' >"$tmp/reactions.tsv" 2>/dev/null || stop unreachable
+  # 2. the second copy
+  gh api --hostname github.com "repos/$backlog/issues/$n" >"$tmp/issue2.json" 2>/dev/null || stop unreachable
+  J2() { yq -p=json -o=yaml "$1" "$tmp/issue2.json" 2>/dev/null; }
+  tags2="$(J2 '[(.user.login | tag), (.user.id | tag), (.state | tag), (.locked | tag), (.updated_at | tag), (.title | tag), (.body | tag)] | join(",")')" || stop unreadable
+  case "$tags2" in
+    '!!str,!!int,!!str,!!bool,!!str,!!str,!!str' | '!!str,!!int,!!str,!!bool,!!str,!!str,!!null') : ;;
+    *) stop unreadable ;;
+  esac
+  login2="$(J2 '.user.login')" || stop unreadable
+  uid2="$(J2 '.user.id')" || stop unreadable
+  state2="$(J2 '.state')" || stop unreadable
+  locked2="$(J2 '.locked')" || stop unreadable
+  i_updated="$(J2 '.updated_at')" || stop unreadable
+  case "$login2" in '' | *[!]A-Za-z0-9_[-]*) stop unreadable ;; esac
+  case "$uid2" in '' | *[!0-9]*) stop unreadable ;; esac
+  case "$i_updated" in
+    [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) : ;;
+    *) stop unreadable ;;
+  esac
+  [ "$login2" = "$login" ] && [ "$uid2" = "$uid" ] || stop unreadable
+  haspr2="$(J2 'has("pull_request")')" || stop unreadable
+  case "$haspr2" in
+    true) stop not-an-issue ;;
+    false) : ;;
+    *) stop unreadable ;;
+  esac
+  [ "$state2" = open ] || stop closed
+  case "$locked2" in
+    true) stop locked ;;
+    false) : ;;
+    *) stop unreadable ;;
+  esac
+  if [ -n "$loopid" ] && [ "$(fold "$login2")" = "$(fold "$loopid")" ]; then stop loop-identity; fi
+  rc=0
+  sh "$gi" task-author "$login2" "$uid2" "$tmp/def.yml" >"$tmp/verdict2" 2>/dev/null || rc=$?
+  [ "$rc" -eq 0 ] || stop untrusted
+  [ "$(rd "$tmp/verdict2")" = agent ] || stop unreadable
+  # 3. the maintainer ids, as spec-comment.sh reads them
+  m_total="$(yq -r 'explode(.) | .identities.maintainer | select(tag == "!!seq") | length' "$tmp/def.yml" 2>/dev/null)" || stop unreadable
+  maint_ids="$(yq -r 'explode(.) | .identities.maintainer | select(tag == "!!seq") | [.[] | select(tag == "!!map" and ((.id | tag) == "!!int") and .id > 0 and ((.login | tag) == "!!str")) | .id] | join(",")' "$tmp/def.yml" 2>/dev/null)" || stop unreadable
+  [ -n "$maint_ids" ] || stop unreadable
+  m_good="$(printf '%s' "$maint_ids" | awk -F, '{print NF}')" || stop unreadable
+  [ "$m_good" = "$m_total" ] || stop unreadable
+  # 4. the approval
+  if got="$(sh "$sr" "$i_updated" "$maint_ids" <"$tmp/reactions.tsv" 2>/dev/null)" && [ "$got" = approved ]; then
+    :
+  else
+    stop unreacted
+  fi
+  # 5. hidden text, on the decoded title and body
+  J2 '.title' >"$tmp/title.txt" || stop unreadable
+  J2 '.body // ""' >"$tmp/body.txt" || stop unreadable
+  for f in "$tmp/title.txt" "$tmp/body.txt"; do
+    hid_word="$(LC_ALL=C SI_HID="$HID" SI_LDEF='^ ? ? ?\[[^]]+\]:' awk '
+      BEGIN { hid = ENVIRON["SI_HID"]; ldef = ENVIRON["SI_LDEF"]; bad = 0 }
+      {
+        line = $0
+        sub(/\r$/, "", line)
+        if (index(line, "<" "!") > 0 || index(line, "<" "?") > 0) bad = 1
+        if (index(line, "\r") > 0) bad = 1
+        if (line ~ hid) bad = 1
+        if (line ~ ldef) bad = 1
+      }
+      END { print (bad ? "hidden" : "clean") }
+    ' "$f" 2>/dev/null)" || stop unreadable
+    case "$hid_word" in
+      clean) : ;;
+      hidden) stop hidden ;;
+      *) stop unreadable ;;
+    esac
+  done
+}
+
 # the author
 rc=0
-sh "$gi" author "$login" "$uid" "$tmp/def.yml" >"$tmp/verdict" 2>/dev/null || rc=$?
+sh "$gi" task-author "$login" "$uid" "$tmp/def.yml" >"$tmp/verdict" 2>/dev/null || rc=$?
 [ "$rc" -eq 0 ] || stop untrusted
 verdict="$(rd "$tmp/verdict")"
 case "$verdict/$assoc" in
   trusted/* | legacy/OWNER | legacy/MEMBER | legacy/COLLABORATOR) : ;;
+  agent/*) agent_path ;;
   *) stop untrusted ;;
 esac
 

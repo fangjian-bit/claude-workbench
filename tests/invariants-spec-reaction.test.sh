@@ -158,4 +158,25 @@ d="$(tree sfgone)"
 rm -f "$d/$sf"
 assert_fires "a missing spec-find.sh fires" "$d"
 
+
+# bin/spec-issue.sh and bin/spec-post.sh (#664, WB-D32) must each carry their call line on a
+# non-comment line, and a tree that lacks either fails.
+for name in spec-issue spec-post; do
+  sp=plugins/way-of-working/bin/$name.sh
+  d="$(tree ${name}nocall)"
+  f="$d/$sp"
+  sed 's#sh "\$sr" "\$i_updated" "\$maint_ids" <"\$tmp/reactions.tsv"#true "\$i_updated" "\$maint_ids" <"\$tmp/reactions.tsv"#' "$f" >"$f.new" && mv "$f.new" "$f"
+  assert_fires "$name.sh without its spec-reaction.sh call line fires" "$d"
+
+  d="$(tree ${name}commentcall)"
+  f="$d/$sp"
+  sed 's#sh "\$sr" "\$i_updated" "\$maint_ids" <"\$tmp/reactions.tsv"#true#' "$f" >"$f.new" && mv "$f.new" "$f"
+  printf '%s\n' '# sh "$sr" "$i_updated" "$maint_ids" <"$tmp/reactions.tsv"' >>"$f"
+  assert_fires "$name.sh with the call line only in a comment fires" "$d"
+
+  d="$(tree ${name}gone)"
+  rm -f "$d/$sp"
+  assert_fires "a missing $name.sh fires" "$d"
+done
+
 [ "$fail" -eq 0 ]

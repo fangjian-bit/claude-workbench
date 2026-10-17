@@ -393,6 +393,58 @@ identities: *i'
   done
   run author alice-dev 1001
   expect "author: too few arguments" "" 2
+
+  # -- task-author (#664, WB-D32): the task issue's author. A maintainer is trusted, the declared
+  # dev or reviewer App is an agent (the caller still needs a maintainer's reaction), the loop
+  # App and an undeclared account are untrusted. `author` is unchanged above.
+  run task-author alice-dev 1001 "$tmp/full.yml"
+  expect "task-author: a maintainer is trusted" trusted 0
+  run task-author ALICE-DEV 1001 "$tmp/full.yml"
+  expect "task-author: login case folded" trusted 0
+  run task-author 'acme-dev[bot]' 2001 "$tmp/full.yml"
+  expect "task-author: the dev App is an agent" agent 0
+  run task-author 'acme-review[bot]' 2002 "$tmp/full.yml"
+  expect "task-author: the reviewer App is an agent" agent 0
+  run task-author 'acme-loop[bot]' 2003 "$tmp/full.yml"
+  expect "task-author: the loop App is untrusted" untrusted 0
+  run task-author stranger 9999 "$tmp/full.yml"
+  expect "task-author: an undeclared account is untrusted, not an error" untrusted 0
+  run task-author 'acme-dev[bot]' 2001 "$tmp/noapps.yml"
+  expect "task-author: an App that is not declared is untrusted" untrusted 0
+  run task-author stranger 9999 "$tmp/null.yml"
+  expect "task-author: identities null defers to the caller" legacy 0
+  run task-author 'acme-dev[bot]' 2001 "$tmp/null.yml"
+  expect "task-author: identities null, a [bot] still defers" legacy 0
+  run task-author alice-dev 9999 "$tmp/full.yml"
+  expect "task-author: a maintainer's login on another id is untrusted" untrusted 0
+  run task-author 'acme-dev[bot]' 9999 "$tmp/full.yml"
+  expect "task-author: the dev App's login on another id is untrusted" untrusted 0
+  run task-author alice-renamed 1001 "$tmp/full.yml"
+  expect "task-author: a maintainer's id under another login is not guessed" "" 2
+  run task-author 'acme-dev[bot]' 2002 "$tmp/full.yml"
+  expect "task-author: the reviewer App's id under the dev App's login is not guessed" "" 2
+  run task-author alice-dev 1001 "$tmp/dup.yml"
+  expect "task-author: one id declared twice is not guessed" "" 2
+  run task-author alice-dev 1001 "$tmp/bad.yml"
+  expect "task-author: only malformed entries match nothing" untrusted 0
+  run task-author alice-dev 1001 "$tmp/absent.yml"
+  expect "task-author: no identities key" "" 2
+  run task-author alice-dev 1001 "$tmp/scalar.yml"
+  expect "task-author: identities neither null nor a map" "" 2
+  run task-author alice-dev 1001 "$tmp/badyaml.yml"
+  expect "task-author: unparseable file" "" 2
+  run task-author alice-dev 1001 "$tmp/missing.yml"
+  expect "task-author: unreadable file" "" 2
+  for bad in '' 'a b' 'a;b' '-lead'; do
+    run task-author "$bad" 1001 "$tmp/full.yml"
+    expect "task-author: bad login [$bad]" "" 2
+  done
+  for bad in '' 0 -1 abc; do
+    run task-author alice-dev "$bad" "$tmp/full.yml"
+    expect "task-author: bad id [$bad]" "" 2
+  done
+  run task-author alice-dev 1001
+  expect "task-author: too few arguments" "" 2
 fi
 
 run

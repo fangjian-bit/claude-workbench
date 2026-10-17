@@ -219,7 +219,7 @@ to its printed `base=`: nothing below means anything against the wrong repo or b
      title, a comment list, or the issue. Fetch `#I` once, projected at the source (`gh api
      repos/{backlog.repo}/issues/I --jq '[.number, .user.login, .user.id] | @tsv'`), so its body
      never enters context; split the line into variables, check that `.number` equals `I` and
-     that `gh-identity.sh author "$LOGIN" "$ID" "$DEF_YML_FILE"` prints `trusted`. Then fetch the
+     that `gh-identity.sh task-author "$LOGIN" "$ID" "$DEF_YML_FILE"` prints `trusted` or `agent` (the declared dev or reviewer App, `WB-D32`; the spec comment's own reaction is the approval). Then fetch the
      comment's reactions **into a file, never into a pipe, and keep the exit status, BEFORE the
      comment itself** (`#660`): `gh api "repos/{backlog.repo}/issues/comments/<id>/reactions"
      --paginate --jq '.[] | [(.user.id|tostring), .content, .created_at] | @tsv'

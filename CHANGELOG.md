@@ -28,6 +28,12 @@ with `/way-of-working:spec-task`, and move the maintainer's reaction to the new 
 
 ### Added
 
+- **An issue the dev or reviewer App filed can be drafted once a maintainer reacts to it, and built once its spec is approved** (#664, `WB-D32`):
+  `gh-identity.sh task-author` judges a task issue's author (`trusted`, `agent`, `untrusted`, `legacy`);
+  `spec-issue.sh` and `spec-post.sh` read an `agent` author's issue only after a declared maintainer's
+  approving reaction strictly after its last update, and screen its decoded title and body for hidden
+  text; `resume`, the `coder`, `architect-review` and the loop preflight accept such a `#N` on the strength of
+  its approved spec comment. Invariants check 21 guards the three skill and agent readers.
 - **`bin/spec-fresh.sh`, `bin/draft-identity.sh` and `spec-find.sh pending`** (#663, `WB-D31`): on a
   map repo a build now re-checks the paths its spec lists under *Files touched* against the commit
   in the spec's marker and refuses a stale spec (`resume`'s body read and the `coder` agent run
