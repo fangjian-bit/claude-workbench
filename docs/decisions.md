@@ -2330,6 +2330,40 @@ take effect. Full reasoning and the task breakdown that implements them:
     `task-author` word in `plan-sprint`'s author display; extend check 15 (a projected fetch only) to
     `resume`'s map body read and the `coder` (residual 11).
 
+- **WB-D33 (`#720`) — the dev container is entered only through the Dev Containers CLI; VS Code
+  attach is unsupported.** Builds on `WB-D24` item 4 (the dev container) and blocks the `#397` cutover.
+  - **The decision.** The container is started with `devcontainer up` and entered with
+    `devcontainer exec`. VS Code's Dev Containers extension is not attached to it.
+  - **Why.** Found during the `#397` cutover on 2026-10-17: with the host setting
+    `dev.containers.gitCredentialHelperConfigLocation` at `none`, git's helper list held only
+    `dev-token`, yet every VS Code attach still created the helper client
+    (`/tmp/vscode-remote-containers-<uuid>.js`), its IPC socket and `REMOTE_CONTAINERS_IPC`, and
+    calling the client returned a `username=` and `password=` for `github.com` from the host's
+    credential store. Any session in the container, or code from a PR it builds, could then act on
+    GitHub as the human instead of the dev App. The extension creates the channel at attach; the CLI
+    is not expected to, which the maintainer's live run, after merge, is to confirm.
+  - **Options not taken.**
+    1. *Removing the socket and client at attach, alone.* The relay that answers keeps running
+       inside the container beside every session, and VS Code may recreate the files at a later
+       attach or reconnect, so it is not shown to be a boundary. Kept as a backstop only.
+    2. *Keeping the host's git from answering VS Code for `github.com`.* It changes the human's git
+       login for every repo on the host, with no clean way to tell VS Code's request from the
+       human's own.
+  - **The backstop and its residual.** `postStartCommand` removes `/tmp/vscode-remote-containers-*`
+    from the `-tmp` volume at every start, and a new `postAttachCommand` removes them after an
+    attach and warns, naming `docker stop` and credential rotation. That narrows an accidental
+    attach and does not close it: a process already watching `/tmp` can connect before the removal,
+    and the relay keeps running after its socket path is removed. The docs say so, and keep `none` recommended as
+    defense in depth.
+  - **The cost.** No VS Code window inside the container: files are edited from the container shell,
+    and the Claude Code VS Code panel is not used there. `devcontainer up` runs `initializeCommand`
+    on the host on every `up`, as Reopen and Rebuild do, so `.devcontainer/` is compared with the
+    committed blob, in the order stop, compare, `up`, `exec`, before every `up` and every `exec` (which re-reads the file and resolves its
+    `remoteEnv` from the host's environment, though it runs no `initializeCommand`). `up` also runs `postAttachCommand` unless given
+    `--skip-post-attach`, which the docs pass.
+  - **Not claimed.** Whether the CLI forwards the host ssh-agent or a GPG socket; those hazards stay
+    documented as they were.
+
 ## Status
 
 All four of `WB-D1..D4` are implemented by this repo's existence and structure as of
