@@ -95,11 +95,12 @@ sh tests/identity-broker.test.sh  # scripts/identity/broker.ps1 dev-token rotati
 sh tests/review-image.test.sh   # scripts/identity/review/ entrypoint, outbox-read, Dockerfile and build-context fixtures (not yet required)
 sh tests/devcontainer-image.test.sh  # .devcontainer/ Dockerfile shape, claude pin equal to the loop's, and DISABLE_AUTOUPDATER in containerEnv (not yet required)
 sh tests/identity-review.test.sh  # scripts/identity/wow-review launcher fixtures vs stub docker, gh and wow-review-mint (not yet required)
+sh tests/lane.test.sh          # scripts/lanes/lane.sh prep/done fixtures vs a stub gh and a scratch repo with a local bare origin (not yet required)
 ```
 
 `scripts/lint.sh` needs the `claude` CLI and `jq` on PATH. `scripts/invariants-check.sh` needs
 `yq` (mikefarah v4) and `jq` on PATH too — it fails the gate, never skips it, when either is missing.
 `tests/review-base-anchor.test.sh`, `tests/schema-complete.test.sh`, `tests/milestone-desc.test.sh`, `tests/spec-issue.test.sh`, `tests/spec-post.test.sh`, `tests/spec-fresh.test.sh` (which also needs `git`) and `tests/draft-identity.test.sh` need `yq` on PATH as
-well (each skips itself, loudly, if absent). `tests/review-image.test.sh` needs `jq` and `yq`,
+well (each skips itself, loudly, if absent). `tests/lane.test.sh` needs `git`, `yq` and `jq`, and skips itself loudly without them. `tests/review-image.test.sh` needs `jq` and `yq`,
 and skips itself loudly without them. `tests/invariants-files-filter.test.sh` needs `jq` on PATH
 (the checker's check 20 does), and skips itself loudly without it.

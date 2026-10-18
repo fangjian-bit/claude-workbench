@@ -76,20 +76,32 @@ writable under the read-only root and the worktree's `.git` file points at a pat
 container can follow. A host worktree beside the checkout cannot be used: the container sees
 only `/workspace`, and its `.git` file names a host path.
 
-- **Cut the worktree** (driver, in the container), from `origin/main`, then drop the upstream so
-  nothing pushes to `main` by accident:
+- **Prepare the lane** (driver, in `/workspace`, the main worktree):
   ```sh
-  git worktree add -b <branch> /tmp/lanes/N origin/main
-  git -C /tmp/lanes/N branch --unset-upstream   # untried: the trial recorded the step, not the command
+  scripts/lanes/lane.sh prep N M BRANCH CRITICS
   ```
-- **Write the prompt** to `/tmp/lanes/N-prompt.md`, outside the worktree. It names the task
-  issue and milestone (the container clone has no `.ai/state.json`, so `coder.md`'s checks need
-  them named), the spec pin (`PIN_ID`, `PIN_UP`), the mode, the critics, and this `PATH` line,
-  which puts the worktree's scripts first while the installed plugin is behind `main`
-  (the trial recorded the line, not its text, so this spelling is untried):
-  ```sh
-  export PATH=/tmp/lanes/N/plugins/way-of-working/bin:$PATH
-  ```
+  `M` is the milestone the driver expects the task to be on, `BRANCH` is `TYPE/SLUG` and
+  `CRITICS` a comma list of `architect`, `security-critic` and `docs-consistency`. The script
+  is in `scripts/`, not the plugin (`WB-D23`). It reads the project file and the plugin's
+  `bin/` from the default branch's committed copy, finds the approved spec with `spec-find.sh`,
+  checks the task is open, not a pull request and on milestone `M`, cuts the worktree from
+  `origin/<pr_base>` with `--no-track` (so nothing pushes to `main` by accident), and writes
+  `/tmp/lanes/N-prompt.md` outside the worktree. The prompt names the task and milestone (the
+  container clone has no `.ai/state.json`, so `coder.md`'s checks need them named), the spec pin
+  (`PIN_ID`, `PIN_UP`), the mode, the critics, the lane rules and a `PATH` line that puts the
+  worktree's scripts first while the installed plugin is behind `main`. It never holds issue or
+  comment text. It prints `worktree=`, `branch=`, `found=`, `milestone=`, `prompt=` and
+  `prompt-sha256=`. If a step from the base fetch on fails it undoes what it did, as far as it
+  can, and prints `failed`. Setting the PR's milestone to `M` is the driver's, since `ship` never
+  sets one. It stops with one word instead: `not-main`, `unsafe-dir`, `unreadable`,
+  `repo-mismatch`, `not-map`, `finder: WORD`, `bad-issue` or `exists`. To clear an `exists`
+  caused by a stale name, run `git branch -dr origin/BRANCH` for a lingering remote-tracking
+  ref, or `git config --remove-section branch.BRANCH` for leftover config, or pick another
+  branch name. `WOW_LANES_DIR` overrides `/tmp/lanes` for the tests only.
+  The `PATH` line is written by the script and its text is checked by the fixture. A Bash tool
+  call does not keep exports, so the lane prefixes the line, and checks that `command -v
+  spec-find.sh` finds the worktree's copy, on every call that runs a plugin script. No lane has
+  run it that way yet.
 - **Start the lane** from the host, in its own terminal, with `docker exec` (find the container
   id with `docker ps`):
   ```sh
@@ -100,7 +112,13 @@ only `/workspace`, and its `.git` file names a host path.
   `devcontainer.json` from the host, and that file has to be checked first (see *Opening it*).
   `GIT_TERMINAL_PROMPT` is a `remoteEnv` value, which `docker exec` does not see, so it is passed
   by hand; the commit-signing settings are `containerEnv` and arrive without help.
-  Then tell the session to read `/tmp/lanes/N-prompt.md`.
+  Then send the lane this first message in its terminal, with the `prompt-sha256` that `prep`
+  printed in place of `HASH`:
+  > In one Bash call, run: T=$(mktemp -d) && cp /tmp/lanes/N-prompt.md "$T/p.md" && sha256sum
+  > "$T/p.md" && echo "$T/p.md". Stop unless the hash is HASH. If it matches, read only that
+  > copy and follow it.
+
+  The copy that was hashed is the copy that is followed.
 - **Identity.** Every session, driver or lane, acts as the dev App through the container's `gh`
   shim and git credential helper. Do not prefix commands with `GH_TOKEN`. Suites run natively
   (no WSL), and commits are unsigned (`WB-D25`), so no `timeout 90` around signing.
@@ -114,15 +132,31 @@ only `/workspace`, and its `.git` file names a host path.
     commits and refs land there).
   - A session that drafted a spec, or read an issue's body, never builds that issue.
   - Every PR needs a code-owner approval; approving one with auto-merge armed merges it.
-- **Cleanup** after the lane's PR merges (driver): `git worktree remove /tmp/lanes/N`, then
-  `git branch -D <branch>` once `prune-verdict.sh <branch> <merged_oid>`, run in `/workspace`
-  with the PR's full `headRefOid`, reads `delete`, then remove
-  `/tmp/lanes/N-prompt.md`.
+- **Cleanup** after the lane's PR merges (driver, in `/workspace`, and only after the lane
+  session has exited): `scripts/lanes/lane.sh done N`. It removes the worktree, deletes the branch
+  and removes the prompt file, but only if a same-repository PR from that branch merged into
+  the base and `prune-verdict.sh` reads `delete`; the branch is deleted with `git update-ref -d`
+  against the judged tip, never `git branch -D`.
+  - On `kept X skip-ahead` or `kept X skip-unfetchable`, the worktree stays. Inspect it, then
+    you may run `git worktree remove` and keep the branch.
+  - On `missing`, run `git worktree prune --dry-run -v` first, since `git worktree prune`
+    prunes every stale entry, other lanes' included.
+  - `not-main`, `unsafe-dir`, `unreadable`, `repo-mismatch`, `not-map`, `no-lane`,
+    `not-merged`, `ambiguous` and `kept X unreadable` remove nothing, and so does
+    `kept X checked-out` unless the second checkout appears just before the worktree is removed.
+    `dirty` leaves the worktree and branch. An `unreadable` after the worktree was removed (the
+    re-read of the worktree list failed) leaves the branch, its config and the prompt file: finish
+    by hand. `kept X moved` (the branch holds a commit the lane
+    made after the verdict) and that late `kept X checked-out` leave the branch and the prompt
+    file for you to look at; the worktree is already gone.
+  - `failed` means the config probe or removal, or the prompt file removal, failed after the
+    branch was deleted; finish by hand with `git config --remove-section branch.X` and `rm` of
+    the prompt file.
 - **Fallback**, untried: if lanes in one container stop working, use one full clone and one
   container per lane, as *Opening it* describes. Each clone gets its own home volume, so the
   Claude login and the plugin install happen once per clone.
 
-**Trial record.** The first container lane (#707) was built this way and the proposed shape
+**Trial record.** The first container lane (#707) was built by the hand steps this section then described, and the proposed shape
 worked as written: it launched with no changes, read its spec through the finder, built, ran
 the gate natively, ran `critic-gate`, and shipped as the dev App with auto-merge armed. Nothing
 in the procedure changed. The trial filed follow-ups #727, #728 and #729.
