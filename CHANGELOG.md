@@ -19,7 +19,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 `v0.5.0` are summarized from their tags; the full record is `docs/decisions.md` (`WB-D*`) and
 the GitHub release notes.
 
-## [Unreleased]
+## [0.20.0] — 2026-10-18
 
 **⚠️ Migration** — on a map repo a build now refuses a spec whose *Files touched* section is not one
 `- ` bullet per file with the path in backticks (`bad-shape`), or whose listed paths changed on the
@@ -33,7 +33,8 @@ with `/way-of-working:spec-task`, and move the maintainer's reaction to the new 
   `spec-issue.sh` and `spec-post.sh` read an `agent` author's issue only after a declared maintainer's
   approving reaction strictly after its last update, and screen its decoded title and body for hidden
   text; `resume`, the `coder`, `architect-review` and the loop preflight accept such a `#N` on the strength of
-  its approved spec comment. Invariants check 21 guards the three skill and agent readers.
+  its approved spec comment. Invariants check 21 guards the three skill and agent readers. Repos with
+  `identities: null` are unchanged: `task-author` reads them as `legacy`, the allowlist as before.
 - **`bin/spec-fresh.sh`, `bin/draft-identity.sh` and `spec-find.sh pending`** (#663, `WB-D31`): on a
   map repo a build now re-checks the paths its spec lists under *Files touched* against the commit
   in the spec's marker and refuses a stale spec (`resume`'s body read and the `coder` agent run
@@ -43,7 +44,11 @@ with `/way-of-working:spec-task`, and move the maintainer's reaction to the new 
   building. `spec-task` may be run ahead for any task whose `depends_on` is met, and runs
   `spec-fresh.sh shape` on its draft. Tested by `tests/spec-fresh.test.sh`,
   `tests/draft-identity.test.sh` and the new `pending` fixtures in `tests/spec-find.test.sh`; invariants
-  check 17 now covers `spec-fresh.sh`.
+  check 17 now covers `spec-fresh.sh`. **Behaviour change, `identities: null` repos:** `spec-task`'s
+  `spec-fresh.sh shape` gate has no map condition, so a draft whose *Files touched* section is not one
+  `- ` bullet per file with the path in backticks is refused as `bad-shape` after one fix, on every
+  repo. Its path allowlist is `A-Za-z0-9._/-`, so a path such as `+page.svelte` or `[slug]` always
+  reads `bad-shape` (`WB-D31`, residual 17).
 
 ### Changed
 
@@ -65,8 +70,9 @@ with `/way-of-working:spec-task`, and move the maintainer's reaction to the new 
 - **`spec-comment.sh` refuses a maintainer's spec comment when the dev App's id is on the maintainer list** (#689).
   The check ran only for a dev-App author, so a maintainer-authored comment with a dev-App reaction read `ok`; the
   dev App has Issues write and could edit the text, then approve it. A `dev_app` entry that is neither null nor
-  well formed (a map with a canonical decimal `id` and a string `login`) is `unreacted` too. For a canonical id no reader reaches it
-  today, since `spec-find.sh` reads such a config as `unreadable` first; a non-canonical spelling (`+2001`) does get past it. Tested by new fixtures in
+  well formed (a map with a canonical decimal `id` and a string `login`) is `unreacted` too. No reader reaches this check
+  today: every reader runs `spec-find.sh` first, which reads such a config as `unreadable`, a non-canonical spelling
+  (`+2001`) included since #707, so it is defence in depth. Tested by new fixtures in
   `tests/spec-comment.test.sh`.
 
 ## [0.19.0] — 2026-10-17
