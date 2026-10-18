@@ -8,8 +8,8 @@
 #   - The base image's signed provenance is not verified here, so a digest bump gets human
 #     review only. .devcontainer/Dockerfile's header names a `gh attestation verify` command
 #     for a check by hand.
-#   - The `claude` pin below is bumped by hand, together with scripts/loop/Dockerfile's: a
-#     test holds the two equal.
+#   - The `claude` pin below is bumped by hand, together with scripts/loop/Dockerfile's and
+#     .devcontainer/Dockerfile's: tests hold the three equal.
 #   - The copied dev-token, gh shim, inject.py and proxy.py are reused unedited apart from
 #     dev-token's two rewritten lines, so their own comments still describe the dev container
 #     or the loop. In this image they act as the reviewer App.

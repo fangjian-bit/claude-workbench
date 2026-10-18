@@ -93,6 +93,7 @@ sh tests/identity-mint.test.sh  # scripts/identity/mint.sh JWT, request and fail
 sh tests/identity-wow.test.sh   # scripts/identity/wow-admin and wow-review-mint fixtures, stub curl (not yet required)
 sh tests/identity-broker.test.sh  # scripts/identity/broker.ps1 dev-token rotation and install-host-tools.ps1 fixtures, stub minters; needs pwsh, skips without (not yet required)
 sh tests/review-image.test.sh   # scripts/identity/review/ entrypoint, outbox-read, Dockerfile and build-context fixtures (not yet required)
+sh tests/devcontainer-image.test.sh  # .devcontainer/ Dockerfile shape, claude pin equal to the loop's, and DISABLE_AUTOUPDATER in containerEnv (not yet required)
 sh tests/identity-review.test.sh  # scripts/identity/wow-review launcher fixtures vs stub docker, gh and wow-review-mint (not yet required)
 ```
 

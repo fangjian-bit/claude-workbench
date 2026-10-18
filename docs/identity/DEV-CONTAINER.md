@@ -229,7 +229,33 @@ home volume by an earlier container, not a forwarded socket (python `socket.conn
 
 `claude /login` once inside the container, from a `devcontainer exec` shell. The credential lives in the per-checkout home volume
 `<checkout folder>-home`, and `docker volume rm <checkout folder>-home`
-removes it.
+removes it. The login lives on the volume; the binary does not.
+
+## The `claude` binary
+
+- **Where it comes from.** The image: `/usr/local/bin/claude`, root-owned, at the version pinned
+  in `.devcontainer/Dockerfile` (`CLAUDE_VERSION`), its SHA-256 (`CLAUDE_SHA256`) checked at
+  build time. Auto-update is off (`DISABLE_AUTOUPDATER=1` in `devcontainer.json`'s
+  `containerEnv`). The read-only root filesystem keeps that file from being replaced, but it does
+  not stop an updater writing a newer copy to `~/.local` on the home volume, so the variable is the
+  control; a session can still override it through `env` in a Claude settings file.
+- **How to bump it.** Edit `CLAUDE_VERSION` and `CLAUDE_SHA256` in all three Dockerfiles
+  (`.devcontainer/`, `scripts/identity/review/` and `scripts/loop/`; Dependabot does not track
+  them, and `tests/devcontainer-image.test.sh` and `tests/review-image.test.sh` hold them equal).
+  Take the sha256 from that version's release `manifest.json` (the `linux-x64` entry). Then
+  recreate the container with the compare-first order in *Hazards that remain*.
+- **Clearing a stopgap install.** A copy from the native installer lives on the home volume, and
+  `~/.local/bin` leads `PATH`, so it shadows the image's. Remove `~/.local/bin/claude` and
+  `~/.local/share/claude`, then check with `command -v claude` (should print
+  `/usr/local/bin/claude`) and `claude --version` (should print the pinned version).
+- **What this does not close.** The binary cannot be modified, but which `claude` runs can be:
+  anything earlier on `PATH` shadows it (`type -a claude` lists every match). Hooks in
+  `~/.claude/settings.json` and startup code in `~/.bashrc` are still on the writable home volume, as are, for
+  example, `~/.profile`, `~/.claude.json` and `~/.local/bin`, so a session can still persist code
+  that runs in the next one. The VS Code extension's own `claude` is outside the pin too (VS Code
+  attach is unsupported here). `docker volume rm <checkout folder>-home <checkout folder>-tmp`
+  (after removing the containers that use them) resets the container's own state, not the `/workspace` checkout, whose `.claude/` and
+  `.git/hooks` or `.git/config` a session can also write and which must be checked separately.
 
 ## Not adopted here yet
 

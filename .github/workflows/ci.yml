@@ -134,6 +134,8 @@ jobs:
         run: sh tests/token-check.test.sh
       - name: review image fixtures
         run: sh tests/review-image.test.sh
+      - name: dev container image fixtures
+        run: sh tests/devcontainer-image.test.sh
       - name: wow-review launcher fixtures
         run: sh tests/identity-review.test.sh
       - name: blocking-criteria.sh fixtures

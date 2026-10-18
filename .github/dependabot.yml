@@ -14,8 +14,9 @@
 # unpinned on purpose; only the release path needs reproducibility, and `release.yml` says
 # so at the step.) The Dockerfile pins are bumped by hand too, for their own reason:
 # `scripts/loop/Dockerfile`'s `ARG BASE_IMAGE` (a templated `FROM`, and there is no
-# `/scripts/loop` entry below) and both images' `CLAUDE_VERSION` / `CLAUDE_SHA256` (a download
-# in a `RUN`, not a `FROM`), which `tests/review-image.test.sh` holds equal. If the
+# `/scripts/loop` entry below) and the three Dockerfiles' (the dev container's, the review
+# image's and the loop's) `CLAUDE_VERSION` / `CLAUDE_SHA256` (a download in a `RUN`, not a
+# `FROM`), which `tests/review-image.test.sh` and `tests/devcontainer-image.test.sh` hold equal. If the
 # `release.yml` hand-bump is ever missed often enough to matter, the fix is a real manifest for
 # Dependabot to read, not another entry below.
 

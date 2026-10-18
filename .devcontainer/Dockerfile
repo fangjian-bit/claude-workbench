@@ -1,8 +1,9 @@
 # syntax=docker/dockerfile:1.27@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 #
 # This repo's devcontainer: the shared base image, pinned by tag AND digest, plus the two
-# scripts that make `gh` and git act only as the dev App (WB-D24, #393). Dependabot's docker
-# ecosystem bumps the FROM line (.github/dependabot.yml).
+# scripts that make `gh` and git act only as the dev App (WB-D24, #393) and a pinned,
+# checksum-verified `claude` (#725). Dependabot's docker ecosystem bumps the FROM line
+# (.github/dependabot.yml).
 #
 # Every pull request is checked by `verify / verify` once the template's
 # .github/workflows/devcontainer-image.yml is adopted: the FROM line must be one of the
@@ -57,4 +58,20 @@ RUN for t in gpg gpg-agent gpgconf gpg-connect-agent gpgsm; do \
       p=$(command -v "$t") && rm -f "$p"; \
       if command -v "$t" >/dev/null; then exit 1; fi; \
     done
+
+# Claude Code, at /usr/local/bin/claude: root-owned and on the read-only root filesystem, so no
+# session can modify that file. A copy earlier on PATH can still shadow it (the native
+# installer's copy in ~/.local/bin sits on the writable home volume). CLAUDE_VERSION and
+# CLAUDE_SHA256 come from that version's release manifest.json (the `linux-x64` entry). Dependabot does not track a pin inside a RUN, so it is bumped by hand,
+# together with scripts/loop/Dockerfile's and scripts/identity/review/Dockerfile's (tests hold
+# the three equal): edit both ARG lines, then recreate with the compare-first procedure in
+# docs/identity/DEV-CONTAINER.md. Auto-update is off in devcontainer.json (DISABLE_AUTOUPDATER).
+ARG CLAUDE_VERSION=2.1.289
+ARG CLAUDE_SHA256=a186b99e4a9c88366cd49df2f7dad56c61fc306ef0140b19ee64b7c42a8d1348
+RUN set -eu; \
+    curl -fsSL --retry 3 -o /usr/local/bin/claude \
+      "https://downloads.claude.ai/claude-code-releases/${CLAUDE_VERSION}/linux-x64/claude"; \
+    echo "${CLAUDE_SHA256}  /usr/local/bin/claude" | sha256sum -c -; \
+    chown root:root /usr/local/bin/claude; \
+    chmod 0755 /usr/local/bin/claude
 USER 1000:1000

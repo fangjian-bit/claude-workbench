@@ -44,10 +44,17 @@
   // claude-workbench: container commits and tags are unsigned (WB-D25, #574). The env pair
   // overrides the identity file's `gpgsign = true`, which git-identity.sh copies in from the
   // host. containerEnv, not remoteEnv, so `docker exec` sees it too. Needs git 2.31+.
+  //
+  // claude-workbench: DISABLE_AUTOUPDATER is here too, in containerEnv so `docker exec` sees it
+  // (#725). The image ships `claude` at /usr/local/bin/claude, and the read-only root
+  // filesystem keeps that file from being replaced. This variable is what keeps the updater from
+  // writing a newer copy to ~/.local on the home volume (~/.local/bin leads PATH). Updating means
+  // bumping the pin in the Dockerfile.
   "containerEnv": {
     "GIT_CONFIG_COUNT": "2",
     "GIT_CONFIG_KEY_0": "commit.gpgsign", "GIT_CONFIG_VALUE_0": "false",
-    "GIT_CONFIG_KEY_1": "tag.gpgsign", "GIT_CONFIG_VALUE_1": "false"
+    "GIT_CONFIG_KEY_1": "tag.gpgsign", "GIT_CONFIG_VALUE_1": "false",
+    "DISABLE_AUTOUPDATER": "1"
   },
 
   "mounts": [
@@ -72,7 +79,8 @@
     "source=${localEnv:USERPROFILE}/.config/glunk-identity/tokens/claude-workbench,target=/run/glunk-identity/dev,type=bind,readonly",
 
     // PER-REPO home directory: everything user-scoped lives on this ONE volume. That is
-    // Claude Code's login (run `claude /login` once in the container) and its sessions and
+    // Claude Code's login (run `claude /login` once in the container; the login lives on this
+    // volume, the binary does not, it is in the image) and its sessions and
     // memory (Claude keys projects by path and every repo mounts at /workspace, so sharing
     // it would mix repos' histories), the editor server and its
     // extensions, uv's interpreters and cache, and the pre-commit cache.
