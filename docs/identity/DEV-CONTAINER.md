@@ -67,6 +67,66 @@ that serves the host's git credential (see Hazards that remain).
   dev container, and `/way-of-working:architect-review` run here, under an `identities` map,
   posts nothing and prints the launcher command.
 
+## Lanes
+
+A lane is a second Claude session building one task in parallel with the driver session. The
+driver runs in `/workspace`; every lane runs in the same container, in a worktree under
+`/tmp/lanes/N` (`N` the task issue number). `/tmp` is the per-repo `-tmp` volume, so it is
+writable under the read-only root and the worktree's `.git` file points at a path the
+container can follow. A host worktree beside the checkout cannot be used: the container sees
+only `/workspace`, and its `.git` file names a host path.
+
+- **Cut the worktree** (driver, in the container), from `origin/main`, then drop the upstream so
+  nothing pushes to `main` by accident:
+  ```sh
+  git worktree add -b <branch> /tmp/lanes/N origin/main
+  git -C /tmp/lanes/N branch --unset-upstream   # untried: the trial recorded the step, not the command
+  ```
+- **Write the prompt** to `/tmp/lanes/N-prompt.md`, outside the worktree. It names the task
+  issue and milestone (the container clone has no `.ai/state.json`, so `coder.md`'s checks need
+  them named), the spec pin (`PIN_ID`, `PIN_UP`), the mode, the critics, and this `PATH` line,
+  which puts the worktree's scripts first while the installed plugin is behind `main`
+  (the trial recorded the line, not its text, so this spelling is untried):
+  ```sh
+  export PATH=/tmp/lanes/N/plugins/way-of-working/bin:$PATH
+  ```
+- **Start the lane** from the host, in its own terminal, with `docker exec` (find the container
+  id with `docker ps`):
+  ```sh
+  docker exec -it -u app -e GIT_TERMINAL_PROMPT=0 -w /tmp/lanes/N <container-id> bash -l
+  claude --model sonnet
+  ```
+  Do not use a second `devcontainer exec` beside a running session: `exec` re-reads
+  `devcontainer.json` from the host, and that file has to be checked first (see *Opening it*).
+  `GIT_TERMINAL_PROMPT` is a `remoteEnv` value, which `docker exec` does not see, so it is passed
+  by hand; the commit-signing settings are `containerEnv` and arrive without help.
+  Then tell the session to read `/tmp/lanes/N-prompt.md`.
+- **Identity.** Every session, driver or lane, acts as the dev App through the container's `gh`
+  shim and git credential helper. Do not prefix commands with `GH_TOKEN`. Suites run natively
+  (no WSL), and commits are unsigned (`WB-D25`), so no `timeout 90` around signing.
+- **Reviews** still run on the host through `wow-review`; in the container
+  `/way-of-working:architect-review` prints the launcher command.
+- **Lane rules that still apply:**
+  - Lanes never run `/way-of-working:resume`, `/way-of-working:handoff`,
+    `/way-of-working:plan-sprint` or `/way-of-working:archive-sprint`, and never write `.ai/`.
+  - A lane never merges, approves or force-pushes. It works in its own worktree and does not
+    edit `/workspace`'s working tree (the worktree's `.git` lives under `/workspace/.git`, so its
+    commits and refs land there).
+  - A session that drafted a spec, or read an issue's body, never builds that issue.
+  - Every PR needs a code-owner approval; approving one with auto-merge armed merges it.
+- **Cleanup** after the lane's PR merges (driver): `git worktree remove /tmp/lanes/N`, then
+  `git branch -D <branch>` once `prune-verdict.sh <branch> <merged_oid>`, run in `/workspace`
+  with the PR's full `headRefOid`, reads `delete`, then remove
+  `/tmp/lanes/N-prompt.md`.
+- **Fallback**, untried: if lanes in one container stop working, use one full clone and one
+  container per lane, as *Opening it* describes. Each clone gets its own home volume, so the
+  Claude login and the plugin install happen once per clone.
+
+**Trial record.** The first container lane (#707) was built this way and the proposed shape
+worked as written: it launched with no changes, read its spec through the finder, built, ran
+the gate natively, ran `critic-gate`, and shipped as the dev App with auto-merge armed. Nothing
+in the procedure changed. The trial filed follow-ups #727, #728 and #729.
+
 ## Hazards that remain
 
 - **`/workspace` is read-write**, so a session can edit `.devcontainer/` (an `initializeCommand`,
