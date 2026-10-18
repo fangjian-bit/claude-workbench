@@ -45,7 +45,9 @@
 # under null, the legacy shape, the finder does not apply), `identities.maintainer` (at least
 # one entry, each a map with an !!int `id` above 0 and a string `login`) and
 # `identities.dev_app` (null or absent: no dev App, the closed direction, and the reader waits
-# on an absent key; otherwise a map of the same shape, whose id is not on the maintainer list).
+# on an absent key; otherwise a map of the same shape, whose id is not on the maintainer list,
+# and whose id is canonical decimal: digits, no leading zero, no sign or prefix, so `+2001`, `0x7D1`
+# and `02001` are `unreadable` as `spec-comment.sh` has it, #707).
 # A value failing its shape is `unreadable`.
 #
 # Prints exactly one line to stdout and exits 0. Every row is judged before anything prints,
@@ -135,6 +137,7 @@ case "$dev_tag" in
   '!!map')
     dev_id="$(yq -r 'explode(.) | .identities.dev_app | select(tag == "!!map" and ((.id | tag) == "!!int") and .id > 0 and ((.login | tag) == "!!str")) | .id' "$yml" 2>/dev/null)" || out unreadable
     [ -n "$dev_id" ] || out unreadable
+    case "$dev_id" in ''|0*|*[!0-9]*) out unreadable ;; esac
     case ",$maint_ids," in *",$dev_id,"*) out unreadable ;; esac
     ;;
   *) out unreadable ;;

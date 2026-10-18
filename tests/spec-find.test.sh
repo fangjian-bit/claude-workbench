@@ -410,6 +410,29 @@ nc; Y_IDENT='  maintainer:
   dev_app: {login: "dev-app[bot]", id: 201}'; writeyml; approved 1001 maint1 101; run
 expect "unreadable: a dev-App id on the maintainer list" "unreadable"
 
+nc; Y_IDENT='  maintainer:
+    - {login: maint1, id: 101}
+    - {login: "dev-app[bot]", id: 2001}
+  dev_app: {login: "dev-app[bot]", id: +2001}'; writeyml; approved 1001 maint1 101; run
+expect "unreadable: a dev-App id spelled +2001 beside 2001 on the maintainer list" "unreadable"
+
+nc; Y_IDENT='  maintainer:
+    - {login: maint1, id: 101}
+    - {login: "dev-app[bot]", id: 2001}
+  dev_app: {login: "dev-app[bot]", id: 0x7D1}'; writeyml; approved 1001 maint1 101; run
+expect "unreadable: a dev-App id spelled 0x7D1 beside 2001 on the maintainer list" "unreadable"
+
+nc; Y_IDENT='  maintainer:
+    - {login: maint1, id: 101}
+    - {login: "dev-app[bot]", id: 2001}
+  dev_app: {login: "dev-app[bot]", id: 02001}'; writeyml; approved 1001 maint1 101; run
+expect "unreadable: a dev-App id spelled 02001 beside 2001 on the maintainer list" "unreadable"
+
+nc; Y_IDENT='  maintainer:
+    - {login: maint1, id: 101}
+  dev_app: {login: "dev-app[bot]", id: 0x7D1}'; writeyml; approved 1001 maint1 101; run
+expect "unreadable: a non-canonical dev-App id with no collision" "unreadable"
+
 nc; Y_PRBASE="-x"; writeyml; approved 1001 maint1 101; run
 expect "unreadable: a pr_base that begins with a dash" "unreadable"
 
