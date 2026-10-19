@@ -479,9 +479,12 @@ dk network connect "$EXT" "$I" >/dev/null || fail "cannot connect the injector t
 printf '%s\n' "$CRED" | docker start -ai "$I" >/dev/null 2>&1 &   # unbounded on purpose: it stays attached for the whole run
 INJPID=$!
 up=0
-for _ in 1 2 3 4 5 6 7 8 9 10; do
+i=0 end=$(( $(date +%s) + 10 ))
+# At most 50 checks, 0.2 s apart, within a 10 second wall-clock deadline.
+while [ "$i" -lt 50 ] && [ "$(date +%s)" -lt "$end" ]; do
   if dk logs "$I" 2>&1 | grep -q '^inject up'; then up=1; break; fi
-  sleep 1
+  sleep 0.2
+  i=$((i + 1))
 done
 [ "$up" = 1 ] || fail "the injector did not report 'inject up'"
 

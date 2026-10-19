@@ -216,6 +216,7 @@ case $cmd in
         name=$(last "$@")
         cat >"$S/inject-stdin"
         mkdir -p "$S/logs"
+        [ ! -e "$S/inject.delay" ] || "$REAL_SLEEP" "$(cat "$S/inject.delay")"
         [ -e "$S/inject.noup" ] || echo "inject up" >"$S/logs/$name"
         exit 0 ;;
     esac
@@ -1230,6 +1231,12 @@ new_case; : >"$STUB/inject.noup"
 run o/r 7
 assert_eq "an injector that never says 'inject up': exit 1" 1 "$rc"
 assert_eq "an injector that never says 'inject up': the session was not created" 0 "$(ev_count 'docker-create wow-review-session')"
+n=$(ev_count 'docker-logs inject'); check "an injector that never says 'inject up': more than ten checks, at most fifty" sh -c '[ "$1" -gt 10 ] && [ "$1" -le 50 ]' x "$n"
+new_case; printf '0.7\n' >"$STUB/inject.delay"
+run o/r 7
+assert_eq "a late injector: exit 0" 0 "$rc"
+assert_eq "a late injector: the session was created" 1 "$(ev_count 'docker-create wow-review-session')"
+n=$(ev_count 'docker-logs inject'); check "a late injector: polled at least three times" sh -c '[ "$1" -ge 3 ]' x "$n"
 new_case; : >"$STUB/start.fail"
 run o/r 7
 assert_eq "docker start failing before the session ran: exit 1" 1 "$rc"
