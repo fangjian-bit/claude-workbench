@@ -31,12 +31,15 @@ loop App, or whose reviewer or loop App entry is neither null nor well formed, n
 preflight refuse its spec approvals (and `plan-anchor.sh verify`, which resume now passes the App ids, as a second check for a collision), and a
 reviewer or loop App id not written in canonical decimal is refused by the shell readers and by resume's
 `gh-identity.sh role` read, until the config is corrected on the default branch (the dev
-App's id already was, #660, #682, #689, #707; `spec-issue.sh` and `spec-post.sh` are #759). Resume also
+App's id already was, #660, #682, #689, #707). Resume also
 waits until `reviewer_app` and `loop_app` are present, each a null value or a map that
 `gh-identity.sh role` confirms.
 
+**⚠️ Migration** — on a map repo, `/way-of-working:spec-task` now stops `unreadable` (from `spec-issue.sh` or `spec-post.sh`), until the config is corrected on the default branch (#759): on a maintainer's or the dev or reviewer App's task issue when `identities.maintainer` lists a declared App's id (other than the author's own, which stops `untrusted`), the dev App's included, or when a declared App entry, the dev App's included, is neither null nor well formed or its id is not canonical decimal; and, for a maintainer's issue too, when `identities.maintainer` carries an entry that is not well formed, which passed before.
+
 ### Changed
 
+- **`spec-task` refuses a declared App id on the maintainer list** (#759): `spec-issue.sh` and `spec-post.sh` stop `unreadable` under a map, for a maintainer or App author, when any declared App's id is on `identities.maintainer` or an App entry is neither null nor well formed or its id is not canonical decimal, or, for a maintainer's issue too, `identities.maintainer` carries an entry that is not well formed, which passed before, all before the issue's reactions are read; `WB-D30` residual 7 is amended.
 - **No declared App is a spec approver** (#708): `spec-find.sh`, `spec-comment.sh` and
   `scripts/loop/preflight.sh github-dispatch` refuse a config that lists the id of the dev, reviewer or
   loop App on `identities.maintainer`, and `plan-anchor.sh verify` does when given the new flag. It gains `--declared-app-ids <id,id,...>`, which

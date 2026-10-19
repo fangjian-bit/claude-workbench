@@ -9,7 +9,7 @@
 # its argv, then runs the real git). Needs git and yq (mikefarah v4); skips, loudly, without yq.
 #
 # Each case's comment names the outcome the old SKILL.md block gave on the same input; the script
-# matches it (the same stop or pass), now as a word. Symlink cases skip, loudly, where `ln -s`
+# matches it (the same stop or pass, except the #759 app_check cases), now as a word. Symlink cases skip, loudly, where `ln -s`
 # copies instead of linking (Git Bash).
 # Permitted toolset: POSIX sh.
 set -eu
@@ -886,6 +886,110 @@ FX_PLANT=file FX_OUT="$o5" run fetch 611 "$o5"
 assert_eq "$desc (word)" unreadable "$out"
 assert_eq "$desc (rc)" 1 "$rc"
 assert_eq "$desc (left alone)" planted "$("$real_cat" "$o5/issue.json")"
+
+# -- a declared App's id on the maintainer list (#759): every such config stops `unreadable` ----
+# for a maintainer author and an App author alike, before the issue's reactions are read.
+DEVV='{ login: "dev[bot]", id: 200 }'
+REVV='{ login: "rev[bot]", id: 300 }'
+LOOPV='{ login: "loop[bot]", id: 400 }'
+mkcfg() { # mkcfg <name> <extra maintainer entry|-> <dev|-|null> <rev|-|null> <loop|-|null>; "-" omits the key
+  {
+    printf 'repo: acme/repo\npr_base: main\nbacklog:\n  repo: acme/backlog\norchestration:\n  loop_identity: "other-loop[bot]"\nidentities:\n  maintainer:\n    - { login: maint, id: 100 }\n'
+    [ "$2" = - ] || printf '    - %s\n' "$2"
+    [ "$3" = - ] || printf '  dev_app: %s\n' "$3"
+    [ "$4" = - ] || printf '  reviewer_app: %s\n' "$4"
+    [ "$5" = - ] || printf '  loop_app: %s\n' "$5"
+  } >"$tmp/$1.yml"
+}
+unread_is() { # unread_is <cfg> <login> <id> <assoc> [rx-file] [body-json] -- stops unreadable, no reactions or second read
+  setyml "$tmp/$1.yml"
+  mkissue "$2" "$3" "$4" - 2026-10-17T20:10:28Z '"title"' "${6:-\"body\"}"
+  mkissue2 "$2" "$3" "$4" - 2026-10-17T20:10:28Z '"title"' "${6:-\"body\"}"
+  o="$(newout)"
+  FX_RX="${5:-$RXF}" FX_ISSUE2="$tmp/issue2.json" run fetch 611 "$o"
+  stop_is unreadable "$o"
+  assert_eq "$desc (no reactions read)" 0 "$(grep -c reactions "$glog" || true)"
+  assert_eq "$desc (no second issue read)" 1 "$(grep -c -x 'api|repos/acme/backlog/issues/611|' "$glog" || true)"
+}
+mkrx "$RXF" "$RX_GOOD"
+for k in dev rev loop; do
+  case "$k" in
+    dev) kv=$DEVV; kentry='{ login: "dev[bot]", id: 200 }'; other_l='rev[bot]'; other_i=300 ;;
+    rev) kv=$REVV; kentry='{ login: "rev[bot]", id: 300 }'; other_l='dev[bot]'; other_i=200 ;;
+    loop) kv=$LOOPV; kentry='{ login: "loop[bot]", id: 400 }'; other_l='dev[bot]'; other_i=200 ;;
+  esac
+  mkcfg "coll_$k" "$kentry" "$DEVV" "$REVV" "$LOOPV"
+  desc="$k App's id on the maintainer list, maintainer's issue"
+  unread_is "coll_$k" maint 100 '"OWNER"'
+  desc="$k App's id on the maintainer list, issue by the $other_l App"
+  unread_is "coll_$k" "$other_l" "$other_i" '"NONE"'
+  desc="$k App's id on the maintainer list, App issue with no reaction (not unreacted)"
+  mkrx "$tmp/rx_none.tsv"
+  unread_is "coll_$k" "$other_l" "$other_i" '"NONE"' "$tmp/rx_none.tsv"
+  desc="$k App's id on the maintainer list, App issue with only an older reaction (not unreacted)"
+  mkrx "$tmp/rx_old.tsv" '100 +1 2026-10-17T20:00:00Z'
+  unread_is "coll_$k" "$other_l" "$other_i" '"NONE"' "$tmp/rx_old.tsv"
+  desc="$k App's id on the maintainer list, App issue with hidden text and a fresh reaction (not hidden)"
+  unread_is "coll_$k" "$other_l" "$other_i" '"NONE"' "$RXF" '"a​b"'
+done
+
+# the exploit: the reviewer App's id on the list, a dev-App issue, only the reviewer App's own fresh +1
+desc="exploit: the reviewer App's own +1 on a dev-App issue, its id on the maintainer list"
+mkrx "$tmp/rx_rev.tsv" '300 +1 2026-10-17T20:10:39Z'
+unread_is coll_rev 'dev[bot]' 200 '"NONE"' "$tmp/rx_rev.tsv"
+
+# a declared App entry that is not well formed, or whose id is not canonical decimal
+for k in dev rev loop; do
+  case "$k" in
+    dev) other_l='rev[bot]'; other_i=300; aid=200 ;;
+    rev) other_l='dev[bot]'; other_i=200; aid=300 ;;
+    loop) other_l='dev[bot]'; other_i=200; aid=400 ;;
+  esac
+  n=0
+  for bad in 'nope' "{ login: \"x[bot]\", id: \"$aid\" }" '{ login: "x[bot]", id: 0 }' "{ login: 5, id: $aid }" \
+    "{ login: \"x[bot]\", id: +$aid }" '{ login: "x[bot]", id: 0x12C }' '{ login: "x[bot]", id: 0100 }'; do
+    n=$((n + 1))
+    d=- r=- l=-
+    case "$k" in dev) d=$bad ;; rev) r=$bad ;; loop) l=$bad ;; esac
+    [ "$d" != - ] || d=$DEVV
+    [ "$r" != - ] || r=$REVV
+    [ "$l" != - ] || l=$LOOPV
+    mkcfg "bad_${k}_$n" - "$d" "$r" "$l"
+    desc="$k App entry $bad, maintainer's issue"
+    unread_is "bad_${k}_$n" maint 100 '"OWNER"'
+    desc="$k App entry $bad, issue by the $other_l App"
+    unread_is "bad_${k}_$n" "$other_l" "$other_i" '"NONE"'
+  done
+done
+
+# a maintainer's issue under a list with a malformed extra entry (it passed as `trusted` before)
+desc="a maintainer's issue under mapbadmaint"
+cp "$tmp/mapbadmaint.yml" "$tmp/badmaint_copy.yml"
+unread_is badmaint_copy maint 100 '"OWNER"'
+
+# no check for a null or missing App key; a fresh maintainer +1 still passes
+pass_is() { # pass_is <cfg> <login> <id>
+  setyml "$tmp/$1.yml"
+  mkissue "$2" "$3" '"NONE"' - 2026-10-17T20:10:28Z '"title"' '"body"'
+  mkissue2 "$2" "$3" '"NONE"' - 2026-10-17T20:10:28Z '"title"' '"body"'
+  mkrx "$RXF" "$RX_GOOD"
+  o="$(newout)"
+  FX_RX="$RXF" FX_ISSUE2="$tmp/issue2.json" run fetch 611 "$o"
+  assert_eq "$desc (line)" "ok B=acme/backlog BASE=main VERDICT=reacted ASSOC=NONE" "$out"
+}
+mkcfg nul_rl - "$DEVV" null null
+desc="reviewer_app and loop_app null, a dev-App issue"
+pass_is nul_rl 'dev[bot]' 200
+mkcfg mis_rl - "$DEVV" - -
+desc="reviewer_app and loop_app missing, a dev-App issue"
+pass_is mis_rl 'dev[bot]' 200
+mkcfg nul_d - null "$REVV" "$LOOPV"
+desc="dev_app null, a reviewer-App issue"
+pass_is nul_d 'rev[bot]' 300
+mkcfg mis_d - - "$REVV" "$LOOPV"
+desc="dev_app missing, a reviewer-App issue"
+pass_is mis_d 'rev[bot]' 300
+setyml "$tmp/map.yml"
 
 # -- the skill's snippet with a failing mktemp ---------------------------------------------------
 desc="the skill snippet with a failing mktemp"

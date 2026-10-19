@@ -8,13 +8,18 @@
 # lines of shell inside SKILL.md, retyped by a model on every run and tested by nothing (#627
 # item 7, child (a) is #659). It is now one tested command, with fixtures, like the other bin/
 # predicates. The trust decisions did not change: the same reads, a stop on every input the
-# block stopped on, and a pass for every author GitHub can return that the block passed.
+# block stopped on, and a pass for every author GitHub can return that the block passed (except
+# the #759 `app_check` stops below, which the old block never had).
 #
 # Output. On a pass, exactly one line on stdout and exit 0:
 #   ok B=<backlog-repo> BASE=<base> VERDICT=<verdict> ASSOC=<association>
 # and `<out-dir>/issue.json` holds the issue. On a stop, exactly one word on stdout and exit 1,
 # the first that applies:
 #   unreadable     a read, a check or a copy failed, or a value was not the shape expected
+#                  Also (#759), under a map and for a maintainer or App author: a declared App's id
+#                  (dev_app, reviewer_app, loop_app) on the maintainer list, an App entry that is
+#                  neither null nor well formed or has a non-canonical id, or a maintainer list with an
+#                  entry that is not well formed (which passed as `trusted` before).
 #   repo-mismatch  the default branch's project.yml `.repo` is not the origin's repository
 #   bad-backlog    `backlog.repo` (null or absent means the origin's repository) is not owner/name
 #   bad-base       `pr_base` is empty, begins with `-` or holds an unusual character
@@ -59,8 +64,11 @@
 # --raw-field or --input, and no graphql.
 #
 # The App-filed path (WB-D32, #664). `gh-identity.sh task-author` says `trusted` for a declared
-# maintainer, `legacy` under `identities: null` (both as before) and `agent` for the declared dev or
-# reviewer App. An `agent` author passes only through these steps, in this order, and its
+# maintainer, `legacy` under `identities: null` (`legacy` as before; `trusted` now first needs
+# `app_check`, #759) and `agent` for the declared dev or
+# reviewer App. `app_check` runs first, in the author switch (the `case` on the verdict), for a `trusted` or `agent` author: it
+# stops `unreadable` (the four causes under `unreadable` above), before any reaction is read.
+# An `agent` author passes only through these steps, in this order, and its
 # VERDICT is `reacted`:
 #   1. the issue's reactions are read (GET `issues/<N>/reactions`, `--paginate`, to a file);
 #   2. the issue is fetched a SECOND time, to a fresh file; the type, pull-request, loop-identity
@@ -256,6 +264,30 @@ esac
 loopid="$(yq -r '.orchestration.loop_identity // ""' "$tmp/def.yml" 2>/dev/null)" || stop unreadable
 if [ -n "$loopid" ] && [ "$(fold "$login")" = "$(fold "$loopid")" ]; then stop loop-identity; fi
 
+# Under a map, no declared App's id may be on the maintainer list (#759, as #708 did for the
+# readers): that App's reaction would count as a maintainer's. Own variables, so agent_path's
+# maintainer-id reads are untouched. Any list or entry it cannot judge stops `unreadable`.
+app_check() {
+  am_total="$(yq -r 'explode(.) | .identities.maintainer | select(tag == "!!seq") | length' "$tmp/def.yml" 2>/dev/null)" || stop unreadable
+  am_ids="$(yq -r 'explode(.) | .identities.maintainer | select(tag == "!!seq") | [.[] | select(tag == "!!map" and ((.id | tag) == "!!int") and .id > 0 and ((.login | tag) == "!!str")) | .id] | join(",")' "$tmp/def.yml" 2>/dev/null)" || stop unreadable
+  [ -n "$am_ids" ] || stop unreadable
+  am_good="$(printf '%s' "$am_ids" | awk -F, '{print NF}')" || stop unreadable
+  [ "$am_good" = "$am_total" ] || stop unreadable
+  for app_key in dev_app reviewer_app loop_app; do
+    app_tag="$(APP_KEY="$app_key" yq -r 'explode(.) | .identities[strenv(APP_KEY)] | tag' "$tmp/def.yml" 2>/dev/null)" || stop unreadable
+    case "$app_tag" in
+      '!!null') : ;;
+      '!!map')
+        app_id="$(APP_KEY="$app_key" yq -r 'explode(.) | .identities[strenv(APP_KEY)] | select(tag == "!!map" and ((.id | tag) == "!!int") and .id > 0 and ((.login | tag) == "!!str")) | .id' "$tmp/def.yml" 2>/dev/null)" || stop unreadable
+        [ -n "$app_id" ] || stop unreadable
+        case "$app_id" in '' | 0* | *[!0-9]*) stop unreadable ;; esac
+        case ",$am_ids," in *",$app_id,"*) stop unreadable ;; esac
+        ;;
+      *) stop unreadable ;;
+    esac
+  done
+}
+
 # The App-filed path: see the header. Sets src, verdict and assoc, or stops.
 agent_path() {
   # 1. the reactions, before the second read
@@ -338,8 +370,9 @@ sh "$gi" task-author "$login" "$uid" "$tmp/def.yml" >"$tmp/verdict" 2>/dev/null 
 verdict="$(rd "$tmp/verdict")"
 src="$tmp/issue.json"
 case "$verdict/$assoc" in
-  trusted/* | legacy/OWNER | legacy/MEMBER | legacy/COLLABORATOR) : ;;
-  agent/*) agent_path ;;
+  trusted/*) app_check ;;
+  legacy/OWNER | legacy/MEMBER | legacy/COLLABORATOR) : ;;
+  agent/*) app_check; agent_path ;;
   *) stop untrusted ;;
 esac
 
