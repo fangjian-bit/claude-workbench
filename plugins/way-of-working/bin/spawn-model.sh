@@ -7,9 +7,15 @@
 # `/way-of-working:critic-gate`'s one late round on a different model is recorded as having
 # run on it only when this script answers `confirmed`. This is strong evidence, not
 # unforgeable -- a critic holds Bash and could in principle rewrite its own transcript file
-# after the fact; the every-record rule below defeats appending to fix a mixed-model round,
-# and that residual rewrite risk is accepted explicitly, same as the spec that requires this
-# script does (the harm ceiling is false provenance, not execution).
+# after the fact; the every-record rule below defeats appending a complete record to fix a mixed-model
+# round, and that residual rewrite risk is accepted explicitly, same as the spec that requires
+# this script does (the harm ceiling is false provenance, not execution). An unterminated
+# append that the harness's next write completes joins two records into one line, so the
+# next record is hidden (a `{"content":` or blob-prefix fragment) or relabelled (a forged
+# header fragment supplies the role and model the script reads); the same gap already exists
+# for a `{"content":` fragment. A process that does this before each assistant record, for
+# instance one already writing before the spawn's first turn, can make a wrong-model spawn read
+# `confirmed`. That gap is inside the same accepted residual, not closed here.
 #
 # Usage: spawn-model.sh <agent-id> <expected-alias>
 #   <agent-id>        the id the Agent tool's own tool result names for the spawn
@@ -22,15 +28,16 @@
 #                      script's own, not documented a second time anywhere else).
 #
 # Prints exactly one of, to stdout, and always exits 0 (the caller decides policy):
-#   confirmed    -- every assistant record found in the spawn's own transcript ran on a
+#   confirmed    -- every assistant turn record found in the spawn's own transcript ran on a
 #                   model id matching <expected-alias>'s prefix
-#   mismatch     -- the transcript was read, but at least one assistant record's model does
+#   mismatch     -- the transcript was read, but at least one assistant turn record's model does
 #                   not match (including a record whose model field could not be read --
 #                   appending to fix a mixed-model round must not confirm it)
 #   unconfirmed  -- anything else: an unknown alias, no current session id (or one that
 #                   isn't a plain id), no transcript file (zero or more than one candidate),
-#                   an unreadable path, or no assistant record in the file at all (an empty
-#                   projection)
+#                   an unreadable path, or no assistant turn record in the file at all (an empty
+#                   projection; a transcript whose only assistant-role records are
+#                   `api-request-blob` copies is one)
 #
 # Locating the transcript. Claude Code writes each subagent's transcript to
 #   ~/.claude/projects/<project-slug>/<session-id>/subagents/agent-<agent-id>.jsonl
@@ -59,6 +66,15 @@
 # match on any line carrying more than one). The transcript's own content never reaches
 # stdout, so it never re-enters the calling session's context the way re-reading the whole
 # file for review would.
+#
+# Records that are not turns. Claude Code also writes `api-request-blob` records to a
+# subagent transcript: copies of the request payload sent back to the API, which include
+# earlier assistant turns. Their `message` header carries a role (system, user or assistant)
+# and no `model`, so judging them would read every spawn as `mismatch`. A line that begins
+# with the exact bytes `{"type":"api-request-blob",` (closing quote and comma included, and
+# at the very start of the line, never anywhere inside it) is skipped: it neither counts as
+# an assistant turn seen nor is judged. Every other record carrying `"role":"assistant"` in
+# its header slice, of any or unknown type, is still judged and fails closed.
 #
 # Permitted toolset: POSIX sh only. No jq, no yq, no python -- this must run on any
 # maintainer machine with nothing extra installed.
@@ -128,6 +144,10 @@ mismatch=0
 # for it -- a mismatching last record would then never be checked, contradicting the
 # every-record rule this script exists to enforce.
 while IFS= read -r line || [ -n "$line" ]; do
+  # A request-payload copy, not a turn (see the header comment above).
+  case "$line" in
+    '{"type":"api-request-blob",'*) continue ;;
+  esac
   # Everything before the record's own first `"content":` -- the message header, never a
   # tool call's arguments (see the header comment above).
   head_part="${line%%\"content\":*}"

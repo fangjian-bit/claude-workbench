@@ -54,6 +54,26 @@ write_transcript() {
   printf '%s' "$f"
 }
 
+# write_lines <home> <session> <agent-id> <raw-line>... -- appends raw records to the transcript
+# (starting it afresh), for the blob fixtures below.
+write_lines() {
+  home="$1"; session="$2"; agent_id="$3"; shift 3
+  dir="$home/.claude/projects/some-project-slug/$session/subagents"
+  mkdir -p "$dir"
+  : >"$dir/agent-$agent_id.jsonl"
+  for l in "$@"; do printf '%s\n' "$l" >>"$dir/agent-$agent_id.jsonl"; done
+}
+
+# blob <agent-id> <role> -- an api-request-blob record in the real field order.
+blob() {
+  printf '{"type":"api-request-blob","sessionId":"s","agentId":"%s","hash":"h","message":{"role":"%s","content":[]}}' "$1" "$2"
+}
+
+# turn <model-id> -- a real assistant turn record.
+turn() {
+  printf '{"parentUuid":"x","isSidechain":true,"message":{"model":"%s","id":"m1","type":"message","role":"assistant","content":[]},"type":"assistant"}' "$1"
+}
+
 run() { # run <home> <session> <agent-id> <alias>
   HOME="$1" CLAUDE_CODE_SESSION_ID="$2" "$script" "$3" "$4"
 }
@@ -185,5 +205,52 @@ cp "$home/.claude/projects/some-project-slug/dupsess/subagents/agent-jjj000.json
   "$dir2/agent-jjj000.jsonl"
 assert_eq "unconfirmed: the session id is not unique to one project-slug directory" \
   "unconfirmed" "$(run "$home" dupsess jjj000 opus)"
+
+# --- api-request-blob records are request copies, not turns ----------------------------
+home="$(fixture_home blob-interleaved)"
+write_lines "$home" sess1 bl1 "$(turn claude-opus-5-5)" "$(blob bl1 assistant)" "$(blob bl1 user)" \
+  "$(blob bl1 system)" "$(turn claude-opus-5-5)" "$(blob bl1 assistant)"
+assert_eq "confirmed: blob records of every role between opus turns are skipped" \
+  "confirmed" "$(run "$home" sess1 bl1 opus)"
+
+home="$(fixture_home blob-mixed)"
+write_lines "$home" sess1 bl2 "$(turn claude-opus-5-5)" "$(blob bl2 assistant)" "$(turn claude-fable-5)" \
+  "$(blob bl2 user)" "$(turn claude-opus-5-5)"
+assert_eq "mismatch: a real fable turn among blobs still mismatches" \
+  "mismatch" "$(run "$home" sess1 bl2 opus)"
+
+home="$(fixture_home blob-only)"
+write_lines "$home" sess1 bl3 "$(blob bl3 assistant)" "$(blob bl3 user)" "$(blob bl3 assistant)"
+assert_eq "unconfirmed: only blob records, no assistant turn seen" \
+  "unconfirmed" "$(run "$home" sess1 bl3 opus)"
+
+home="$(fixture_home blob-unknown-type)"
+write_lines "$home" sess1 bl4 "$(turn claude-opus-5-5)" \
+  '{"type":"api-request-copy","sessionId":"s","message":{"role":"assistant","content":[]}}'
+assert_eq "mismatch: an unknown record type with an assistant role still fails closed" \
+  "mismatch" "$(run "$home" sess1 bl4 opus)"
+
+home="$(fixture_home blob-near-miss)"
+write_lines "$home" sess1 bl5 "$(turn claude-opus-5-5)" \
+  '{"type":"api-request-blobs","sessionId":"s","message":{"role":"assistant","content":[]}}'
+assert_eq "mismatch: a near-miss prefix (no closing quote and comma) is judged" \
+  "mismatch" "$(run "$home" sess1 bl5 opus)"
+
+home="$(fixture_home blob-in-content)"
+write_lines "$home" sess1 bl6 \
+  '{"parentUuid":"x","message":{"model":"claude-fable-5","id":"m1","type":"message","role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"type":"api-request-blob","x":1}}]},"type":"assistant"}'
+assert_eq "mismatch: the blob prefix inside content does not skip the record" \
+  "mismatch" "$(run "$home" sess1 bl6 opus)"
+
+home="$(fixture_home blob-leading-space)"
+write_lines "$home" sess1 bl7 ' {"type":"api-request-blob","sessionId":"s","message":{"role":"assistant","content":[]}}'
+assert_eq "mismatch: a blob line with leading whitespace is judged" \
+  "mismatch" "$(run "$home" sess1 bl7 opus)"
+
+home="$(fixture_home blob-type-not-first)"
+write_lines "$home" sess1 bl8 \
+  '{"sessionId":"s","type":"api-request-blob","message":{"role":"assistant","content":[]}}'
+assert_eq "mismatch: a blob type that is not the first field is judged" \
+  "mismatch" "$(run "$home" sess1 bl8 opus)"
 
 exit "$fail"

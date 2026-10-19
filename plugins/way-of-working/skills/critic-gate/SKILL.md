@@ -285,8 +285,8 @@ an agent's frontmatter `model:` for that one spawn only — frontmatter itself i
 text**: a critic's prompt and the diff it read are attacker-influenceable, and agent bodies
 carry "(Opus by default)"/"(Sonnet by default)" wording that competes with reality anyway.
 This is strong evidence, not unforgeable — a critic holds Bash and could in principle rewrite
-its own transcript file after the fact; the every-record rule below defeats appending to fix
-a mixed-model round, and that residual rewrite risk is accepted explicitly, the same as
+its own transcript file after the fact; the every-record rule below defeats appending a complete
+record to fix a mixed-model round, and that residual rewrite risk is accepted explicitly, the same as
 `bin/spawn-model.sh`'s own header states (the harm ceiling is false provenance, not
 execution). Run:
 
@@ -299,8 +299,10 @@ guessed, or read back from the critic's own report. It prints exactly `confirmed
 | unconfirmed` — bound to the spawn's own
 transcript file by its agent id (never a glob over `agent-*.jsonl`, so an earlier spawn
 cannot confirm a later round; more than one candidate file for the session id is itself an
-`unconfirmed`, never a pick among them), requiring **every** assistant record in that
-transcript to match the expected alias (appending can't fix a mixed-model round), and
+`unconfirmed`, never a pick among them), requiring **every** assistant turn record in that
+transcript to match the expected alias (appending a complete record can't fix a mixed-model round; the
+request-payload copies, `api-request-blob` records, are not turns and are skipped, and
+`bin/spawn-model.sh`'s header is the contract), and
 projecting only the `model` field so the transcript itself never re-enters this session's
 context. It prints `unconfirmed` on any miss — a missing file, an unreadable path, an empty
 projection. A round is recorded as run on `{models.second_opinion}` only on `confirmed`;
