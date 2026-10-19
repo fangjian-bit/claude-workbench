@@ -325,6 +325,34 @@ YML
   else
     echo "ok - authors: makes no gh call"
   fi
+
+  # no yq on PATH: only mktemp, dirname and rm are reachable, so the yq check is what stops it
+  mkdir -p "$tmp/noyq"
+  for tool in mktemp dirname rm; do
+    ln -s "$(command -v "$tool")" "$tmp/noyq/$tool"
+  done
+  if PATH="$tmp/noyq" command -v yq >/dev/null 2>&1; then
+    echo "FAIL - authors: no-yq PATH still finds yq" >&2
+    fail=1
+  else
+    echo "ok - authors: no-yq PATH does not find yq"
+  fi
+  status=0
+  PATH="$tmp/noyq" TMPDIR="$tmp" "$script" authors "$tmp/rows2" "$full" >"$tmp/out" 2>"$tmp/err" || status=$?
+  assert_status "authors: no yq on PATH exits 1" 1 "$status"
+  assert_eq "authors: no yq on PATH leaves nothing on stdout" "" "$(cat "$tmp/out")"
+  grep -qF "authors: yq not on PATH" "$tmp/err" && found=yes || found=no
+  assert_eq "authors: no yq on PATH names yq on stderr" yes "$found"
+
+  # no gh-identity.sh beside the script: a lone copy
+  mkdir -p "$tmp/alone"
+  cp "$script" "$tmp/alone/plan-gather.sh"
+  status=0
+  TMPDIR="$tmp" "$tmp/alone/plan-gather.sh" authors "$tmp/rows2" "$full" >"$tmp/out" 2>"$tmp/err" || status=$?
+  assert_status "authors: no gh-identity.sh beside the script exits 1" 1 "$status"
+  assert_eq "authors: no gh-identity.sh beside the script leaves nothing on stdout" "" "$(cat "$tmp/out")"
+  grep -qF "gh-identity.sh not beside this script" "$tmp/err" && found=yes || found=no
+  assert_eq "authors: no gh-identity.sh beside the script names it on stderr" yes "$found"
 fi
 
 exit "$fail"

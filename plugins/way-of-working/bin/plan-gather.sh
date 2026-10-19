@@ -6,8 +6,9 @@
 # check), and a specific milestone's own open issues (for the denied-write
 # fallback-comment location). The sprint that requested this skill required this
 # gather step to be a `bin/` script with fixtures, not skill prose -- the dialogue
-# that CONSUMES this data stays in the skill body; this script only fetches and
-# sorts it.
+# that CONSUMES this data stays in the skill body; the four fetching subcommands only
+# fetch and sort it, and `authors` fetches nothing: it judges rows already fetched
+# (no `gh` call) and sorts its output.
 #
 # Usage:
 #   plan-gather.sh unmilestoned <repo>
@@ -41,18 +42,24 @@
 #     `trusted`, `agent`, `untrusted` or `legacy`; anything else (exit 2, another word,
 #     empty output) is `unjudged`. <project.yml> is the default branch's committed
 #     `.ai/project.yml`, already written to a file by the caller. Sorted ascending by
-#     number. Display only (WB-D32, #710): plan-sprint gates nothing on the word. Makes
+#     number. Display only (WB-D32, #710): plan-sprint gates nothing on the word. `command -v
+#     yq` checks only that some `yq` is on PATH; `gh-identity.sh`'s yq calls use mikefarah v4
+#     syntax (`tag`, `explode`), so under a yq that cannot run them (python yq, mikefarah v3)
+#     it exits 2 and every row reads `unjudged`; either way nothing is gated on the word. Makes
 #     no `gh` call and writes nothing outside its own temp dir. Exits 1 with a stderr
 #     line and nothing on stdout for a bad argument count, an unreadable file, a
 #     non-digit number, no yq on PATH, a slash-less $0 or no `gh-identity.sh` beside this script.
 #     Empty rows file: empty stdout, exit 0.
 #
 # Exit-code convention -- deliberately DIFFERENT from plan-anchor.sh/cursor-drift.sh's
-# "always exit 0, the verdict is on stdout": this script has no match/drift/
-# unreadable verdict to encode. A failed `gh api` call exits non-zero with a
+# "always exit 0, the verdict is on stdout": the four fetching subcommands have no
+# match/drift/unreadable verdict to encode. A failed `gh api` call exits non-zero with a
 # stderr message and prints nothing further on stdout; the caller must check the
 # exit code, never infer failure from empty output, since empty output is also
-# the legitimate "zero rows" answer.
+# the legitimate "zero rows" answer. `authors` is the exception in both directions: it
+# does report a per-row word on stdout with exit 0 (`unjudged` for a row it cannot judge),
+# and it exits 1, with a stderr line and nothing on stdout, for the reasons its usage
+# paragraph lists -- never for a `gh` failure, since it makes no `gh` call.
 #
 # Why the sort happens HERE, in the shell, and not inside `gh api --jq`: `gh api
 # --paginate ... --jq 'sort_by(...)'` runs the --jq filter ONCE PER PAGE, not once
@@ -61,7 +68,7 @@
 # sorts within each page, which is silently wrong the moment a repo has enough
 # open milestones to paginate -- "due-date order, undated last" would stay true on
 # page 1 and false everywhere after it. `--slurp` is not supported together with
-# `--jq` either. So every subcommand below fetches the full, unsorted result via
+# `--jq` either. So each of the four fetching subcommands fetches the full, unsorted result via
 # direct redirection to a file (checking gh's own exit code before trusting the
 # file), and sorts it with a single `LC_ALL=C sort` pass over the complete data.
 #
