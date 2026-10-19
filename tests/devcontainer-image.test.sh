@@ -1,11 +1,12 @@
 #!/bin/sh
-# Static fixtures for the dev container image (#725, #742): .devcontainer/Dockerfile,
+# Static fixtures for the dev container image (#725, #742, #741): .devcontainer/Dockerfile,
 # .devcontainer/devcontainer.json and .devcontainer/managed-settings.json.
 #
 #   Dockerfile          the template's shape (header of the Dockerfile), the claude pin against
 #                       scripts/loop/Dockerfile's, the download and checksum, nothing in the app
 #                       user's home directory, no npm or node, the managed settings file's guard,
-#                       COPY and owner/mode assertion in order
+#                       COPY and owner/mode assertion in order, the GNU coreutils links (#741): the
+#                       four-line link loop, its assertion, their order, and no replacing `ln`
 #   devcontainer.json   DISABLE_AUTOUPDATER is "1" inside containerEnv. The file has // comments,
 #                       so jq cannot parse it; this checks with a line-anchored grep inside the
 #                       containerEnv block (awk cuts the block out), not by stripping comments.
@@ -59,8 +60,10 @@ check "Dockerfile: LF line endings only" test -z "$(grep -c "$(printf '\r')" "$d
 
 # --- Dockerfile: the claude install ------------------------------------------------------
 # The install checks read the file with comment lines removed, so a commented-out install fails.
-dfcode=$(mktemp); want=$(mktemp); trap 'rm -f "$dfcode" "$want"' EXIT
+dfcode=$(mktemp); want=$(mktemp); dfstrip=$(mktemp); trap 'rm -f "$dfcode" "$want" "$dfstrip"' EXIT
 grep -v '^[[:space:]]*#' "$df" >"$dfcode"
+# Leading whitespace removed, no line dropped: line numbers equal $dfcode's.
+sed 's/^[[:space:]]*//' "$dfcode" >"$dfstrip"
 arg() { sed -n "s/^ARG $2=//p" "$1"; }
 for a in CLAUDE_VERSION CLAUDE_SHA256; do
   v=$(arg "$dfcode" $a); w=$(arg "$loop" $a)
@@ -102,6 +105,30 @@ user0_n=$(grep -n '^USER 0$' "$dfcode" | head -1 | cut -d: -f1)
 last_user_n=$(grep -n '^USER 1000:1000$' "$dfcode" | tail -1 | cut -d: -f1)
 check "Dockerfile: guard, COPY, stat in that order, after USER 0 and before the last USER 1000:1000" \
   sh -c '[ -n "$1" ] && [ -n "$2" ] && [ -n "$3" ] && [ -n "$4" ] && [ -n "$5" ] && [ "$4" -lt "$1" ] && [ "$1" -lt "$2" ] && [ "$2" -lt "$3" ] && [ "$3" -lt "$5" ]' _ "$guard_n" "$copy_n" "$stat_n" "$user0_n" "$last_user_n"
+
+# --- Dockerfile: the GNU coreutils links (#741) --------------------------------------------
+# The loop is pinned as four consecutive lines (the gpg loop's own `done` matches a lone `done`).
+loop_head='RUN set -euf; \'
+loop_for="for p in \$(dpkg -L gnu-coreutils | grep '^/usr/bin/gnu'); do \\"
+loop_ln='ln -s "$p" "/usr/local/bin/${p#/usr/bin/gnu}"; \'
+loop_done='done'
+gnu_assert='RUN [ "$(readlink -f "$(command -v timeout)")" = /usr/bin/gnutimeout ] && [ "$(date +%s%3N | wc -c)" -eq 14 ]'
+assert_eq "Dockerfile: exactly one coreutils link loop head" 1 "$(grep -cxF "$loop_head" "$dfstrip" || true)"
+loop_n=$(grep -nxF "$loop_head" "$dfstrip" | head -1 | cut -d: -f1)
+if [ -n "$loop_n" ]; then
+  l1=$(sed -n "$((loop_n + 1))p" "$dfstrip"); l2=$(sed -n "$((loop_n + 2))p" "$dfstrip"); l3=$(sed -n "$((loop_n + 3))p" "$dfstrip")
+else
+  l1= l2= l3=
+fi
+assert_eq "Dockerfile: the link loop's for line follows its head" "$loop_for" "$l1"
+assert_eq "Dockerfile: the link loop's ln -s line follows" "$loop_ln" "$l2"
+assert_eq "Dockerfile: the link loop ends with done" "$loop_done" "$l3"
+check "Dockerfile: the coreutils assertion is a whole line" grep -qxF "$gnu_assert" "$dfstrip"
+gnu_assert_n=$(grep -nxF "$gnu_assert" "$dfstrip" | head -1 | cut -d: -f1)
+check "Dockerfile: managed-settings stat, link loop, assertion, last USER 1000:1000 in that order" \
+  sh -c '[ -n "$1" ] && [ -n "$2" ] && [ -n "$3" ] && [ -n "$4" ] && [ "$1" -lt "$2" ] && [ "$(($2 + 3))" -lt "$3" ] && [ "$3" -lt "$4" ]' _ "$stat_n" "$loop_n" "$gnu_assert_n" "$last_user_n"
+check "Dockerfile: no ln replaces an existing destination (force, backup or suffix)" \
+  test -z "$(grep -E '(^|[^[:alnum:]_.-])(gnu)?ln([[:space:]]+-[^[:space:]]*)*[[:space:]]+(-[[:alnum:]]*[fbS][^[:space:]]*|--(f|b|su)[^[:space:]]*)([[:space:]]|$)' "$dfstrip" || true)"
 
 # --- devcontainer.json -------------------------------------------------------------------
 block=$(awk '/^[[:space:]]*"containerEnv"[[:space:]]*:/ {on=1} on {print} on && /}/ {exit}' "$dj")

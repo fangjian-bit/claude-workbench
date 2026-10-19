@@ -298,6 +298,39 @@ removes it. The login lives on the volume; the binary does not.
   (after removing the containers that use them) resets the container's own state, not the `/workspace` checkout, whose `.claude/` and
   `.git/hooks` or `.git/config` a session can also write and which must be checked separately.
 
+## GNU coreutils, not uutils
+
+- **Why.** The base image is Ubuntu 26.04, where the plain coreutils names (`timeout`, `date`,
+  `tail` and the rest) are the Rust uutils build. Its `timeout` adds about 100 ms to every call,
+  which `scripts/identity/wow-review`, `tests/identity-review.test.sh` and other suites and plugin
+  scripts pay, and some uutils tools give wrong results: `date +%s%3N` ignores the width and prints
+  nanoseconds. CI and Git Bash run GNU, so the container was the odd one out (#741).
+- **What it does.** Every gnu-prefixed tool in `/usr/bin` (the base image's own gnu-coreutils
+  package, so nothing is downloaded) is linked under its plain name in `/usr/local/bin`, which
+  comes before `/usr/bin` on `PATH`. A build-time assertion fails the build if `timeout` does not
+  resolve to `/usr/bin/gnutimeout` or `date` ignores the millisecond width, and plain `ln -s`
+  fails it if a file or link of that name already exists (the `gh` shim and `claude` live there). A directory (or a link to one) of that name is not
+  refused, and that tool keeps uutils (for `timeout` and `date` the assertion fails the build). The
+  package providing the plain names is not switched to coreutils-from-gnu: the image ships no apt lists,
+  and the switch would need a network package fetch at build time that the FROM line's digest
+  does not pin.
+- **What it covers.** Parity with CI for coreutils only. The container's `awk` (mawk) and `sh`
+  (dash) are unchanged. The links also change which `date` and `tr` the token reader
+  `/usr/local/libexec/dev-token` uses, to GNU; `tests/dev-token.test.sh` assumes GNU `date`. That
+  suite is not in CI, so the rebuilt container is the only place it is checked against the tools
+  the reader really runs.
+- **What it does not cover.** Callers that bypass `PATH` still get uutils: absolute `/usr/bin/...`
+  or `/bin/...` paths (`/bin` is the usrmerge link to `/usr/bin`), a `PATH` reset to
+  `/usr/bin:/bin`, and `env -i` with no `PATH` (libc's default is `/bin:/usr/bin`). A
+  `#!/usr/bin/env` shebang runs only `env` itself from uutils; the script's own calls go through
+  `PATH` and get GNU. Anything earlier on `PATH` wins, and `~/.local/bin` leads it. The
+  uutils-only extras (for example `hashsum`) and `/usr/sbin/gnuchroot` are not linked. The review
+  image and the loop image are separate (#760).
+- **The check after a rebuild**, with the compare-first order in *Hazards that remain*:
+  `command -v timeout` prints `/usr/local/bin/timeout`, `timeout --version` names GNU coreutils on
+  its first line, `date +%s%3N` prints 13 digits, and `ls ~/.local/bin` lists no coreutils name (a
+  copy there, on the home volume, would shadow the links).
+
 ## Not adopted here yet
 
 The template's `.github/workflows` (`devcontainer-image.yml`, `architect-review-gate.yml`,

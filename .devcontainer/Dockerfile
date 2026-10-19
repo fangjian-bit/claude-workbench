@@ -2,8 +2,9 @@
 #
 # This repo's devcontainer: the shared base image, pinned by tag AND digest, plus the two
 # scripts that make `gh` and git act only as the dev App (WB-D24, #393) and a pinned,
-# checksum-verified `claude` (#725) with a root-owned managed settings file (#742). Dependabot's
-# docker ecosystem bumps the FROM line (.github/dependabot.yml).
+# checksum-verified `claude` (#725) with a root-owned managed settings file (#742) and GNU
+# coreutils ahead of uutils on PATH (#741). Dependabot's docker ecosystem bumps the FROM line
+# (.github/dependabot.yml).
 #
 # Every pull request is checked by `verify / verify` once the template's
 # .github/workflows/devcontainer-image.yml is adopted: the FROM line must be one of the
@@ -83,4 +84,29 @@ RUN set -eu; \
 RUN set -eu; test ! -e /etc/claude-code; mkdir -p /etc/claude-code; chmod 0755 /etc/claude-code
 COPY --chown=root:root --chmod=0444 managed-settings.json /etc/claude-code/managed-settings.json
 RUN [ "$(stat -c %u:%a /etc/claude-code/managed-settings.json)" = 0:444 ]
+
+# GNU coreutils ahead of uutils on PATH (#741). The base image is Ubuntu 26.04, where the plain
+# coreutils names (timeout, date, tail and the rest) are the Rust uutils build. Its `timeout`
+# adds about 100 ms to every call, and some tools give wrong results: `date +%s%3N` ignores the
+# width and prints nanoseconds. CI and Git Bash run GNU, so the container is the odd one out.
+# The base image already ships GNU coreutils under gnu-prefixed names (package gnu-coreutils),
+# so each /usr/bin/gnu<name> is linked as /usr/local/bin/<name>, which comes before /usr/bin on
+# PATH; nothing is downloaded. Plain `ln -s`, never a force option, fails the build if a file or
+# link of any of those names already exists in /usr/local/bin (the `gh` shim and `claude` live
+# there). A directory (or a link to one) of that name is not refused, and that tool keeps uutils
+# (for `timeout` and `date` the assertion below fails the build). `set -f` keeps the `gnu[` entry
+# literal. If a later base image stops shipping gnu-coreutils the loop runs zero times and the
+# assertion below fails the build; it also checks that `date` honours the millisecond width (13
+# digits plus a newline).
+# Not covered, so these still get uutils: callers that bypass PATH (absolute /usr/bin/... or
+# /bin/... paths, /bin being the usrmerge link to /usr/bin; a PATH reset to /usr/bin:/bin; `env -i`
+# with no PATH, where libc defaults to /bin:/usr/bin). A `#!/usr/bin/env` shebang runs only `env`
+# itself from uutils; the script's own calls go through PATH and get GNU. Anything earlier on PATH
+# also wins: the home directory's local bin leads it. Coreutils only: awk (mawk) and sh (dash)
+# are unchanged.
+RUN set -euf; \
+for p in $(dpkg -L gnu-coreutils | grep '^/usr/bin/gnu'); do \
+ln -s "$p" "/usr/local/bin/${p#/usr/bin/gnu}"; \
+done
+RUN [ "$(readlink -f "$(command -v timeout)")" = /usr/bin/gnutimeout ] && [ "$(date +%s%3N | wc -c)" -eq 14 ]
 USER 1000:1000
