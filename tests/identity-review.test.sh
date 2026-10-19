@@ -11,6 +11,20 @@
 # throughout, to prove nothing prompts.
 #
 # Permitted toolset: POSIX sh and its standard utilities, jq and yq (skipped, loudly, if absent).
+#
+# Runtime (#755): run alone, in the dev container as built (GNU coreutils 9.7 `timeout`, linked
+# by #741), this suite takes 88 s. The same run with the uutils 0.8.0 `timeout` first on PATH
+# takes 775 s, about 8.8 times as long. The cause is the container's `timeout` build: a run makes
+# about 7,500 `timeout` calls (the launcher wraps nearly every docker and gh call in it), and an
+# isolated `timeout 5 true` costs 62.2 ms with uutils against 0.8 ms with GNU in a 100-call loop
+# (a 61.4 ms difference; the figure varies with load, and the suite's effective overhead is
+# higher, about 90 ms per call). The other uutils tools' share was not measured. The deliberate
+# waits (about 25 s) are in both figures; the largest gap in a timestamped run is the 9.8 s
+# injector that never comes up. The 300 s overrun seen while #710
+# was built was not reproduced on the GNU build. Run it alone, in its own Bash call, with the
+# tool timeout at least 176 s (twice the 88 s). On a container whose `timeout` is uutils the bound
+# is about 1550 s: run it in the background, or stop and ask the maintainer to remove a uutils
+# copy from ~/.local/bin or recreate the container (DEV-CONTAINER.md, Lanes).
 set -u
 
 root_dir="$(cd "$(dirname "$0")/.." && pwd)"

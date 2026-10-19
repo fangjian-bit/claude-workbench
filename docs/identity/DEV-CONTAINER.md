@@ -122,6 +122,24 @@ only `/workspace`, and its `.git` file names a host path.
 - **Identity.** Every session, driver or lane, acts as the dev App through the container's `gh`
   shim and git credential helper. Do not prefix commands with `GH_TOKEN`. Suites run natively
   (no WSL), and commits are unsigned (`WB-D25`), so no `timeout 90` around signing.
+- **Runtime of `tests/identity-review.test.sh` (#755).** Run alone on the container as built
+  (GNU `timeout`), it takes 88 s. With the uutils `timeout` first on `PATH` the same run takes
+  775 s, which overruns even the Bash tool's 600 s maximum (its default is 120 s). The cause is
+  the `timeout` build: a run makes about 7,500 `timeout` calls across the launcher's wrapped
+  docker and gh calls. An isolated `timeout 5 true` measured 62.2 ms with uutils against 0.8 ms
+  with GNU, a 61.4 ms difference; that varies with load, and the suite's effective overhead is
+  higher, about 90 ms per call. The other uutils tools' share was not measured. Run the suite
+  alone, in its own Bash call, with the tool timeout at least 176 s (twice the 88 s). The bound
+  is advice: `scripts/lanes/lane.sh` and the prompt it writes are unchanged. On a container whose
+  `timeout --version` names uutils, the bound is about 1550 s: run the suite in the background, or
+  stop and ask the maintainer. If `command -v timeout` prints `/usr/bin/timeout`, the container
+  predates #741 and the maintainer recreates it, on the host, only after every lane and the
+  driver session have exited, following the compare-first order in *Hazards that remain* and the
+  `--remove-existing-container` command in *Opening it*, then runs *The check after a rebuild* in
+  *GNU coreutils, not uutils*, which is also how to tell such a container. If it prints another
+  path, a uutils copy in `~/.local/bin` shadows the links: the maintainer removes that copy (it
+  survives a recreate, so recreating does not fix it).
+  A lane never recreates the container.
 - **Reviews** still run on the host through `wow-review`; in the container
   `/way-of-working:architect-review` prints the launcher command.
 - **Lane rules that still apply:**
