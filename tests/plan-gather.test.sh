@@ -27,7 +27,8 @@
 # naming-collision bug this subcommand exists to fix) with every fixture still
 # passing.
 #
-# Permitted toolset: POSIX sh. No jq, no yq, no python.
+# Permitted toolset: POSIX sh. No jq, no python. The `authors` section runs the real sibling
+# gh-identity.sh, so it needs yq on PATH and skips only itself, loudly, without it.
 set -eu
 
 root_dir="$(cd "$(dirname "$0")/.." && pwd)"
@@ -239,5 +240,91 @@ status=0
 out="$(FAKE_EXPECT="milestone=5" FAKE_EXPECT2="state=open" FAKE_ROWS="" run milestone-issues "$REPO" 5)" || status=$?
 assert_status "milestone-issues: a successful call with zero rows exits zero" 0 "$status"
 assert_eq "milestone-issues: zero rows is legitimately empty output, not an error" "" "$out"
+
+echo "# authors"
+
+if ! command -v yq >/dev/null 2>&1; then
+  echo "SKIP - yq not on PATH; the authors fixtures need it" >&2
+else
+  full="$tmp/full.yml"
+  cat >"$full" <<'YML'
+identities:
+  maintainer:
+    - { login: alice-dev, id: 1001 }
+  dev_app: { login: "acme-dev[bot]", id: 2001 }
+  reviewer_app: { login: "acme-review[bot]", id: 2002 }
+  loop_app: { login: "acme-loop[bot]", id: 2003 }
+YML
+  nullyml="$tmp/null.yml"
+  printf 'identities: null\n' >"$nullyml"
+
+  # row <number> <login> <id> -- the six TSV fields `unmilestoned` prints
+  row() { printf '%s\t2026-01-01T00:00:00Z\tNONE\t%s\t%s\tsome title\n' "$1" "$2" "$3"; }
+
+  one() { # one <login> <id> <yml> -- the word for a single-row file
+    row 5 "$1" "$2" >"$tmp/rows1"
+    "$script" authors "$tmp/rows1" "$3" | cut -f2
+  }
+
+  assert_eq "authors: a declared maintainer reads trusted" "trusted" "$(one alice-dev 1001 "$full")"
+  assert_eq "authors: the dev App reads agent" "agent" "$(one 'acme-dev[bot]' 2001 "$full")"
+  assert_eq "authors: the reviewer App reads agent" "agent" "$(one 'acme-review[bot]' 2002 "$full")"
+  assert_eq "authors: the loop App reads untrusted" "untrusted" "$(one 'acme-loop[bot]' 2003 "$full")"
+  assert_eq "authors: an undeclared account reads untrusted" "untrusted" "$(one mallory 9999 "$full")"
+  assert_eq "authors: identities null reads legacy" "legacy" "$(one alice-dev 1001 "$nullyml")"
+  assert_eq "authors: a declared id under another login reads unjudged" "unjudged" "$(one mallory 1001 "$full")"
+
+  { row 42 mallory 9999; row 7 alice-dev 1001; } >"$tmp/rows2"
+  expected="7${tab}trusted
+42${tab}untrusted"
+  assert_eq "authors: rows sort ascending by issue number" "$expected" "$("$script" authors "$tmp/rows2" "$full")"
+
+  printf '7\n' >"$tmp/rowsshort"
+  assert_eq "authors: a row with no tabs reads unjudged" "7${tab}unjudged" "$("$script" authors "$tmp/rowsshort" "$full")"
+
+  : >"$tmp/empty"
+  status=0
+  out="$("$script" authors "$tmp/empty" "$full")" || status=$?
+  assert_status "authors: zero rows exits zero" 0 "$status"
+  assert_eq "authors: zero rows is empty output, exit 0" "" "$out"
+
+  { row 7 alice-dev 1001; row x7 alice-dev 1001; } >"$tmp/rowsbad"
+  status=0
+  "$script" authors "$tmp/rowsbad" "$full" >"$tmp/out" 2>/dev/null || status=$?
+  assert_status "authors: a non-digit issue number exits 1" 1 "$status"
+  assert_eq "authors: a non-digit issue number leaves nothing on stdout" "" "$(cat "$tmp/out")"
+
+  status=0
+  "$script" authors "$tmp/nosuch" "$full" >"$tmp/out" 2>/dev/null || status=$?
+  assert_status "authors: a missing rows file exits 1" 1 "$status"
+  assert_eq "authors: a missing rows file leaves nothing on stdout" "" "$(cat "$tmp/out")"
+
+  status=0
+  "$script" authors "$tmp/rows2" "$tmp/nosuch" >"$tmp/out" 2>/dev/null || status=$?
+  assert_status "authors: a missing project file exits 1" 1 "$status"
+  assert_eq "authors: a missing project file leaves nothing on stdout" "" "$(cat "$tmp/out")"
+
+  status=0
+  "$script" authors "$tmp/rows2" >/dev/null 2>&1 || status=$?
+  assert_status "authors: a wrong argument count exits 1" 1 "$status"
+
+  status=0
+  (cd "$root_dir/plugins/way-of-working/bin" && sh plan-gather.sh authors "$tmp/rows2" "$full" >"$tmp/out" 2>/dev/null) || status=$?
+  assert_status "authors: a slash-less \$0 exits 1" 1 "$status"
+  assert_eq "authors: a slash-less \$0 leaves nothing on stdout" "" "$(cat "$tmp/out")"
+
+  # a fake gh that records any call: authors must make none
+  marker="$tmp/gh-called"
+  mkdir -p "$tmp/ghbin"
+  printf '#!/bin/sh\n: >"%s"\nexit 1\n' "$marker" >"$tmp/ghbin/gh"
+  chmod +x "$tmp/ghbin/gh"
+  PATH="$tmp/ghbin:$PATH" "$script" authors "$tmp/rows2" "$full" >/dev/null
+  if [ -e "$marker" ]; then
+    echo "FAIL - authors: makes no gh call: gh was called" >&2
+    fail=1
+  else
+    echo "ok - authors: makes no gh call"
+  fi
+fi
 
 exit "$fail"

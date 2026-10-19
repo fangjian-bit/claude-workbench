@@ -83,7 +83,8 @@
 # A caller that gets exit 2 treats it as neither trusted nor untrusted, and waits.
 #
 # task-author (WB-D32, #664) judges the author of a TASK issue only: spec-issue.sh, spec-post.sh,
-# and the author checks of resume, the coder agent and /way-of-working:architect-review. It shares `author`'s
+# the author checks of resume, the coder agent and /way-of-working:architect-review, and
+# plan-gather.sh authors (plan-sprint's author display, which gates nothing). It shares `author`'s
 # lookup and exit-2 cases, and prints exactly one word:
 #   trusted    -- a declared maintainer
 #   agent      -- the declared dev_app or reviewer_app. The caller must not read the issue body on

@@ -19,6 +19,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 `v0.5.0` are summarized from their tags; the full record is `docs/decisions.md` (`WB-D*`) and
 the GitHub release notes.
 
+## [Unreleased]
+
+### Changed
+
+- `/way-of-working:plan-sprint` shows each unmilestoned issue's author as `trusted`, `agent`, `untrusted`, `legacy` (or `unjudged`), judged by `gh-identity.sh task-author` through the new read-only `plan-gather.sh authors`, so an issue filed by the declared dev or reviewer App no longer reads `untrusted`. An `agent` row carries a note that drafting its spec needs a declared maintainer's approving reaction after the issue's last change. Display only: nothing is gated on the word (#710, `WB-D32`).
+
 ## [0.20.0] — 2026-10-18
 
 **⚠️ Migration** — on a map repo a build now refuses a spec whose *Files touched* section is not one

@@ -13,7 +13,8 @@
 #   plan-gather.sh unmilestoned <repo>
 #     Prints TSV, one row per open TRUE issue (pull requests excluded) with no
 #     milestone: number\tupdated_at\tauthor_association\tauthor_login\tauthor_id\t
-#     title (the login and numeric id are what `gh-identity.sh author` judges, since
+#     title (the login and numeric id are what `gh-identity.sh task-author` judges, through
+#     `authors` below, since
 #     `author_association` is viewer-relative -- WB-D24, #382). Sorted ascending
 #     by issue number. Empty stdout + exit 0 legitimately means none.
 #   plan-gather.sh milestones <repo>
@@ -33,6 +34,18 @@
 #     digits-only -- this is the read the denied-write fallback-comment location
 #     needs and the milestone's own `open_issues` COUNT cannot answer, since that
 #     count includes milestoned PRs and names no issue numbers at all.
+#   plan-gather.sh authors <rows-file> <project.yml>
+#     Prints TSV, one row per non-empty row of <rows-file> (`unmilestoned` output, six
+#     TSV fields): number\tword. The word is the sibling `gh-identity.sh task-author
+#     <login> <id> <project.yml>` stdout when it exits 0 and prints exactly one of
+#     `trusted`, `agent`, `untrusted` or `legacy`; anything else (exit 2, another word,
+#     empty output) is `unjudged`. <project.yml> is the default branch's committed
+#     `.ai/project.yml`, already written to a file by the caller. Sorted ascending by
+#     number. Display only (WB-D32, #710): plan-sprint gates nothing on the word. Makes
+#     no `gh` call and writes nothing outside its own temp dir. Exits 1 with a stderr
+#     line and nothing on stdout for a bad argument count, an unreadable file, a
+#     non-digit number, no yq on PATH, a slash-less $0 or no `gh-identity.sh` beside this script.
+#     Empty rows file: empty stdout, exit 0.
 #
 # Exit-code convention -- deliberately DIFFERENT from plan-anchor.sh/cursor-drift.sh's
 # "always exit 0, the verdict is on stdout": this script has no match/drift/
@@ -67,7 +80,9 @@
 #
 # Permitted toolset: POSIX sh, `gh` (using only its own embedded --jq), and
 # whatever sort ships on the machine, invoked under `LC_ALL=C` for deterministic
-# byte-value ordering -- same bar as plan-anchor.sh and cursor-drift.sh.
+# byte-value ordering -- same bar as plan-anchor.sh and cursor-drift.sh. `authors`
+# alone also uses `cut` and the sibling `gh-identity.sh` (which needs yq), run as `sh`
+# and found only as `$(dirname "$0")/gh-identity.sh`; the other four subcommands do not.
 set -eu
 
 tmp="$(mktemp -d)" || { echo "plan-gather.sh: could not create a temp dir" >&2; exit 1; }
@@ -87,15 +102,23 @@ usage() {
   echo "                       plan-gather.sh milestones   <repo>" >&2
   echo "                       plan-gather.sh titles       <repo>" >&2
   echo "                       plan-gather.sh milestone-issues <repo> <milestone-number>" >&2
+  echo "                       plan-gather.sh authors      <rows-file> <project.yml>" >&2
 }
 
 mode="${1:-}"
 case "$mode" in
-  unmilestoned | milestones | titles | milestone-issues) shift ;;
+  unmilestoned | milestones | titles | milestone-issues | authors) shift ;;
   *) usage; exit 1 ;;
 esac
 
 case "$mode" in
+  authors)
+    if [ "$#" -ne 2 ]; then
+      echo "plan-gather.sh: authors needs <rows-file> <project.yml>" >&2
+      exit 1
+    fi
+    rows_file="$1"; yml_file="$2"
+    ;;
   milestone-issues)
     if [ "$#" -ne 2 ]; then
       echo "plan-gather.sh: milestone-issues needs <repo> <milestone-number>" >&2
@@ -115,6 +138,58 @@ case "$mode" in
     repo="$1"
     ;;
 esac
+
+# =============================================================================
+if [ "$mode" = authors ]; then
+  case "$0" in
+    */*) gi="$(dirname "$0")/gh-identity.sh" ;;
+    *)
+      echo "plan-gather.sh: authors must be run by path (a slash-less \$0 cannot locate gh-identity.sh)" >&2
+      exit 1
+      ;;
+  esac
+  if [ ! -f "$gi" ]; then
+    echo "plan-gather.sh: gh-identity.sh not beside this script" >&2
+    exit 1
+  fi
+  if [ ! -f "$rows_file" ] || [ ! -r "$rows_file" ]; then
+    echo "plan-gather.sh: authors: rows file is not a readable file" >&2
+    exit 1
+  fi
+  if [ ! -f "$yml_file" ] || [ ! -r "$yml_file" ]; then
+    echo "plan-gather.sh: authors: project file is not a readable file" >&2
+    exit 1
+  fi
+  if ! command -v yq >/dev/null 2>&1; then
+    echo "plan-gather.sh: authors: yq not on PATH (gh-identity.sh needs it)" >&2
+    exit 1
+  fi
+  : >"$tmp/out"
+  # Fields by position with cut (-s: a row with no tab has no login or id, so it reads unjudged), never read with a tab IFS: a tab is IFS whitespace, so an
+  # empty field would shift every field after it.
+  while IFS= read -r row || [ -n "$row" ]; do
+    [ -n "$row" ] || continue
+    num="$(printf '%s\n' "$row" | cut -f1)"
+    login="$(printf '%s\n' "$row" | cut -s -f4)"
+    uid="$(printf '%s\n' "$row" | cut -s -f5)"
+    if ! is_digits "$num"; then
+      echo "plan-gather.sh: authors: a row's issue number is not digits only" >&2
+      exit 1
+    fi
+    word=""
+    if word="$(sh "$gi" task-author "$login" "$uid" "$yml_file" 2>/dev/null)"; then
+      case "$word" in
+        trusted | agent | untrusted | legacy) ;;
+        *) word=unjudged ;;
+      esac
+    else
+      word=unjudged
+    fi
+    printf '%s\t%s\n' "$num" "$word" >>"$tmp/out"
+  done <"$rows_file"
+  LC_ALL=C sort -t "$tab" -k1,1n "$tmp/out"
+  exit 0
+fi
 
 # =============================================================================
 if [ "$mode" = unmilestoned ]; then
