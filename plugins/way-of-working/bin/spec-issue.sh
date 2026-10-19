@@ -78,8 +78,8 @@
 # comments (#498). The `hidden` screen decodes the JSON first (`yq -p=json` into a file, matched with
 # `awk` under LC_ALL=C, the patterns passed through ENVIRON), so a JSON escape cannot hide a match. It
 # refuses `<!` and `<?` (an HTML comment, declaration, CDATA section or processing instruction opener), a CR that is not the last character of its line (a browser-edited
-# CRLF body passes, as in spec-fresh.sh), a character from spec-fresh.sh's HID set (zero-width and
-# bidi; copied byte for byte) and a line that is a Markdown link reference definition (renders as
+# CRLF body passes, as in spec-fresh.sh), a character from spec-fresh.sh's HID set (zero-width, bidi,
+# soft hyphen and Unicode tag; copied byte for byte) and a line that is a Markdown link reference definition (renders as
 # nothing). It is a filter, not a boundary. The reaction gates this script's read of the body, never
 # a build: a builder reads no body under a map.
 #
@@ -185,8 +185,8 @@ fold() { printf '%s' "$1" | tr 'A-Z' 'a-z' | sed 's/\[bot\]$//'; }
 # rd <file> -- the first line of a file, or nothing.
 rd() { _l=; IFS= read -r _l <"$1" || [ -n "$_l" ] || true; printf '%s' "$_l"; }
 
-# HID: spec-fresh.sh's zero-width and bidi set, byte for byte (the agent path's hidden-text screen)
-HID="$(printf '\330\234|\342\200[\213-\217]|\342\200[\252-\256]|\342\201[\240-\244]|\342\201[\246-\251]|\357\273\277')"
+# HID: spec-fresh.sh's zero-width, bidi, soft hyphen and Unicode tag set, byte for byte (the agent path's hidden-text screen)
+HID="$(printf '\330\234|\342\200[\213-\217]|\342\200[\252-\256]|\342\201[\240-\244]|\342\201[\246-\251]|\357\273\277|\302\255|\363\240[\200-\201][\200-\277]')"
 
 # 1. the origin's URL
 git -C "$gtop" remote get-url origin >"$tmp/url" 2>/dev/null || stop unreadable

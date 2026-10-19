@@ -22,7 +22,9 @@
 #   fresh        -- no checked path changed (or none is checked)
 #   stale <n>    -- <n> checked paths changed between the marker's commit and the base tip
 #   bad-marker   -- the first line is not a marker for <issue> on the project file's `pr_base`
-#   bad-shape    -- the *Files touched* section has a shape this check cannot read
+#   bad-shape    -- the body carries a character from HID below, an HTML comment opener or a stray
+#                   CR (a HID character on the marker line reads bad-marker), or the *Files touched*
+#                   section has a shape this check cannot read
 #   bad-sha      -- the marker's commit is not a commit, or not an ancestor of the base tip
 #   unreadable   -- a config value, the JSON, a fetch or a git read failed
 # It exits 2, with a usage line on stderr and nothing on stdout, for a bad argument (the wrong
@@ -36,8 +38,9 @@
 #            line with one trailing CR removed.
 #   Marker   the first line (up to the first LF, one trailing CR removed) matches
 #            `spec-task: issue=<N> base=<B> sha=<40 hex>` with <N> = <issue>, <B> = pr_base.
-#   Shape    the *Files touched* section (from the one `### Files touched` heading to the one
-#            `### Done when` heading after it) is readable: see below.
+#   Shape    no HID character, HTML comment opener or stray CR on any line, and the *Files touched*
+#            section (from the one `### Files touched` heading to the one `### Done when` heading
+#            after it) is readable: see below.
 #   Fetch    `git fetch` of the base into refs/remotes/origin/<base>, then rev-parse of it.
 #   Commit   the sha is a commit and an ancestor of the base tip, before any other git command
 #            uses it.
@@ -54,10 +57,11 @@
 # more spaces of indent while an item is open) is ignored. Prose (column 0, not starting with a
 # list, quote, table, link, heading, code, tab or ordered-list character) closes an item.
 # Blank lines neither open nor close one. Anything else, a code fence, a line starting with `#`
-# or `<`, a character from the zero-width and bidi ranges in HID below (inside the section; other invisible
-# characters, such as Unicode tag characters, are not refused), an HTML comment opener or
-# a CR that is not the last character of its line (anywhere in the body), not exactly one of each
-# heading, or no bullet at all, is bad-shape.
+# or `<` (inside the section), a character from HID below (zero-width, bidi, soft hyphen U+00AD and
+# Unicode tag U+E0000 to U+E007F characters), an HTML comment opener or a CR that is not the last
+# character of its line (each anywhere in the body), not exactly one of each heading, or no bullet
+# at all, is bad-shape. Other invisible characters (variation selectors and other default-ignorable
+# characters) are not refused (#709).
 #
 # Permitted toolset: POSIX sh, git, yq (mikefarah v4), awk, mktemp and tr. Runs under LC_ALL=C.
 # No gh, no eval.
@@ -100,7 +104,7 @@ out() {
 
 # The Shape stage over a file whose lines may end in CR. On a pass it writes the checked paths,
 # one per line, to the second argument and returns 0; otherwise it returns 1.
-HID="$(printf '\330\234|\342\200[\213-\217]|\342\200[\252-\256]|\342\201[\240-\244]|\342\201[\246-\251]|\357\273\277')"
+HID="$(printf '\330\234|\342\200[\213-\217]|\342\200[\252-\256]|\342\201[\240-\244]|\342\201[\246-\251]|\357\273\277|\302\255|\363\240[\200-\201][\200-\277]')"
 shape_stage() { # <in> <paths-out>
   FRESH_HID="$HID" awk '
     BEGIN {
@@ -114,6 +118,7 @@ shape_stage() { # <in> <paths-out>
       # A CR left after the strip is a line break to a Markdown renderer but not to awk, so a
       # bullet could render as two and be checked as one.
       if (index(line, "\r") > 0) bad = 1
+      if (line ~ hid) bad = 1
       if (line ~ /^### Files touched[ \t]*$/) {
         nf++
         if (state == 0) state = 1
@@ -126,7 +131,6 @@ shape_stage() { # <in> <paths-out>
       }
       if (state != 1) next
       if (line ~ /^[ \t]*$/) next
-      if (line ~ hid) { bad = 1; next }
       if (line ~ /^[ \t]*[#<]/ || line ~ /^[ \t]*(```|~~~)/) { bad = 1; next }
       c = substr(line, 1, 1)
       if (line ~ /^- `/) {

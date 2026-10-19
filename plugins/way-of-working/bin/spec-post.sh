@@ -239,8 +239,8 @@ case "$def" in '' | -* | *[!A-Za-z0-9._/-]*) stop unreadable ;; esac
 git -C "$gtop" fetch -q origin "+refs/heads/$def:refs/remotes/origin/$def" >/dev/null 2>&1 || stop unreadable
 git -C "$gtop" show "refs/remotes/origin/$def:./.ai/project.yml" >"$tmp/def.yml" 2>/dev/null || stop unreadable
 
-# HID: spec-fresh.sh's zero-width and bidi set, byte for byte (the App-filed path's hidden-text screen)
-HID="$(printf '\330\234|\342\200[\213-\217]|\342\200[\252-\256]|\342\201[\240-\244]|\342\201[\246-\251]|\357\273\277')"
+# HID: spec-fresh.sh's zero-width, bidi, soft hyphen and Unicode tag set, byte for byte (the App-filed path's hidden-text screen)
+HID="$(printf '\330\234|\342\200[\213-\217]|\342\200[\252-\256]|\342\201[\240-\244]|\342\201[\246-\251]|\357\273\277|\302\255|\363\240[\200-\201][\200-\277]')"
 
 # the repo it names
 yrepo="$(yq -r '.repo // ""' "$tmp/def.yml" 2>/dev/null)" || stop unreadable

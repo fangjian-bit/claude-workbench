@@ -328,6 +328,66 @@ printf '# t\n\n### Goal\n\nx\n\n### Done when\n\nx\n' >"$D/draft.md"
 out="$(sh "$script" shape "$D/draft.md" 2>/dev/null)"; assert_eq "shape bad: no Files touched section" "bad-shape" "$out"
 printf '# t\n\n### Goal\n\nx\n\n### Files touched\n\n- `f1`\n\n### Files touched\n\n- `f2`\n\n### Done when\n\nx\n' >"$D/draft.md"
 out="$(sh "$script" shape "$D/draft.md" 2>/dev/null)"; assert_eq "shape bad: two Files touched headings" "bad-shape" "$out"
+
+# --- bad-shape: a HID character anywhere in the body (#709) -----------------------------------
+# full <place> <octal-char>: a draft with all six headings; the place (title, goal, detail,
+# done, tests, out, restated) carries x, the character, then y; an empty character is none.
+full() {
+  _c="$(printf "$2")"
+  _t="# t" _g=x _d= _w=x _s=x _o=x _r=x
+  case "$1" in
+    title) _t="# x${_c}y" ;;
+    goal) _g="x${_c}y" ;;
+    detail) _d="  x${_c}y" ;;
+    done) _w="x${_c}y" ;;
+    tests) _s="x${_c}y" ;;
+    out) _o="x${_c}y" ;;
+    restated) _r="x${_c}y" ;;
+  esac
+  {
+    printf '%s\n\n### Goal\n\n%s\n\n### Files touched\n\n- `f1`\n' "$_t" "$_g"
+    [ -n "$_d" ] && printf '%s\n' "$_d"
+    printf '\n### Done when\n\n%s\n\n### Tests\n\n%s\n\n### Out of scope\n\n%s\n\n### Restated from the issue body\n\n%s\n' "$_w" "$_s" "$_o" "$_r"
+  } >"$D/draft.md"
+  rc=0
+  out="$(PATH="$fakebin:$PATH" FX_LOG="$LOG" FX_REAL_GIT="$real_git" sh "$script" shape "$D/draft.md" 2>"$D/err" </dev/null)" || rc=$?
+  err="$(cat "$D/err")"
+}
+nc
+for ch in \
+  'Arabic letter mark|\330\234' 'zero-width space|\342\200\213' 'right-to-left mark|\342\200\217' \
+  'left-to-right embedding|\342\200\252' 'right-to-left override|\342\200\256' 'word joiner|\342\201\240' \
+  'invisible plus|\342\201\244' 'left-to-right isolate|\342\201\246' 'pop directional isolate|\342\201\251' \
+  'byte order mark|\357\273\277' 'soft hyphen|\302\255' 'tag U+E0000|\363\240\200\200' \
+  'tag latin small letter a|\363\240\201\241' 'cancel tag|\363\240\201\277'; do
+  for place in title goal detail done tests out restated; do
+    full "$place" "${ch#*|}"
+    expect "shape bad: ${ch%%|*} in $place" "bad-shape"
+  done
+done
+full goal ''
+expect "shape ok: the full draft with no hidden character" "ok"
+full tests '\342\200\213'
+expect "shape bad: a zero-width space only in Tests" "bad-shape"
+full goal '\342\200\224\342\200\231\302\240\303\251'
+expect "shape ok: typographic characters outside Files touched" "ok"
+full goal '\302\254\302\256\363\237\277\277\363\240\202\200'
+expect "shape ok: the neighbours of the new ranges" "ok"
+
+nc; BODY="$(printf '%s\n\n### Goal\n\nx%sy\n\n### Files touched\n\n- `f1`\n\n### Done when\n\nx\n\n### Tests\n\nx\n' "$(marker)" "$(printf '\342\200\213')")"; tojson; run
+expect "bad-shape: a zero-width space in Goal of a comment" "bad-shape"
+assert_eq "bad-shape: a zero-width space in Goal made no git call" "" "$(cat "$LOG")"
+nc; BODY="$(printf '%s\n\n### Goal\n\nx\n\n### Files touched\n\n- `f1`\n\n### Done when\n\nx\n\n### Tests\n\nx%sy\n' "$(marker)" "$(printf '\302\255')")"; tojson; run
+expect "bad-shape: a soft hyphen in Tests of a comment" "bad-shape"
+assert_eq "bad-shape: a soft hyphen in Tests made no git call" "" "$(cat "$LOG")"
+nc; BODY="$(printf '%s\n\n# x%sy\n\n### Goal\n\nx\n\n### Files touched\n\n- `f1`\n\n### Done when\n\nx\n' "$(marker)" "$(printf '\363\240\201\241')")"; tojson; run
+expect "bad-shape: a tag character on the title line of a comment" "bad-shape"
+assert_eq "bad-shape: a tag character on the title line made no git call" "" "$(cat "$LOG")"
+nc; BODY="$(printf '%s\n\n### Goal\n\nx\n\n### Files touched\n\n- `f1`\n\n### Done when\n\nx\n\n### Tests\n\nxPLACEy\n' "$(marker)")"
+BODY="$BODY" yq -n -o=json '.body = strenv(BODY)' | sed 's/xPLACEy/x\\u00ady/' >"$D/c.json"; run
+expect "bad-shape: a soft hyphen written as a JSON escape in Tests" "bad-shape"
+nc; put f2 changed; bump; BODY="$(printf '%s\n\n### Goal\n\nx%sy%sz\n\n### Files touched\n\n- `f1`\n\n### Done when\n\nx\n\n### Tests\n\nx\n' "$(marker)" "$(printf '\342\200\224')" "$(printf '\342\200\231')")"; tojson; run
+expect "fresh: typographic characters in Goal" "fresh"
 printf '# t\n\n### Goal\n\nx\n\n### Files touched\n\n- `f1`\n' >"$D/draft.md"
 out="$(sh "$script" shape "$D/draft.md" 2>/dev/null)"; assert_eq "shape bad: no Done when heading" "bad-shape" "$out"
 printf '# t\n\n### Done when\n\nx\n\n### Files touched\n\n- `f1`\n' >"$D/draft.md"

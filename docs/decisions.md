@@ -2198,7 +2198,8 @@ take effect. Full reasoning and the task breakdown that implements them:
       requires it to exist, to make no `gh` call, and requires `resume` and the `coder` to name it.
     - Only the first backtick span of each top-level *Files touched* bullet is checked, so the
       section must have a shape the check can read (`bad-shape` otherwise): one file per bullet,
-      no code fence, no hidden or bidi text, no HTML comment opener anywhere. A bullet marked
+      no code fence, no hidden or bidi text (*amended by `#709`: a `HID` character is refused
+      anywhere in the body, not only here*), no HTML comment opener anywhere. A bullet marked
       **(append)** (an entry added to a shared file) is skipped, never on a `.github/` path.
       `.ai/next-steps.md` and `.ai/parked/` are dropped from the changed set, as `cursor-drift.sh`
       treats them as a cursor sync.
@@ -2228,7 +2229,16 @@ take effect. Full reasoning and the task breakdown that implements them:
     4. **(append)** is chosen by the drafter, which may have been injected, and is checked only by
        the maintainer's reaction.
     5. Only the first span of each bullet is checked, so a bullet naming two files checks one.
-    6. `WB-D29`'s two open decisions now apply to posts no human started: refusing hidden text, and
+    6. *Narrowed by `#709`: `spec-fresh.sh` refuses every `HID` character anywhere in the body
+       (`check` and `shape`), and `HID` gained the soft hyphen (U+00AD) and the tag block (U+E0000 to
+       U+E007F) in all three copies; variation selectors and other default-ignorable characters, and
+       the rest of `WB-D32` residual 9's list, are still not refused. `spec-fresh.sh` also still
+       passes, anywhere except at the start of a line in *Files touched*, `<?` and `<!` openers other
+       than `<!--`, CDATA and one-line link reference definitions, which the `hidden` screen refuses;
+       and, as the `hidden` screen does too, numeric or named character references (`&#xE0049;`, `&shy;`) that render
+       as invisible characters. The text that follows is the
+       record of what was open.*
+       `WB-D29`'s two open decisions now apply to posts no human started: refusing hidden text, and
        holding when the backlog repo is public and the code repo private. Part of the first is
        closed here: `spec-fresh.sh` refuses an HTML comment opener or a stray CR anywhere in the
        body, and the zero-width and bidi characters listed in `spec-fresh.sh` inside *Files touched*;
@@ -2290,7 +2300,9 @@ take effect. Full reasoning and the task breakdown that implements them:
     - **The loop App.** It neither drafts, builds nor is dispatched.
     - **A distinct reaction content for this path.** It uses the same four as spec comments.
   - **Accepted residuals.**
-    1. An agent can now originate and specify a task, and the spec reaction is the only approval of
+    1. *Amended by `#709`: `HID` is now refused anywhere in a spec comment, not only in *Files
+       touched*; tag characters and soft hyphens are in the set.*
+       An agent can now originate and specify a task, and the spec reaction is the only approval of
        its content. `WB-D31` residual 6 therefore covers work an agent authored end to end: `HID` is
        refused only in *Files touched*, and tag characters and soft hyphens not at all.
     2. The issue reaction gates only `spec-task`'s read of the body, not the build.
@@ -2304,7 +2316,9 @@ take effect. Full reasoning and the task breakdown that implements them:
     7. The preflight carries its own copy of the role set, held to `task-author` by fixtures only.
     8. `HID` now has three copies (`spec-fresh.sh`, `spec-issue.sh`, `spec-post.sh`); a fixture holds
        the two new ones byte for byte to `spec-fresh.sh`'s.
-    9. The `hidden` check is a filter, not a boundary, and this list is not exhaustive. It refuses `<!`
+    9. *Amended by `#709`: the `hidden` screen now also refuses Unicode tag characters and soft
+       hyphens.*
+       The `hidden` check is a filter, not a boundary, and this list is not exhaustive. It refuses `<!`
        and `<?` (HTML comments, declarations, CDATA sections, processing instructions), a lone CR, a
        `HID` character and a one-line link reference definition. Raw-HTML attribute text (`alt`,
        `title`), Markdown link titles, Unicode tag characters, variation selectors and other
@@ -2326,7 +2340,8 @@ take effect. Full reasoning and the task breakdown that implements them:
         could add the reaction itself.
     14. That a label, a comment or a milestone move changes an issue's `updated_at` was not measured;
         only reactions, body and title edits were.
-  - **Follow-ups named.** Widen `spec-fresh.sh`'s `HID` refusal to the whole spec body; show the
+  - **Follow-ups named.** Widen `spec-fresh.sh`'s `HID` refusal to the whole spec body (*done by
+    `#709`*); show the
     `task-author` word in `plan-sprint`'s author display; extend check 15 (a projected fetch only) to
     `resume`'s map body read and the `coder` (residual 11).
 

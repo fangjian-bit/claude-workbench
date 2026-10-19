@@ -579,7 +579,9 @@ for v in \
   "a CDATA opener in the body|\"t\"|\"a <![CDATA[ x ]]>\"" \
   "a processing instruction opener in the title|\"t <?x y ?>\"|\"b\"" \
   "an HTML comment opener written as a JSON escape|\"t\"|\"a \\u003c!-- x\"" \
-  "a zero-width space written as a JSON escape|\"t\"|\"\\u200b\""; do
+  "a zero-width space written as a JSON escape|\"t\"|\"\\u200b\"" \
+  "a soft hyphen in the body|\"t\"|\"a\\u00adb\"" \
+  "a tag character in the title|\"a\\udb40\\udc41b\"|\"b\""; do
   label="${v%%|*}"
   rest="${v#*|}"
   ttl="${rest%%|*}"
