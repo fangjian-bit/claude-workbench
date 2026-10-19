@@ -1,16 +1,19 @@
 #!/bin/sh
-# Static fixtures for the dev container image (#725): .devcontainer/Dockerfile and
-# .devcontainer/devcontainer.json.
+# Static fixtures for the dev container image (#725, #742): .devcontainer/Dockerfile,
+# .devcontainer/devcontainer.json and .devcontainer/managed-settings.json.
 #
 #   Dockerfile          the template's shape (header of the Dockerfile), the claude pin against
 #                       scripts/loop/Dockerfile's, the download and checksum, nothing in the app
-#                       user's home directory, no npm or node
+#                       user's home directory, no npm or node, the managed settings file's guard,
+#                       COPY and owner/mode assertion in order
 #   devcontainer.json   DISABLE_AUTOUPDATER is "1" inside containerEnv. The file has // comments,
 #                       so jq cannot parse it; this checks with a line-anchored grep inside the
 #                       containerEnv block (awk cuts the block out), not by stripping comments.
+#   managed-settings.json  a regular file whose bytes are exactly the DISABLE_AUTOUPDATER pin
 #
-# Permitted toolset: POSIX sh and its standard utilities (awk, grep, sed). A fixture that needs a
-# tool the runner lacks would skip loudly; none does beyond these.
+# Permitted toolset: POSIX sh and its standard utilities (awk, grep, sed, mktemp), plus cmp for the
+# managed settings bytes. A fixture that needs a tool the runner lacks would skip loudly; none does
+# beyond these (without cmp, only the managed-settings bytes check fails).
 set -eu
 
 root_dir="$(cd "$(dirname "$0")/.." && pwd)"
@@ -56,7 +59,7 @@ check "Dockerfile: LF line endings only" test -z "$(grep -c "$(printf '\r')" "$d
 
 # --- Dockerfile: the claude install ------------------------------------------------------
 # The install checks read the file with comment lines removed, so a commented-out install fails.
-dfcode=$(mktemp); trap 'rm -f "$dfcode"' EXIT
+dfcode=$(mktemp); want=$(mktemp); trap 'rm -f "$dfcode" "$want"' EXIT
 grep -v '^[[:space:]]*#' "$df" >"$dfcode"
 arg() { sed -n "s/^ARG $2=//p" "$1"; }
 for a in CLAUDE_VERSION CLAUDE_SHA256; do
@@ -79,6 +82,26 @@ assert_eq "Dockerfile: USER 1000:1000 is the last USER" "USER 1000:1000" "$(grep
 code=$(cat "$dfcode")
 check "Dockerfile: no instruction names the app user's home directory" test -z "$(printf '%s\n' "$code" | grep -e '/home/app' -e '~/' -e '\$HOME' || true)"
 check "Dockerfile: no instruction names npm or node" test -z "$(printf '%s\n' "$code" | grep -Ewi -e 'npm' -e 'node' -e 'nodejs' || true)"
+
+# --- Dockerfile and managed-settings.json: the root-owned managed settings (#742) ----------
+ms="$dc/managed-settings.json"
+guard='RUN set -eu; test ! -e /etc/claude-code; mkdir -p /etc/claude-code; chmod 0755 /etc/claude-code'
+copy='COPY --chown=root:root --chmod=0444 managed-settings.json /etc/claude-code/managed-settings.json'
+stat_line='RUN [ "$(stat -c %u:%a /etc/claude-code/managed-settings.json)" = 0:444 ]'
+check "managed-settings.json: a regular file, not a symbolic link" sh -c '[ -f "$1" ] && [ ! -L "$1" ]' _ "$ms"
+# cmp, not $(cat): command substitution drops trailing newlines.
+printf '{\n  "env": {\n    "DISABLE_AUTOUPDATER": "1"\n  }\n}\n' >"$want"
+check "managed-settings.json: the bytes are exactly the DISABLE_AUTOUPDATER pin" cmp -s "$ms" "$want"
+check "Dockerfile: the /etc/claude-code guard is a whole line" grep -qxF "$guard" "$dfcode"
+check "Dockerfile: the managed-settings COPY is a whole line" grep -qxF "$copy" "$dfcode"
+check "Dockerfile: the managed-settings owner and mode assertion is a whole line" grep -qxF "$stat_line" "$dfcode"
+guard_n=$(grep -nxF "$guard" "$dfcode" | head -1 | cut -d: -f1)
+copy_n=$(grep -nxF "$copy" "$dfcode" | head -1 | cut -d: -f1)
+stat_n=$(grep -nxF "$stat_line" "$dfcode" | head -1 | cut -d: -f1)
+user0_n=$(grep -n '^USER 0$' "$dfcode" | head -1 | cut -d: -f1)
+last_user_n=$(grep -n '^USER 1000:1000$' "$dfcode" | tail -1 | cut -d: -f1)
+check "Dockerfile: guard, COPY, stat in that order, after USER 0 and before the last USER 1000:1000" \
+  sh -c '[ -n "$1" ] && [ -n "$2" ] && [ -n "$3" ] && [ -n "$4" ] && [ -n "$5" ] && [ "$4" -lt "$1" ] && [ "$1" -lt "$2" ] && [ "$2" -lt "$3" ] && [ "$3" -lt "$5" ]' _ "$guard_n" "$copy_n" "$stat_n" "$user0_n" "$last_user_n"
 
 # --- devcontainer.json -------------------------------------------------------------------
 block=$(awk '/^[[:space:]]*"containerEnv"[[:space:]]*:/ {on=1} on {print} on && /}/ {exit}' "$dj")

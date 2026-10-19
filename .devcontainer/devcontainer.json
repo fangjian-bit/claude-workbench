@@ -49,7 +49,11 @@
   // (#725). The image ships `claude` at /usr/local/bin/claude, and the read-only root
   // filesystem keeps that file from being replaced. This variable is what keeps the updater from
   // writing a newer copy to ~/.local on the home volume (~/.local/bin leads PATH). Updating means
-  // bumping the pin in the Dockerfile.
+  // bumping the pin in the Dockerfile. The control a Claude settings file cannot override is the
+  // root-owned /etc/claude-code/managed-settings.json (Dockerfile); this entry stays as defence
+  // in depth (it is in the process environment before any settings file loads), and it keeps
+  // covering a container created before that file, until it is recreated.
+  // tests/devcontainer-image.test.sh pins both.
   "containerEnv": {
     "GIT_CONFIG_COUNT": "2",
     "GIT_CONFIG_KEY_0": "commit.gpgsign", "GIT_CONFIG_VALUE_0": "false",

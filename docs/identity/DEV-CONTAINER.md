@@ -269,10 +269,17 @@ removes it. The login lives on the volume; the binary does not.
 
 - **Where it comes from.** The image: `/usr/local/bin/claude`, root-owned, at the version pinned
   in `.devcontainer/Dockerfile` (`CLAUDE_VERSION`), its SHA-256 (`CLAUDE_SHA256`) checked at
-  build time. Auto-update is off (`DISABLE_AUTOUPDATER=1` in `devcontainer.json`'s
-  `containerEnv`). The read-only root filesystem keeps that file from being replaced, but it does
-  not stop an updater writing a newer copy to `~/.local` on the home volume, so the variable is the
-  control; a session can still override it through `env` in a Claude settings file.
+  build time. Auto-update is off through both `DISABLE_AUTOUPDATER=1` in `devcontainer.json`'s
+  `containerEnv` and the root-owned `/etc/claude-code/managed-settings.json` (`.devcontainer/`),
+  which a settings file cannot override. The read-only root filesystem keeps the binary from being
+  replaced, but not an updater writing a newer copy to `~/.local` on the home volume, so the
+  `DISABLE_AUTOUPDATER` setting (from either source) is the control. It stops the automatic updater
+  only: per Claude Code's environment-variable documentation, a manual `claude update` still works,
+  and `DISABLE_UPDATES` blocks both; this image does not set it. After a rebuild,
+  `stat -c '%U %a' /etc/claude-code/managed-settings.json` prints `root 444`. Per Claude Code's
+  managed-settings documentation ("How Claude Code combines managed sources"), `env` merges per
+  variable across managed sources, so server-managed settings, if this account ever receives them,
+  override this pin only if they set `DISABLE_AUTOUPDATER` themselves.
 - **How to bump it.** Edit `CLAUDE_VERSION` and `CLAUDE_SHA256` in all three Dockerfiles
   (`.devcontainer/`, `scripts/identity/review/` and `scripts/loop/`; Dependabot does not track
   them, and `tests/devcontainer-image.test.sh` and `tests/review-image.test.sh` hold them equal).

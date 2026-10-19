@@ -2,8 +2,8 @@
 #
 # This repo's devcontainer: the shared base image, pinned by tag AND digest, plus the two
 # scripts that make `gh` and git act only as the dev App (WB-D24, #393) and a pinned,
-# checksum-verified `claude` (#725). Dependabot's docker ecosystem bumps the FROM line
-# (.github/dependabot.yml).
+# checksum-verified `claude` (#725) with a root-owned managed settings file (#742). Dependabot's
+# docker ecosystem bumps the FROM line (.github/dependabot.yml).
 #
 # Every pull request is checked by `verify / verify` once the template's
 # .github/workflows/devcontainer-image.yml is adopted: the FROM line must be one of the
@@ -65,7 +65,8 @@ RUN for t in gpg gpg-agent gpgconf gpg-connect-agent gpgsm; do \
 # CLAUDE_SHA256 come from that version's release manifest.json (the `linux-x64` entry). Dependabot does not track a pin inside a RUN, so it is bumped by hand,
 # together with scripts/loop/Dockerfile's and scripts/identity/review/Dockerfile's (tests hold
 # the three equal): edit both ARG lines, then recreate with the compare-first procedure in
-# docs/identity/DEV-CONTAINER.md. Auto-update is off in devcontainer.json (DISABLE_AUTOUPDATER).
+# docs/identity/DEV-CONTAINER.md. Auto-update is off in devcontainer.json (DISABLE_AUTOUPDATER) and
+# in the managed settings file below.
 ARG CLAUDE_VERSION=2.1.289
 ARG CLAUDE_SHA256=a186b99e4a9c88366cd49df2f7dad56c61fc306ef0140b19ee64b7c42a8d1348
 RUN set -eu; \
@@ -74,4 +75,12 @@ RUN set -eu; \
     echo "${CLAUDE_SHA256}  /usr/local/bin/claude" | sha256sum -c -; \
     chown root:root /usr/local/bin/claude; \
     chmod 0755 /usr/local/bin/claude
+
+# Managed settings: DISABLE_AUTOUPDATER pinned in a root-owned file that a settings-file `env`
+# (~/.claude/settings.json on the home volume, a project .claude/settings.json) cannot override,
+# and the root filesystem is read-only at run time. The guard fails the build if a later base
+# image ships anything under /etc/claude-code, instead of overwriting or merging it.
+RUN set -eu; test ! -e /etc/claude-code; mkdir -p /etc/claude-code; chmod 0755 /etc/claude-code
+COPY --chown=root:root --chmod=0444 managed-settings.json /etc/claude-code/managed-settings.json
+RUN [ "$(stat -c %u:%a /etc/claude-code/managed-settings.json)" = 0:444 ]
 USER 1000:1000
