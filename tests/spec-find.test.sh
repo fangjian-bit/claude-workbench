@@ -454,12 +454,82 @@ expect "unreadable: a backlog repo starting with .." "unreadable"
 nc; Y_BACKLOG="owner/.."; writeyml; approved 1001 maint1 101; run
 expect "unreadable: a backlog repo ending in /.." "unreadable"
 
+# --- every declared App off the maintainer list (#708) ---
+# Each of reviewer_app and loop_app, in turn: refused under find and, below, under pending.
+for app in reviewer_app loop_app; do
+  case "$app" in reviewer_app) alogin="rev-app[bot]" ;; *) alogin="loop-app[bot]" ;; esac
+  nc; Y_IDENT="  maintainer:
+    - {login: maint1, id: 101}
+    - {login: \"$alogin\", id: 2002}
+  $app: {login: \"$alogin\", id: 2002}"; writeyml; approved 1001 maint1 101; run
+  expect "unreadable: the $app id on the maintainer list" "unreadable"
+  for sp in +2002 0x7D2 02002 2_002; do
+    nc; Y_IDENT="  maintainer:
+    - {login: maint1, id: 101}
+    - {login: \"$alogin\", id: 2002}
+  $app: {login: \"$alogin\", id: $sp}"; writeyml; approved 1001 maint1 101; run
+    expect "unreadable: the $app id spelled $sp beside 2002 on the maintainer list" "unreadable"
+  done
+  nc; Y_IDENT="  maintainer:
+    - {login: maint1, id: 101}
+  $app: {login: \"$alogin\", id: \"2002\"}"; writeyml; approved 1001 maint1 101; run
+  expect "unreadable: a $app entry with a string id" "unreadable"
+  nc; Y_IDENT="  maintainer:
+    - {login: maint1, id: 101}
+  $app: just-a-string"; writeyml; approved 1001 maint1 101; run
+  expect "unreadable: a $app entry that is a bare string" "unreadable"
+  nc; Y_IDENT="  maintainer:
+    - {login: maint1, id: 101}
+  $app: {login: \"$alogin\", id: 2002}"; writeyml; approved 1001 maint1 101; run
+  expect "found: a well-formed $app off the maintainer list" "found 1001 $T1"
+done
+
+nc; Y_IDENT='  maintainer:
+    - {login: maint1, id: 101}
+  reviewer_app: null
+  loop_app: null'; writeyml; approved 1001 maint1 101; run
+expect "found: reviewer_app and loop_app both null" "found 1001 $T1"
+
+nc; Y_IDENT='  maintainer:
+    - {login: maint1, id: 101}
+  dev_app: null'; writeyml; approved 1001 maint1 101; run
+expect "found: reviewer_app and loop_app keys missing" "found 1001 $T1"
+
 # --- pending (#663) ---
 runp() { # <after-id>
   rc=0
   out="$(PATH="$fakebin:$PATH" FX_DIR="$cd_" FX_MARK="$SENTINEL" sh "$cd_/bin/spec-find.sh" pending "$ISSUE" "$cd_/project.yml" "$1" 2>"$cd_/err" </dev/null)" || rc=$?
   err="$(cat "$cd_/err")"
 }
+
+for app in reviewer_app loop_app; do
+  case "$app" in reviewer_app) alogin="rev-app[bot]" ;; *) alogin="loop-app[bot]" ;; esac
+  nc; Y_IDENT="  maintainer:
+    - {login: maint1, id: 101}
+    - {login: \"$alogin\", id: 2002}
+  $app: {login: \"$alogin\", id: 2002}"; writeyml; approved 1001 maint1 101; runp 1001
+  expect "pending: the $app id on the maintainer list" "unreadable"
+  nc; Y_IDENT="  maintainer:
+    - {login: maint1, id: 101}
+    - {login: \"$alogin\", id: 2002}
+  $app: {login: \"$alogin\", id: +2002}"; writeyml; approved 1001 maint1 101; runp 1001
+  expect "pending: the $app id spelled +2002 beside 2002 on the maintainer list" "unreadable"
+  nc; Y_IDENT="  maintainer:
+    - {login: maint1, id: 101}
+  $app: just-a-string"; writeyml; approved 1001 maint1 101; runp 1001
+  expect "pending: a $app entry that is a bare string" "unreadable"
+  for sp in 0x7D2 02002 2_002; do
+    nc; Y_IDENT="  maintainer:
+    - {login: maint1, id: 101}
+    - {login: \"$alogin\", id: 2002}
+  $app: {login: \"$alogin\", id: $sp}"; writeyml; approved 1001 maint1 101; runp 1001
+    expect "pending: the $app id spelled $sp beside 2002 on the maintainer list" "unreadable"
+  done
+  nc; Y_IDENT="  maintainer:
+    - {login: maint1, id: 101}
+  $app: {login: \"$alogin\", id: \"2002\"}"; writeyml; approved 1001 maint1 101; runp 1001
+  expect "pending: a $app entry with a string id" "unreadable"
+done
 
 nc; approved 1001 maint1 101; addrow 1002 "dev-app[bot]" 201; runp 1001
 expect "pending: one unreacted dev-App comment newer than the found one" "pending 1002"

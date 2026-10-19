@@ -1,6 +1,6 @@
 #!/bin/sh
 # Fixture tests for plugins/way-of-working/bin/spec-comment.sh: the spec comment's
-# checks (id, edit, issue, author trust, a declared author's fresh maintainer reaction, and the dev App's id off the maintainer list for a maintainer author too), shared by
+# checks (id, edit, issue, author trust, a declared author's fresh maintainer reaction, and any declared App's id off the maintainer list for a maintainer author too), shared by
 # resume, the coder and architect-review (#614, #660).
 #
 # Runs the real gh-identity.sh beside the script over fixture project.yml files, so the trust
@@ -203,6 +203,51 @@ run check "$tmp/maint.json" "$tmp/nokey.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tm
 expect_check "maintainer author, dev_app key absent" ok
 run check "$tmp/maint.json" "$tmp/map.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/fresh.tsv"
 expect_check "maintainer author, dev App id not on the list" ok
+
+# Every declared App is off the maintainer list, not only the dev App (#708): the reviewer App has
+# Issues write too, and the loop App is treated as the same class. rx rev/loop own reactions.
+rx ownrev "2002${T}heart${T}2026-10-14T19:20:00Z"
+rx ownloop "2003${T}heart${T}2026-10-14T19:20:00Z"
+for kk in reviewer_app:acme-review:2002:ownrev loop_app:acme-loop:2003:ownloop; do
+  key="${kk%%:*}"; rest="${kk#*:}"; alog="${rest%%:*}[bot]"; rest="${rest#*:}"; aid="${rest%%:*}"; arx="${rest#*:}"
+  for author in maint dev; do
+      printf 'identities:\n  maintainer:\n    - { login: alice-dev, id: 1001 }\n    - { login: devdup, id: %s }\n  dev_app: { login: "acme-dev[bot]", id: 2001 }\n  %s: { login: "%s", id: %s }\n' "$aid" "$key" "$alog" "$aid" >"$tmp/appdup.yml"
+      for r in "$arx" fresh; do
+        run check "$tmp/$author.json" "$tmp/appdup.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/$r.tsv"
+        expect_check "$author author, $key id on the list, reactions $r" unreacted
+        run body "$tmp/$author.json" "$tmp/appdup.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/$r.tsv"
+        expect_body_refused "$author author, $key id on the list, reactions $r" unreacted
+      done
+    for s in +"$aid" "$(printf '0x%X' "$aid")" 0"$aid"; do
+      printf 'identities:\n  maintainer:\n    - { login: alice-dev, id: 1001 }\n    - { login: devdup, id: %s }\n  dev_app: { login: "acme-dev[bot]", id: 2001 }\n  %s: { login: "%s", id: %s }\n' "$aid" "$key" "$alog" "$s" >"$tmp/appspell.yml"
+      run check "$tmp/$author.json" "$tmp/appspell.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/fresh.tsv"
+      expect_check "$author author, $key id spelled $s, maintainer reaction" unreacted
+    done
+    for v in 'string:acme' 'strid:{ login: "x[bot]", id: "2002" }' 'nologin:{ id: 2002 }'; do
+      vname="${v%%:*}"
+      printf 'identities:\n  maintainer:\n    - { login: alice-dev, id: 1001 }\n  dev_app: { login: "acme-dev[bot]", id: 2001 }\n  %s: %s\n' "$key" "${v#*:}" >"$tmp/appbad.yml"
+      run check "$tmp/$author.json" "$tmp/appbad.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/fresh.tsv"
+      expect_check "$author author, malformed $key ($vname)" unreacted
+    done
+    printf 'identities:\n  maintainer:\n    - { login: alice-dev, id: 1001 }\n  dev_app: { login: "acme-dev[bot]", id: 2001 }\n  %s: null\n' "$key" >"$tmp/appnull.yml"
+    run check "$tmp/$author.json" "$tmp/appnull.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/fresh.tsv"
+    expect_check "$author author, $key null" ok
+    run check "$tmp/$author.json" "$tmp/apps.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/fresh.tsv"
+    expect_check "$author author, $key well formed and off the list" ok
+  done
+  run check "$tmp/maint.json" "$tmp/nokey.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/fresh.tsv"
+  expect_check "maintainer author, $key key missing" ok
+done
+# The reviewer App as the author, its own id spelled non-canonically under reviewer_app and listed
+# canonically as a maintainer under its own login: its own reaction cannot approve its edit.
+mk revself 'acme-review[bot]' 2002 NONE
+for s in +2002 0x7D2; do
+  printf 'identities:\n  maintainer:\n    - { login: alice-dev, id: 1001 }\n    - { login: "acme-review[bot]", id: 2002 }\n  reviewer_app: { login: "acme-review[bot]", id: %s }\n' "$s" >"$tmp/spellrev.yml"
+  run check "$tmp/revself.json" "$tmp/spellrev.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/ownrev.tsv"
+  expect_check "reviewer App author, own id spelled $s, own reaction" unreacted
+  run body "$tmp/revself.json" "$tmp/spellrev.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/ownrev.tsv"
+  expect_body_refused "reviewer App author, own id spelled $s, own reaction" unreacted
+done
 
 # A maintainer's word depends on the reactions argument too (WB-D30): any declared maintainer's
 # fresh approving reaction, their own included, and nothing else.

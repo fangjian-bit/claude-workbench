@@ -12,7 +12,7 @@
 #   plan-anchor.sh write  <repo> <milestone> <N|-> [<comment-id|->]
 #     Prints the anchor JSON (one line, compact, fixed key order) on stdout,
 #     or `unreadable`.
-#   plan-anchor.sh verify [--plan] [--loop-identity <login>] [--maintainer-ids <id,id,...>] [--dev-app-id <id>] [--spec-comment <id> <updated_at>] <repo> <pointer-url> <anchor-json>
+#   plan-anchor.sh verify [--plan] [--loop-identity <login>] [--maintainer-ids <id,id,...>] [--dev-app-id <id>] [--declared-app-ids <id,id,...>] [--spec-comment <id> <updated_at>] <repo> <pointer-url> <anchor-json>
 #     Prints exactly one of `match | drift | unreadable | untrusted | unreacted`.
 #
 # Both modes always exit 0 -- the verdict is stdout, exactly like
@@ -67,6 +67,13 @@
 # maintainer could approve its own text); without `--maintainer-ids`, with no value, malformed
 # or overlapping, `verify` prints `unreadable`. `--plan` validates it and ignores it. A caller
 # whose `identities.dev_app` is `null` omits the flag.
+#
+# `--declared-app-ids <id,id,...>` (`#708`) carries the id of every declared App entry that is
+# not null (`identities.dev_app`, `.reviewer_app`, `.loop_app`; the dev App's included), read by
+# the caller from the default branch's copy. It needs `--maintainer-ids` and is validated the way
+# that list is; an element on the maintainer list, a malformed value, no value, or no
+# `--maintainer-ids` prints `unreadable`. It never adds an accepted author or an approver.
+# `--plan` validates it and ignores it. Without the flag behaviour is unchanged.
 #
 # `--spec-comment <id> <updated_at>` (`WB-D30`) names the spec comment the finder (`bin/spec-find.sh`)
 # printed as `found`, and is how a reader under an `identities` map verifies without the anchor
@@ -191,7 +198,7 @@ case "$mode" in
   write | verify) shift ;;
   *)
     echo "plan-anchor.sh: usage: plan-anchor.sh write <repo> <milestone> <N|-> [<comment-id|->]" >&2
-    echo "                       plan-anchor.sh verify [--plan] [--loop-identity <login>] [--maintainer-ids <id,id,...>] [--dev-app-id <id>] [--spec-comment <id> <updated_at>] <repo> <pointer-url> <anchor-json>" >&2
+    echo "                       plan-anchor.sh verify [--plan] [--loop-identity <login>] [--maintainer-ids <id,id,...>] [--dev-app-id <id>] [--declared-app-ids <id,id,...>] [--spec-comment <id> <updated_at>] <repo> <pointer-url> <anchor-json>" >&2
     echo unreadable
     exit 0
     ;;
@@ -246,6 +253,8 @@ maint_ids=
 have_ids=0
 dev_id=
 have_dev=0
+app_ids=
+have_apps=0
 spec_id=
 spec_up=
 have_spec=0
@@ -261,6 +270,9 @@ while [ "$#" -gt 0 ]; do
     --dev-app-id)
       [ "$#" -ge 2 ] || { echo unreadable; exit 0; }
       have_dev=1; dev_id="$2"; shift 2 ;;
+    --declared-app-ids)
+      [ "$#" -ge 2 ] || { echo unreadable; exit 0; }
+      have_apps=1; app_ids="$2"; shift 2 ;;
     --spec-comment)
       [ "$#" -ge 3 ] || { echo unreadable; exit 0; }
       have_spec=1; spec_id="$2"; spec_up="$3"; shift 3 ;;
@@ -269,7 +281,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ "$#" -ne 3 ]; then
-  echo "plan-anchor.sh: verify needs [--plan] [--loop-identity <login>] [--maintainer-ids <id,id,...>] [--dev-app-id <id>] [--spec-comment <id> <updated_at>] <repo> <pointer-url> <anchor-json>" >&2
+  echo "plan-anchor.sh: verify needs [--plan] [--loop-identity <login>] [--maintainer-ids <id,id,...>] [--dev-app-id <id>] [--declared-app-ids <id,id,...>] [--spec-comment <id> <updated_at>] <repo> <pointer-url> <anchor-json>" >&2
   echo unreadable
   exit 0
 fi
@@ -299,6 +311,27 @@ if [ "$have_dev" -eq 1 ]; then
   is_digits "$dev_id" || { echo unreadable; exit 0; }
   case "$dev_id" in 0*) echo unreadable; exit 0 ;; esac
   case ",$maint_ids," in *",$dev_id,"*) echo unreadable; exit 0 ;; esac
+fi
+
+# The declared App ids (`#708`): the id of every declared App entry that is not null (dev,
+# reviewer and loop App, the dev App's included). Needs the maintainer ids; comma-separated ids,
+# each digits with no leading zero, no empty element; no element may be a maintainer id -- an App
+# on the list could approve text it can edit. A repeated element is accepted.
+if [ "$have_apps" -eq 1 ]; then
+  [ "$have_ids" -eq 1 ] || { echo unreadable; exit 0; }
+  [ -n "$app_ids" ] || { echo unreadable; exit 0; }
+  case "$app_ids" in *[!0-9,]*) echo unreadable; exit 0 ;; esac
+  case "$app_ids" in *,,* | ,* | *,) echo unreadable; exit 0 ;; esac
+  oldifs="$IFS"; IFS=,
+  # shellcheck disable=SC2086
+  set -- $app_ids
+  IFS="$oldifs"
+  for _id in "$@"; do
+    is_digits "$_id" || { echo unreadable; exit 0; }
+    case "$_id" in 0*) echo unreadable; exit 0 ;; esac
+    case ",$maint_ids," in *",$_id,"*) echo unreadable; exit 0 ;; esac
+  done
+  set -- "$repo" "$pointer" "$anchor"
 fi
 
 # The flagged spec comment (`WB-D30`): the finder's `found` pair. It needs the maintainer ids, an id

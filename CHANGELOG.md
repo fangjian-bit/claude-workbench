@@ -26,8 +26,21 @@ carries a zero-width, bidi, soft hyphen or Unicode tag character anywhere, not o
 (#709, `WB-D31`). Re-draft it with `/way-of-working:spec-task` and move the maintainer's reaction to
 the new comment.
 
+**⚠️ Migration** — a map repo whose `identities.maintainer` lists the id of its declared reviewer or
+loop App, or whose reviewer or loop App entry is neither null nor well formed, now has `spec-find.sh`, `spec-comment.sh` and the loop
+preflight refuse its spec approvals (and `plan-anchor.sh verify`, which resume now passes the App ids, as a second check for a collision), and a
+reviewer or loop App id not written in canonical decimal is refused by the shell readers and by resume's
+`gh-identity.sh role` read, until the config is corrected on the default branch (the dev
+App's id already was, #660, #682, #689, #707; `spec-issue.sh` and `spec-post.sh` are #759). Resume also
+waits until `reviewer_app` and `loop_app` are present, each a null value or a map that
+`gh-identity.sh role` confirms.
+
 ### Changed
 
+- **No declared App is a spec approver** (#708): `spec-find.sh`, `spec-comment.sh` and
+  `scripts/loop/preflight.sh github-dispatch` refuse a config that lists the id of the dev, reviewer or
+  loop App on `identities.maintainer`, and `plan-anchor.sh verify` does when given the new flag. It gains `--declared-app-ids <id,id,...>`, which
+  resume passes; `WB-D30` residual 7 is amended.
 - **`spec-fresh.sh` refuses a hidden character anywhere in a spec comment** (#709, `WB-D31`): `check` and
   `shape` print `bad-shape` for a `HID` character on any line of the body, `HID` gains the soft hyphen
   (U+00AD) and the Unicode tag block (U+E0000 to U+E007F) in all three copies, and the `hidden` screen of

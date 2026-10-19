@@ -158,7 +158,7 @@ edited it. **Default to the full checklist whenever unsure.**
        decides to wait early is exactly the one this exists for. Run `plan-anchor.sh verify`
        with the flags and the default-branch reads the Auto-start rule's *plan verified*
        condition and *The maintainer's reaction* paragraph specify — the fetch, the
-       `git show`, all three flag decisions and `verify` in **one** Bash call, `<anchor>` bound as
+       `git show`, all four flag decisions and `verify` in **one** Bash call, `<anchor>` bound as
        `ANCHOR=$(jq -c .pointers.plan_anchor .ai/state.json)` and quoted, never pasted — and
        keep the printed word for the pick-up summary, whether the session then auto-starts or
        waits (on an open gate, say). A flag read that fails, or the reach check or either read above failing,
@@ -794,7 +794,7 @@ edited it. **Default to the full checklist whenever unsure.**
      not repeated here, and full mode since a `null` `task_issue` never auto-starts), which ran
      as
      ```bash
-     plan-anchor.sh verify [--loop-identity <login>] [--maintainer-ids <id,id,...>] [--dev-app-id <id>] [--spec-comment "$CID" "$CUP"] {backlog.repo} <pointers.sprint_plan> <anchor>
+     plan-anchor.sh verify [--loop-identity <login>] [--maintainer-ids <id,id,...>] [--dev-app-id <id>] [--declared-app-ids <id,id,...>] [--spec-comment "$CID" "$CUP"] {backlog.repo} <pointers.sprint_plan> <anchor>
      ```
      (full mode, `reference/project-schema.md` § `planning`; `--maintainer-ids` per *The
      maintainer's reaction* below, **`unreacted` waits**; `--loop-identity` is passed when
@@ -911,8 +911,8 @@ edited it. **Default to the full checklist whenever unsure.**
      `#N` checks pass, whatever well-formed `spec_comment` the anchor holds. Under `legacy` with a non-null
      `plan_anchor.spec_comment` the anchored comment is the spec. An edit to the
      comment after the reaction makes the reaction stale, and a comment alone never counts.
-     **The dev App (`#660`).** Only under a map (under `legacy` both flags are omitted and
-     `dev_app` is not read), in the same Bash call, from the same default-branch `$DEF_YML_FILE`
+     **The dev App (`#660`).** Only under a map (under `legacy` `--maintainer-ids`,
+     `--dev-app-id` and `--declared-app-ids` are omitted and no App key is read), in the same Bash call, from the same default-branch `$DEF_YML_FILE`
      that yields `--maintainer-ids`, read the dev App with the selector the *Derive the review
      step from GitHub* block already uses (`explode(.)`, a map, an `!!int` `id` above 0, an
      `!!str` `login`), confirmed by `gh-identity.sh role` printing `dev_app` for that login and
@@ -921,6 +921,16 @@ edited it. **Default to the full checklist whenever unsure.**
      **waits**, never omitting the flag by default. The dev App may author the spec comment but
      never approves it: its own reaction does not count, and a dev-App spec comment is `unreacted`
      until a declared maintainer reacts after its last edit.
+     **Every declared App (`#708`).** In the same call and from the same `$DEF_YML_FILE`, read
+     `reviewer_app` and `loop_app` with the selector already used for `dev_app`, each confirmed
+     by `gh-identity.sh role` printing its own key for that login and id. Pass
+     `--declared-app-ids <id,id,...>` with the id of every non-null entry of the three, the dev
+     App's included, so `verify` refuses an App id that is also on the maintainer list. All three
+     present with a null value omits the flag. A missing key, a malformed entry or a `role`
+     refusal **waits**, never omitting the flag by default. Under a colliding config the `role`
+     read itself refuses (exit 2: the id declared more than once, or declared under another
+     login), so resume waits before `verify` runs and reports it by the existing rule as
+     `Plan anchor: unreadable (<which read>)`, never the flag's word.
      Under `legacy` (`identities: null`) the flags are omitted and nothing changes.
 
    Otherwise **state the pick-up point and wait** (except the *drafting branch* below). In particular: always wait on

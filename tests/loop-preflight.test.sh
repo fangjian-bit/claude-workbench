@@ -589,6 +589,69 @@ EOT
 mrd "$tmp/ident-nodev.json" "$tmp/rx-fresh.tsv"
 assert_eq "maintainer spec: a null dev_app means no dev App and passes with a fresh reaction" "pass/0" "$out/$rc"
 
+# --- no declared App is an approver, the reviewer and loop Apps too (#708) ---------------------
+# idapp <name> <dev> <reviewer> <loop>: write $tmp/ident-<name>.json; each App argument is a JSON value.
+idapp() {
+  printf '{"maintainer":[{"login":"alice-dev","id":1001},{"login":"bob","id":1002},{"login":"carol","id":2002},{"login":"dave","id":2003}],"dev_app":%s,"reviewer_app":%s,"loop_app":%s}\n' "$2" "$3" "$4" >"$tmp/ident-$1.json"
+}
+DEVJ='{"login":"acme-dev[bot]","id":2001}'
+REVJ='{"login":"acme-review[bot]","id":2002}'
+LOOPJ='{"login":"acme-loop[bot]","id":2003}'
+for who in maint:"$tmp/c-ok.json":"a declared maintainer" dev:"$tmp/c-dev.json":"the declared dev_app"; do
+  wname="${who%%:*}"; wrest="${who#*:}"; wfile="${wrest%%:*}"; wtxt="${wrest#*:}"
+  for key in reviewer_app loop_app; do
+    case "$key" in reviewer_app) KJ="$REVJ" ;; *) KJ="$LOOPJ" ;; esac
+    case "$key" in
+      reviewer_app) idapp listed "$DEVJ" "$KJ" null ;;
+      *) idapp listed "$DEVJ" null "$KJ" ;;
+    esac
+    # carol (2002) and dave (2003) are on the maintainer list in these identities.
+    mrd "$tmp/ident-listed.json" "$tmp/rx-fresh.tsv" "$wfile"
+    assert_eq "$wname spec: the $key id on the maintainer list refuses, with a fresh reaction" "refused author: spec comment 777 is by $wtxt and the id of the declared $key is on the maintainer list/3" "$out/$rc"
+    case "$key" in
+      reviewer_app) idapp strapp "$DEVJ" '"acme-review[bot]"' null; idapp fracapp "$DEVJ" '{"login":"acme-review[bot]","id":2002.5}' null; idapp expapp "$DEVJ" '{"login":"acme-review[bot]","id":2.002e3}' null ;;
+      *) idapp strapp "$DEVJ" null '"acme-loop[bot]"'; idapp fracapp "$DEVJ" null '{"login":"acme-loop[bot]","id":2003.5}'; idapp expapp "$DEVJ" null '{"login":"acme-loop[bot]","id":2.003e3}' ;;
+    esac
+    mrd "$tmp/ident-strapp.json" "$tmp/rx-fresh.tsv" "$wfile"
+    assert_eq "$wname spec: a $key that is a bare string is unreadable" "unreadable author: spec comment 777 is by $wtxt and the declared $key is neither null nor a well-formed entry/3" "$out/$rc"
+    mrd "$tmp/ident-fracapp.json" "$tmp/rx-fresh.tsv" "$wfile"
+    assert_eq "$wname spec: a $key with a fractional id is unreadable" "unreadable author: spec comment 777 is by $wtxt and the declared $key is neither null nor a well-formed entry/3" "$out/$rc"
+    mrd "$tmp/ident-expapp.json" "$tmp/rx-fresh.tsv" "$wfile"
+    assert_eq "$wname spec: an exponent-spelled $key id on the maintainer list is refused by the numeric comparison" "refused author: spec comment 777 is by $wtxt and the id of the declared $key is on the maintainer list/3" "$out/$rc"
+  done
+  idapp both "$DEVJ" "$REVJ" "$LOOPJ"
+  mrd "$tmp/ident-both.json" "$tmp/rx-fresh.tsv" "$wfile"
+  assert_eq "$wname spec: both Apps on the list is still one line, naming reviewer_app" "refused author: spec comment 777 is by $wtxt and the id of the declared reviewer_app is on the maintainer list/3" "$out/$rc"
+  idapp apps_off '{"login":"acme-dev[bot]","id":2001}' '{"login":"acme-review[bot]","id":3002}' '{"login":"acme-loop[bot]","id":3003}'
+  mrd "$tmp/ident-apps_off.json" "$tmp/rx-fresh.tsv" "$wfile"
+  assert_eq "$wname spec: all three Apps off the list pass with a fresh reaction" "pass/0" "$out/$rc"
+  if [ "$wname" = maint ]; then
+    idapp apps_null null null null
+    mrd "$tmp/ident-apps_null.json" "$tmp/rx-fresh.tsv" "$wfile"
+    assert_eq "$wname spec: all three Apps null pass with a fresh reaction" "pass/0" "$out/$rc"
+  fi
+done
+# A malformed maintainer list is still reported, not an evaluator failure, when an App is well formed.
+printf '{"maintainer":[{"login":"alice-dev","id":1001},"bob"],"dev_app":{"login":"acme-dev[bot]","id":2001},"reviewer_app":null,"loop_app":null}\n' >"$tmp/ident-malfm.json"
+mrd "$tmp/ident-malfm.json" "$tmp/rx-fresh.tsv" "$tmp/c-alice.json"
+assert_eq "maintainer spec: a malformed maintainer list with a well-formed dev_app is reported, not an evaluator failure" "refused author: spec comment 777 is by a declared maintainer and the maintainer list has a malformed entry, so no maintainer can approve it/3" "$out/$rc"
+# reviewer_app written 2002.0 is not an exact integer: unreadable (jq 1.7 keeps the literal).
+idapp revflt "$DEVJ" '{"login":"acme-review[bot]","id":2002.0}' null
+mrd "$tmp/ident-revflt.json" "$tmp/rx-fresh.tsv"
+if [ "$(jq -nc '1001.0 | tojson')" = '"1001.0"' ]; then
+  assert_eq "maintainer spec: a reviewer_app id written 2002.0 is unreadable" "unreadable author: spec comment 777 is by a declared maintainer and the declared reviewer_app is neither null nor a well-formed entry/3" "$out/$rc"
+else
+  echo "SKIP - this jq does not keep number literals; the 2002.0 fixture needs jq 1.7 or later" >&2
+fi
+# A dev-App author whose dev_app id is written 2001.0 (the author's id 2001) now reaches the dev_app U line.
+printf '{"maintainer":[{"login":"alice-dev","id":1001},{"login":"bob","id":1002}],"dev_app":{"login":"acme-dev[bot]","id":2001.0},"reviewer_app":null,"loop_app":null}\n' >"$tmp/ident-dev20010.json"
+mrd "$tmp/ident-dev20010.json" "$tmp/rx-fresh.tsv" "$tmp/c-dev.json"
+if [ "$(jq -nc '1001.0 | tojson')" = '"1001.0"' ]; then
+  assert_eq "dev-App spec: a dev_app id written 2001.0 is unreadable" "unreadable author: spec comment 777 is by the declared dev_app and the declared dev_app is neither null nor a well-formed entry/3" "$out/$rc"
+else
+  echo "SKIP - this jq does not keep number literals; the 2001.0 fixture needs jq 1.7 or later" >&2
+fi
+
 printf '{"id":777,"author_association":"CONTRIBUTOR","user":{"login":"bob","id":1002},"issue_url":"https://api.github.com/repos/glunk-works/claude-workbench/issues/320"}' >"$tmp/c-ok-noupd.json"
 mrd "$tmp/ident-map.json" "$tmp/rx-fresh.tsv" "$tmp/c-ok-noupd.json"
 assert_eq "maintainer spec: no updated_at is unreadable, with the role-free line" "unreadable author: spec comment 777 has no well-formed updated_at/3" "$out/$rc"

@@ -683,6 +683,51 @@ assert_eq "verify --plan validates --dev-app-id too" "unreadable" "$out"
 out="$(FAKE_COMMENT_AUTHOR_ID=$D FAKE_COMMENT_AUTHOR='loop-app[bot]' FAKE_REACTIONS="$FRESH" lrun verify --loop-identity 'loop-app[bot]' --maintainer-ids "$M" --spec-comment 335 2026-09-21T09:00:00Z --dev-app-id "$D" "$REPO" "$POINTER" "$spec_anchor")"
 assert_eq "verify --dev-app-id: the loop-identity rule still prints untrusted for the loop's login" "untrusted" "$out"
 
+echo "# every declared App off the maintainer list: --declared-app-ids (#708)"
+
+A="2001,2002,2003"
+APPS_ARGS="--spec-comment 335 2026-09-21T09:00:00Z"
+for bad in 1001 1002 '2001,1001' '2001,1001,2003' '1002,2001,2002'; do
+  out="$(FAKE_REACTIONS="$FRESH" lrun verify --maintainer-ids "$M" --declared-app-ids "$bad" $APPS_ARGS "$REPO" "$POINTER" "$spec_anchor")"
+  assert_eq "verify --declared-app-ids: [$bad] has a maintainer id, unreadable" "unreadable" "$out"
+  out="$(lrun verify --plan --maintainer-ids "$M" --declared-app-ids "$bad" "$REPO" "$POINTER" "$spec_anchor")"
+  assert_eq "verify --plan --declared-app-ids: [$bad] has a maintainer id, unreadable" "unreadable" "$out"
+done
+
+for bad in '' '0' '-1' '012' '12a' '1,,2' ',1' '1,' '2001, 2002' ' 2001' '2001,0'; do
+  out="$(lrun verify --maintainer-ids "$M" --declared-app-ids "$bad" "$REPO" "$POINTER" "$spec_anchor")"
+  assert_eq "verify --declared-app-ids: [$bad] is unreadable" "unreadable" "$out"
+  out="$(lrun verify --plan --maintainer-ids "$M" --declared-app-ids "$bad" "$REPO" "$POINTER" "$spec_anchor")"
+  assert_eq "verify --plan --declared-app-ids: [$bad] is unreadable" "unreadable" "$out"
+done
+
+out="$(lrun verify --declared-app-ids "$A" "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --declared-app-ids without --maintainer-ids is unreadable" "unreadable" "$out"
+
+out="$(lrun verify --maintainer-ids "$M" --declared-app-ids)"
+assert_eq "verify --declared-app-ids with no value is unreadable" "unreadable" "$out"
+
+out="$(FAKE_COMMENT_AUTHOR_ID=1001 FAKE_REACTIONS="$FRESH" lrun verify --maintainer-ids "$M" --declared-app-ids "$A" $APPS_ARGS "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --declared-app-ids: no overlap, a maintainer's approved comment matches" "match" "$out"
+
+out="$(FAKE_COMMENT_AUTHOR_ID=1001 FAKE_REACTIONS="$FRESH" lrun verify --declared-app-ids "$A" --maintainer-ids "$M" $APPS_ARGS "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --declared-app-ids: given before --maintainer-ids it behaves the same" "match" "$out"
+
+out="$(FAKE_COMMENT_AUTHOR_ID=1001 FAKE_REACTIONS="$FRESH" lrun verify --maintainer-ids "$M" --declared-app-ids "10010,100" $APPS_ARGS "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --declared-app-ids: elements that contain or sit inside a maintainer id are no overlap" "match" "$out"
+
+out="$(FAKE_COMMENT_AUTHOR_ID=$D FAKE_REACTIONS="$FRESH" lrun verify --maintainer-ids "$M" --dev-app-id "$D" --declared-app-ids "$A" $APPS_ARGS "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --declared-app-ids with --dev-app-id: a dev App's approved comment matches" "match" "$out"
+
+out="$(FAKE_COMMENT_AUTHOR_ID=$D FAKE_REACTIONS="$FRESH" lrun verify --maintainer-ids "$M" --dev-app-id "$D" --declared-app-ids "$D,$D" $APPS_ARGS "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --declared-app-ids: a repeated element is accepted" "match" "$out"
+
+out="$(FAKE_COMMENT_AUTHOR_ID=2002 FAKE_REACTIONS="$FRESH" lrun verify --maintainer-ids "$M" --declared-app-ids "$A" $APPS_ARGS "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --declared-app-ids: the flag adds no accepted author" "untrusted" "$out"
+
+out="$(lrun verify --plan --maintainer-ids "$M" --declared-app-ids "$A" "$REPO" "$POINTER" "$spec_anchor")"
+assert_eq "verify --plan with --declared-app-ids is match" "match" "$out"
+
 echo "# the flagged spec comment: --spec-comment (WB-D30) -- the finder's pair, not the anchor's"
 
 # The flagged comment (777, edited 2026-10-02) differs from the anchored one (335, 2026-09-21), and

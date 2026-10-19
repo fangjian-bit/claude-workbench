@@ -2147,6 +2147,16 @@ take effect. Full reasoning and the task breakdown that implements them:
        to the default branch, is the control. Where host sessions run as the declared maintainer
        (this repo's), that is the ordinary case on the host, not an edge case: a session can post
        a marker comment, react to it and have the next fresh session build from it.
+       *Amended by `#708`: `spec-find.sh`, `spec-comment.sh` and
+       the loop preflight refuse a config whose `identities.maintainer` lists a declared App's id, and
+       `plan-anchor.sh verify` does too when given `--declared-app-ids`, which resume passes. What remains:
+       an automation account (an App or a machine user) that no App key declares; a maintainer id not
+       written in canonical decimal, which `schema-complete.sh` rejects (the shell readers compare strings,
+       so it approves nothing there and a collision through it goes undetected, while the preflight compares
+       numbers and refuses the collision); a repeated key under `identities`, which every reader reads as its
+       last value; and the task-issue reaction readers `spec-issue.sh` and `spec-post.sh` (`WB-D32`, `#759`),
+       so a directly invoked `spec-task` can still read an App-approved issue body.* The rest of the
+       residual (a maintainer-credential session writing and approving its own spec) stands.
     8. **Stalling the readers.** An agent with Issues write can stall every reader, failing
        closed, by editing or deleting the spec or by keeping a marker comment moving. The dev App,
        or a maintainer credential, can also flood `#N` with marker comments. Each one costs the

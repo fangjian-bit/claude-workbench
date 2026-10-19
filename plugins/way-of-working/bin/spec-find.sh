@@ -44,9 +44,10 @@
 # backlog repo (`backlog.repo`, or `repo` when that is null; owner/name), `identities` (a map;
 # under null, the legacy shape, the finder does not apply), `identities.maintainer` (at least
 # one entry, each a map with an !!int `id` above 0 and a string `login`) and
-# `identities.dev_app` (null or absent: no dev App, the closed direction, and the reader waits
-# on an absent key; otherwise a map of the same shape, whose id is not on the maintainer list,
-# and whose id is canonical decimal: digits, no leading zero, no sign or prefix, so `+2001`, `0x7D1`
+# `identities.dev_app`, `identities.reviewer_app` and `identities.loop_app` (each null or
+# missing: no check for that key here, and a missing key is a declared residual (WB-D30
+# residual 7), though resume waits on it; otherwise a map of the same shape, whose id is not on the maintainer list (#708), and whose id is
+# canonical decimal: digits, no leading zero, no sign or prefix, so `+2001`, `0x7D1`
 # and `02001` are `unreadable` as `spec-comment.sh` has it, #707).
 # A value failing its shape is `unreadable`.
 #
@@ -130,18 +131,23 @@ maint_ids="$(yq -r 'explode(.) | .identities.maintainer | select(tag == "!!seq")
 m_good="$(printf '%s' "$maint_ids" | awk -F, '{print NF}')"
 [ "$m_good" = "$m_total" ] || out unreadable
 
-dev_tag="$(yq -r 'explode(.) | .identities.dev_app | tag' "$yml" 2>/dev/null)" || out unreadable
+# The declared Apps: the dev App feeds the author filter and the role check; the reviewer and
+# loop Apps are read for the collision check only (#708). Each key is checked the same way.
 dev_id=
-case "$dev_tag" in
-  '!!null') : ;;
-  '!!map')
-    dev_id="$(yq -r 'explode(.) | .identities.dev_app | select(tag == "!!map" and ((.id | tag) == "!!int") and .id > 0 and ((.login | tag) == "!!str")) | .id' "$yml" 2>/dev/null)" || out unreadable
-    [ -n "$dev_id" ] || out unreadable
-    case "$dev_id" in ''|0*|*[!0-9]*) out unreadable ;; esac
-    case ",$maint_ids," in *",$dev_id,"*) out unreadable ;; esac
-    ;;
-  *) out unreadable ;;
-esac
+for app_key in dev_app reviewer_app loop_app; do
+  app_tag="$(APP_KEY="$app_key" yq -r 'explode(.) | .identities[strenv(APP_KEY)] | tag' "$yml" 2>/dev/null)" || out unreadable
+  case "$app_tag" in
+    '!!null') : ;;
+    '!!map')
+      app_id="$(APP_KEY="$app_key" yq -r 'explode(.) | .identities[strenv(APP_KEY)] | select(tag == "!!map" and ((.id | tag) == "!!int") and .id > 0 and ((.login | tag) == "!!str")) | .id' "$yml" 2>/dev/null)" || out unreadable
+      [ -n "$app_id" ] || out unreadable
+      case "$app_id" in ''|0*|*[!0-9]*) out unreadable ;; esac
+      case ",$maint_ids," in *",$app_id,"*) out unreadable ;; esac
+      if [ "$app_key" = dev_app ]; then dev_id="$app_id"; fi
+      ;;
+    *) out unreadable ;;
+  esac
+done
 
 # --- the one listing ---------------------------------------------------------------------
 gh api --paginate "repos/$backlog/issues/$issue/comments" --jq '.[] | (((.body // "") + "\n") | split("\n")[0] | rtrimstr("\r")) as $l | select($l | test("^spec-task: issue=[1-9][0-9]* base=[A-Za-z0-9._/][A-Za-z0-9._/-]* sha=[0-9a-f]{40}$")) | ($l | split(" ")) as $f | [(.id|tostring), .updated_at, .issue_url, .user.login, (.user.id|tostring), ($f[1] | ltrimstr("issue=")), ($f[2] | ltrimstr("base="))] | @tsv' >"$tmp/list.tsv" 2>/dev/null || out unreadable

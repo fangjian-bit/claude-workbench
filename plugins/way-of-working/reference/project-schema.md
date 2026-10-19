@@ -436,11 +436,11 @@ has to parse, but a map-mode `verify` never fetches it.
 
 `bin/plan-anchor.sh` is the deterministic predicate over it, mirroring `cursor-drift.sh`'s
 shape: `write <repo> <milestone> <N|-> [<comment-id|->]` produces the anchor; `verify [--plan]
-[--loop-identity <login>] [--maintainer-ids <id,id,...>] [--dev-app-id <id>] [--spec-comment <id> <updated_at>] <repo> <pointer-url> <anchor-json>` compares it against the live
+[--loop-identity <login>] [--maintainer-ids <id,id,...>] [--dev-app-id <id>] [--declared-app-ids <id,id,...>] [--spec-comment <id> <updated_at>] <repo> <pointer-url> <anchor-json>` compares it against the live
 milestone/issue/comment and answers `match | drift | unreadable | untrusted | unreacted` (`untrusted`:
 the loop's own login authored one of them, § `orchestration`, or, with `--maintainer-ids`, the spec comment's author is neither a declared maintainer nor, with `--dev-app-id`, the declared dev App (`#497`, `#660`); `unreacted`: with `--maintainer-ids`,
 no declared maintainer has reacted approvingly on the spec comment since its last edit (the dev App's own reaction never counts; a maintainer author's own reaction does), or, with `--maintainer-ids` and no `--spec-comment`, whatever well-formed `spec_comment` the anchor holds,
-§ `identities` — `WB-D24`, `#383`), always exiting 0 — the verdict is stdout, the caller
+§ `identities` — `WB-D24`, `#383`; `unreadable`: among other causes, with `--dev-app-id` or `--declared-app-ids`, an id on `--maintainer-ids`, a malformed id or list, or either flag without `--maintainer-ids`, `#660`, `#708`), always exiting 0 — the verdict is stdout, the caller
 decides policy. `--plan` mode checks only the milestone's state and number (and, with `--loop-identity`, its
 creator) and ignores `task_issue`/`spec_comment` — `/way-of-working:handoff`'s baseline re-anchor check uses
 it, since `#N` may not exist yet or may have just changed; `/way-of-working:archive-sprint`'s
@@ -859,8 +859,8 @@ account including the dev App, which `author` never trusts — and `legacy` when
 agent's, which points at it), `architect-review`'s map branch, `bin/spec-issue.sh` and `bin/spec-post.sh` (an `agent` author passes there only with a declared maintainer's fresh approving reaction on the issue, `spec-reaction.sh`), all through `task-author`. `scripts/loop/preflight.sh github-dispatch`
 (`--identities`) is the one task-issue reader that is its own implementation of the rule rather than a call
 to `gh-identity.sh`: it mirrors `task-author` for the task issue, passing a dev or reviewer App author, and its fixtures hold it to that table; its reaction rule is `bin/spec-reaction.sh`. The one reader that still uses `author` is `bin/review-sandbox.sh trust`. `plan-sprint` shows a task issue's author with `task-author`, through `bin/plan-gather.sh authors`, for display only (`#710`): nothing it does depends on the word. Outside `token-check.sh` (below) and `scripts/identity/review/entrypoint.sh` (which requires `reviewer_app` to be a map, `#634`, checking it with its own `yq` read), `reviewer_app` and `loop_app` are read only to
-refuse them (as authors, and by `classify` as the acting identity) and to catch a duplicate id.
-`plan-anchor.sh verify --maintainer-ids` (`#383`, `#497`; `architect-review` reads the same ids for `bin/spec-reaction.sh`, `#613`) takes the maintainers' numeric ids, for the reaction and the spec comment's author (and, with `--dev-app-id <id>`, the dev App's id as a second accepted author, never an approver and never also a maintainer), from the
+refuse them (as authors, and by `classify` as the acting identity), to catch a duplicate id, and, with `dev_app`, to refuse a config that lists a declared App's id on `identities.maintainer` (`spec-find.sh`, `spec-comment.sh`, `plan-anchor.sh verify --declared-app-ids`, whose ids `resume` reads and passes, and the loop preflight, `#708`).
+`plan-anchor.sh verify --maintainer-ids` (`#383`, `#497`; `architect-review` reads the same ids for `bin/spec-reaction.sh`, `#613`) takes the maintainers' numeric ids, for the reaction and the spec comment's author (and, with `--dev-app-id <id>`, the dev App's id as a second accepted author, never an approver and never also a maintainer; and, with `--declared-app-ids <id,id,...>`, the id of every declared App, none of which may be a maintainer, `#708`), from the
 caller, which reads them from the default branch's copy: `resume` passes them under a map and
 omits the flags under `null`. `bin/token-check.sh verify` (`#436`) is a separate use of `role`: a consumer of a minted token runs it before
 acting, and for a `dev_app`, `reviewer_app` or `loop_app` role it requires the token's actor and

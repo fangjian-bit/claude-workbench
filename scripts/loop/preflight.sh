@@ -108,11 +108,18 @@
 #                   is accepted here, where spec-comment.sh sees a !!float; the literal-exact part
 #                   needs jq 1.7 or later, which keeps number literals, and on older jq the
 #                   collision cases still end unreadable) means
-#                   no spec comment under a map is approved, and the dev App is never an approver:
-#                   as in spec-find.sh, a dev_app whose id is on the maintainer list refuses a spec
-#                   comment by a declared maintainer, and a dev_app that is neither null nor a
-#                   well-formed entry makes one unreadable (for a dev-App-authored comment the
-#                   first ends at the duplicate-id check, as unreadable, and the second is not checked). Under a map, a spec comment with no --spec-reactions, or with no
+#                   no spec comment under a map is approved, and no declared App is an approver (#708):
+#                   as in spec-find.sh, the first key, in the order dev_app, reviewer_app, loop_app,
+#                   that fails either way (neither null nor a well-formed entry: unreadable; id on the
+#                   maintainer list: refused) decides a spec comment by a maintainer or by the dev App; that is
+#                   the only line, and no reaction is judged. A malformed maintainer list is reported
+#                   first. A dev-App-authored comment whose own id is on the maintainer list ends
+#                   earlier, at the duplicate-id check (declared more than once), as unreadable. The preflight
+#                   cannot see how an integer App id is written (`+2001`, `0x7D1`, `02001`): `yq -o=json` (v4.54.1, measured)
+#                   normalizes it and the comparison is numeric, so spelling cannot hide a collision
+#                   here. Dropping the maintainer-only guard makes the dev_app U line reachable for a
+#                   dev-App author whose dev_app id is written as a non-exact number equal to its own
+#                   (for example 2001.0), deliberately. Under a map, a spec comment with no --spec-reactions, or with no
 #                   well-formed `updated_at`, is unreadable, and --no-spec-comment is refused (the
 #                   issue body is never the spec, #496). The task issue's author is a
 #                   maintainer or, per WB-D32, the dev or reviewer App, and needs no reaction; the
@@ -351,22 +358,29 @@ case "$mode" in
         and ((tojson) == (floor | tostring)) and ((floor | tostring) | test("^[1-9][0-9]*$"));
       def wellformed: type == "object" and ((.login | type) == "string") and ((.id | type) == "number") and (.id | exactid);
       # A spec comment under a map (#666, #682), by the declared dev_app or by a declared maintainer: the
-      # all-or-nothing maintainer list of spec-comment.sh, the dev-App-id check of spec-find.sh, then the
+      # all-or-nothing maintainer list of spec-comment.sh, the declared-App-id checks of spec-find.sh, then the
       # updated_at of the comment itself. The reaction itself is judged by the shell, through spec-reaction.sh;
       # this emits one "D <role> <updated_at> <ids>" marker for it, which no input-chosen text can start. The
       # role is a literal from the two keys below, and only the wording of the output depends on it.
       def approvable(rule; o; role):
         ($ID.maintainer) as $m |
-        ($ID.dev_app) as $D |
         (if role == "dev_app" then "the declared dev_app" else "a declared maintainer" end) as $who |
+        # No declared App is an approver (#708): the first of dev_app, reviewer_app and loop_app that is
+        # neither null nor well formed (U), or whose id is on the maintainer list (R), is the only line.
+        # $m may be malformed here (the guard below reports it), so only its object entries are compared.
+        ( ($m | if type == "array" then map(select(type == "object")) else [] end) ) as $mo |
+        ( [ ("dev_app", "reviewer_app", "loop_app") as $k | $ID[$k] as $A
+            | if $A == null then empty
+              elif ($A | wellformed | not)
+                then "U \(rule): spec comment \(o.id) is by \($who) and the declared \($k) is neither null nor a well-formed entry"
+              elif any($mo[]; .id == $A.id)
+                then "R \(rule): spec comment \(o.id) is by \($who) and the id of the declared \($k) is on the maintainer list"
+              else empty end ] | first // null ) as $AC |
         if ($m | type) != "array" or ($m | length) == 0 or (all($m[]; wellformed) | not)
           then "R \(rule): spec comment \(o.id) is by \($who) and the maintainer list has a malformed entry, so no maintainer can approve it"
         elif role == "dev_app" and any($m[]; .id == o.user.id)
           then "R \(rule): spec comment \(o.id) is by the declared dev_app, whose id is on the maintainer list"
-        elif role == "maintainer" and $D != null and ($D | wellformed | not)
-          then "U \(rule): spec comment \(o.id) is by a declared maintainer and the declared dev_app is neither null nor a well-formed entry"
-        elif role == "maintainer" and $D != null and any($m[]; .id == $D.id)
-          then "R \(rule): spec comment \(o.id) is by a declared maintainer and the id of the declared dev_app is on the maintainer list"
+        elif $AC != null then $AC
         elif ((o.updated_at | type) != "string") or ((o.updated_at | length) != 20)
              or ((o.updated_at | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")) | not)
           then "U \(rule): spec comment \(o.id) has no well-formed updated_at"

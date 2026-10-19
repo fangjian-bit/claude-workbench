@@ -56,17 +56,23 @@
 #                   `approved` passes. No file, a missing or unreadable file, an exit 2 from
 #                   spec-reaction.sh and any other word are `unreacted`, never `unreadable`, which
 #                   still covers the comment file only. A legacy comment (identities null) carries
-#                   no such condition. The dev App's id on the approver list, or a dev_app entry
-#                   that is neither null nor well formed (a map with a canonical decimal !!int
-#                   `id` above 0 and a string `login`), makes a maintainer author's comment
-#                   `unreacted` too: the dev App has Issues write and could edit the text and then
-#                   approve it. A dev-App author, or the colliding account itself, is refused
-#                   earlier as `untrusted` when the dev App's id is spelled canonically (a
-#                   non-canonical spelling, `+2001` or `0x7D1`, reads the colliding account as a maintainer
-#                   in gh-identity.sh, and this check refuses it). No reaction clears it; the config has to change. An
-#                   absent `dev_app` key means no check, as in spec-find.sh. Otherwise a maintainer
-#                   author is approved by any declared maintainer's reaction, their own included,
-#                   as in spec-find.sh and plan-anchor.sh.
+#                   no such condition. The id of the dev App, the reviewer App or the loop App
+#                   (`identities.dev_app`, `.reviewer_app`, `.loop_app`) on the approver list, or an
+#                   entry of one of them that is neither null nor well formed (a map with a canonical
+#                   decimal !!int `id` above 0 and a string `login`), makes a maintainer or dev-App
+#                   author's comment `unreacted` too (#708): the dev App and the reviewer App have
+#                   Issues write and could edit the text and then approve it, and the loop App is
+#                   treated as the same class. The dev App's own id on the list, as an author,
+#                   is refused earlier as `untrusted` when the id is spelled canonically (a
+#                   non-canonical spelling, `+2001` or `0x7D1`, reads the colliding account as a
+#                   maintainer in gh-identity.sh, and this check refuses it). For a reviewer or loop
+#                   App id on the list, a maintainer or dev-App author reaches this check and reads
+#                   `unreacted`, as does a non-canonical spelling (`+2002`, `0x7D2`) of its id; the colliding account itself is refused earlier as `untrusted` only
+#                   when the App's id is spelled canonically (gh-identity.sh `role` dies on an id
+#                   declared more than once, or under another login). No reaction clears it; the
+#                   config has to change. A missing App key means no check, as in spec-find.sh.
+#                   Otherwise a maintainer author is approved by any declared maintainer's
+#                   reaction, their own included, as in spec-find.sh and plan-anchor.sh.
 #   unreadable  -- the file is missing, is not JSON, or lacks a field (or has one of the wrong
 #                   type) the checks read. Decided before any other word.
 # It never prints `.body`.
@@ -166,20 +172,23 @@ reaction_word() {
   [ -n "$ids" ] || { echo unreacted; return; }
   m_good="$(printf '%s' "$ids" | awk -F, '{print NF}')"
   [ "$m_good" = "$m_total" ] || { echo unreacted; return; }
-  # The dev App is never an approver: its id on the maintainer list could approve its own text.
-  # Whatever the author's role, a dev_app that is neither null (or absent) nor well formed, or whose
-  # id is on the list, makes the comment unreacted. Otherwise a maintainer author is approved by
-  # any declared maintainer's reaction, their own included.
-  dev_tag="$(yq -r 'explode(.) | .identities.dev_app | tag' "$yml" 2>/dev/null)" || { echo unreacted; return; }
-  case "$dev_tag" in
-    '!!null') ;;
-    '!!map')
-      dev_id="$(yq -r 'explode(.) | .identities.dev_app | select(tag == "!!map" and ((.id | tag) == "!!int") and .id > 0 and ((.login | tag) == "!!str")) | .id' "$yml" 2>/dev/null)" || { echo unreacted; return; }
-      case "$dev_id" in ''|0*|*[!0-9]*) echo unreacted; return ;; esac
-      case ",$ids," in *",$dev_id,"*) echo unreacted; return ;; esac
-      ;;
-    *) echo unreacted; return ;;
-  esac
+  # No declared App is an approver: its id on the maintainer list could approve its own text
+  # (the dev App and the reviewer App have Issues write; the loop App is treated as the same class, #708).
+  # Whatever the author's role, an App entry that is neither null (or missing) nor well formed, or
+  # whose id is not canonical decimal or is on the list, makes the comment unreacted. Otherwise a
+  # maintainer author is approved by any declared maintainer's reaction, their own included.
+  for app_key in dev_app reviewer_app loop_app; do
+    app_tag="$(APP_KEY="$app_key" yq -r 'explode(.) | .identities[strenv(APP_KEY)] | tag' "$yml" 2>/dev/null)" || { echo unreacted; return; }
+    case "$app_tag" in
+      '!!null') ;;
+      '!!map')
+        app_id="$(APP_KEY="$app_key" yq -r 'explode(.) | .identities[strenv(APP_KEY)] | select(tag == "!!map" and ((.id | tag) == "!!int") and .id > 0 and ((.login | tag) == "!!str")) | .id' "$yml" 2>/dev/null)" || { echo unreacted; return; }
+        case "$app_id" in ''|0*|*[!0-9]*) echo unreacted; return ;; esac
+        case ",$ids," in *",$app_id,"*) echo unreacted; return ;; esac
+        ;;
+      *) echo unreacted; return ;;
+    esac
+  done
   if [ "$1" = dev_app ]; then
     case ",$ids," in *",$f_uid,"*) echo unreacted; return ;; esac
   fi
