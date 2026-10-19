@@ -552,7 +552,7 @@ for want in "[NO_PROXY=wow-review-inject-" "[no_proxy=wow-review-inject-" "[ANTH
   case $cs in *"$want"*) ok "golden: session env has $want" ;; *) bad "golden: session env lacks $want" ;; esac
 done
 sc=$(dcalls)
-hold=$(grep '^CALL \[run\].*wow-review-holder' "$STUB/docker.calls")
+hold=$(grep '^CALL \[run\].*\[--name\] \[wow-review-holder-' "$STUB/docker.calls")
 case $hold in *"[--network] [none]"*"[--read-only]"*"[--cap-drop] [ALL]"*) ok "golden: the holder is network-less, read-only, caps dropped" ;; *) bad "golden: the holder flags: $hold" ;; esac
 case $hold in *"wow.review.holder=1"*) ok "golden: the holder label" ;; *) bad "golden: holder label" ;; esac
 case $hold in *"[wow.review=1]"*) bad "golden: the holder carries the counted label" ;; *) ok "golden: the holder is not counted by the cap" ;; esac
@@ -560,14 +560,27 @@ case $hold in *"target=/review-out,readonly,volume-nocopy=true]"*) ok "golden: t
 assert_eq "golden: the holder mounts only the outbox" 1 "$(printf '%s' "$hold" | grep -o '\[--mount\]' | wc -l | tr -d ' ')"
 check "golden: the holder runs before the session is created" test "$(ev_line 'docker-run wow-review-holder')" -lt "$(ev_line 'docker-create wow-review-session')"
 check "golden: the holder is removed" has "$STUB/events" "docker-rm wow-review-holder-"
-pr=$(grep '^CALL \[run\].*wow-review-proxy' "$STUB/docker.calls")
-ij=$(grep '^CALL \[create\].*wow-review-inject' "$STUB/docker.calls")
+pr=$(grep '^CALL \[run\].*\[--name\] \[wow-review-proxy-' "$STUB/docker.calls")
+ij=$(grep '^CALL \[create\].*\[--name\] \[wow-review-inject-' "$STUB/docker.calls")
 case $pr in *"[--entrypoint] [python3]"*"/opt/review/proxy.py]"*) ok "golden: the proxy uses --entrypoint python3" ;; *) bad "golden: proxy entrypoint: $pr" ;; esac
 case $ij in *"[--entrypoint] [python3]"*"/opt/review/inject.py]"*) ok "golden: the injector uses --entrypoint python3" ;; *) bad "golden: injector entrypoint: $ij" ;; esac
 case $pr in *"LOOP_ALLOW_HOSTS=github.com,api.github.com]"*) ok "golden: the proxy allows only the two GitHub hosts" ;; *) bad "golden: proxy hosts" ;; esac
 case $ij in *"LOOP_CREDENTIAL_ENV=CLAUDE_CODE_OAUTH_TOKEN]"*"[-i]"*|*"[-i]"*"LOOP_CREDENTIAL_ENV=CLAUDE_CODE_OAUTH_TOKEN]"*) ok "golden: the injector is created -i with the credential variable named" ;; *) bad "golden: injector create: $ij" ;; esac
 for h in "$pr" "$ij"; do
   case $h in *"[--read-only]"*"[--cap-drop] [ALL]"*"no-new-privileges"*"[--pids-limit] [512]"*"[--memory] [256m]"*"/tmp:rw,nosuid,size=16m"*) ok "golden: a sidecar is hardened" ;; *) bad "golden: sidecar hardening: $h" ;; esac
+done
+# every sidecar carries the session's log cap on its own call; the patterns name the container, so the
+# session's create line (whose env values name the injector) cannot satisfy a sidecar check
+assert_eq "golden: exactly one proxy run call" 1 "$(grep -c '^CALL \[run\].*\[--name\] \[wow-review-proxy-' "$STUB/docker.calls")"
+assert_eq "golden: exactly one injector create call" 1 "$(grep -c '^CALL \[create\].*\[--name\] \[wow-review-inject-' "$STUB/docker.calls")"
+assert_eq "golden: exactly one holder run call" 1 "$(grep -c '^CALL \[run\].*\[--name\] \[wow-review-holder-' "$STUB/docker.calls")"
+for pair in "proxy|$pr" "injector|$ij" "holder|$hold"; do
+  who=${pair%%|*}; call=${pair#*|}
+  for want in "[--log-opt] [max-size=10m]" "[--log-opt] [max-file=1]" "[--log-opt] [compress=false]"; do
+    case $call in *"$want"*) ok "golden: the $who has $want" ;; *) bad "golden: the $who lacks $want: $call" ;; esac
+  done
+  assert_eq "golden: exactly three --log-opt arguments on the $who" 3 "$(printf '%s' "$call" | grep -o '\[--log-opt[]=]' | wc -l | tr -d ' ')"
+  assert_eq "golden: no --log-driver argument on the $who" 0 "$(printf '%s' "$call" | grep -o '\[--log-driver[]=]' | wc -l | tr -d ' ')"
 done
 check "golden: the internal isolated network" has "$STUB/net.create" "--internal -o com.docker.network.bridge.gateway_mode_ipv4=isolated wow-review-net-"
 assert_eq "golden: two volumes created, tmpfs-backed with the session's ownership" 2 "$(grep -c 'type=tmpfs --opt device=tmpfs --opt o=size=.*uid=1000,gid=1000' "$STUB/vol.create")"

@@ -464,15 +464,21 @@ CF="$wow_home/claude-credential"
 CRED=$(head -n 1 "$CF" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
 [ -n "$CRED" ] || fail "$CF has no credential on its first line"
 
+# Every long-lived container here (proxy, injector, holder, session) takes the same log cap, written on each call and not in HARDEN: --log-opt max-size=10m
+# --log-opt max-file=1 --log-opt compress=false. compress=false: the `local` log driver (Docker Desktop's default)
+# compresses unless told not to, and refuses max-file=1 with compression on, at start, after create succeeded.
+# json-file accepts compress=false too.
 HARDEN="--read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit 512"
 dk network create --internal -o com.docker.network.bridge.gateway_mode_ipv4=isolated "$NET" >/dev/null || fail "cannot create the internal network"
 dk network create "$EXT" >/dev/null || fail "cannot create the external network"
 # shellcheck disable=SC2086
 dkp run -d --name "$P" --network "$NET" $HARDEN --memory 256m --tmpfs /tmp:rw,nosuid,size=16m \
+  --log-opt max-size=10m --log-opt max-file=1 --log-opt compress=false \
   -e "LOOP_ALLOW_HOSTS=github.com,api.github.com" --entrypoint python3 "$TAG" /opt/review/proxy.py >/dev/null || fail "cannot start the proxy"
 dk network connect "$EXT" "$P" >/dev/null || fail "cannot connect the proxy to the external network"
 # shellcheck disable=SC2086
 dkp create -i --name "$I" --network "$NET" $HARDEN --memory 256m --tmpfs /tmp:rw,nosuid,size=16m \
+  --log-opt max-size=10m --log-opt max-file=1 --log-opt compress=false \
   -e "LOOP_CREDENTIAL_ENV=CLAUDE_CODE_OAUTH_TOKEN" --entrypoint python3 "$TAG" /opt/review/inject.py >/dev/null || fail "cannot create the injector"
 dk network connect "$EXT" "$I" >/dev/null || fail "cannot connect the injector to the external network"
 # The credential reaches the injector's stdin from a builtin's pipe: no file, argument or variable of the container.
@@ -494,12 +500,11 @@ dk volume create --opt type=tmpfs --opt device=tmpfs --opt o=size=2g,uid=1000,gi
 dk volume create --opt type=tmpfs --opt device=tmpfs --opt o=size=64m,uid=1000,gid=1000 "$OUTV" >/dev/null || fail "cannot create the outbox volume"
 dkp run -d --name "$H" --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
   --label wow.review.holder=1 --label "wow.review.deadline=$DL" \
+  --log-opt max-size=10m --log-opt max-file=1 --log-opt compress=false \
   --mount "type=volume,source=$OUTV,target=/review-out,readonly,volume-nocopy=true" \
   --entrypoint sleep "$TAG" infinity >/dev/null || fail "cannot start the outbox holder"
 
 # ---- 9. create, preflight, re-mint, start, unlock --------------------------------------------
-# compress=false: the `local` log driver (Docker Desktop's default) compresses unless told not to,
-# and refuses max-file=1 with compression on, at start, after create succeeded. json-file accepts it too.
 # The home tmpfs takes `exec`: the plugin is installed under it and its scripts are run by name. /work already
 # allows execution, so noexec on the home tmpfs stopped the plugin's own scripts without stopping anything the
 # session could not already run (its SessionStart hook is switched off by the image's managed settings).
