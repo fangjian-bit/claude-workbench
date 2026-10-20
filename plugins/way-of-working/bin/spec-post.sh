@@ -2,18 +2,30 @@
 # Compose and post ONE spec comment on a task issue, as the declared dev App, or hold the
 # composed comment for a human to post.
 #
-# Usage: spec-post.sh post <N> <sha> <draft-file> <out-dir>
+# Usage: spec-post.sh post|escalate <N> <sha> <draft-file> <out-dir>
+#
+# Two modes (#746). `post` is the spec comment, marker `spec-task: issue=N base=B sha=<sha>`.
+# `escalate` runs every stage and check `post` runs, composes the same body under the distinct
+# first line `spec-task-escalated: issue=N base=B sha=<sha>` (which no reader takes for the spec
+# marker) and, after a confirmed post, makes one label write adding `status/needs-human`. Nothing
+# calls `escalate` yet; spec-find.sh shows such a comment as `escalated` (or in `pending`), so
+# the escalation lives on GitHub in the comment, not in the label.
 #
 # Who calls it: spec-task's *Post or hold* stage, after spec-shape.sh said `ok`. Why it exists:
 # the skill used to hand its draft to the maintainer to post (WB-D26). It now posts it itself
 # when the session acts as the declared dev App (WB-D29), and the composing, the marker and the
-# one write live here, in one tested command, instead of in prose a model retypes. Approval does
+# one write (two in `escalate` mode) live here, in one tested command, instead of in prose a model retypes. Approval does
 # not move: a declared maintainer reacts to the posted comment on GitHub, and every reader of a
 # dev-App spec already refuses it without that reaction. The marker line is a locator, never
 # authority.
 #
 # Output. A pass is exactly one line on stdout and exit 0:
 #   posted <id> <login> <html_url>
+# or, in `escalate` mode only:
+#   escalated <id> <login> <html_url> <lbl>
+# <lbl> is `labelled`, `label-absent` (the repository has no `status/needs-human` label, so no
+# write was made), `label-unreadable` (the label read failed, no write was made) or `label-failed`
+# (the one label write failed; it is never retried). The comment is posted in all four.
 # A stop is exactly one word on stdout and exit 1, the first that applies, in the order the
 # stages below run:
 #   unreadable          a read, a check or a copy failed, or a value was not the shape expected
@@ -26,7 +38,7 @@
 #   bad-base            `pr_base` is empty, begins with `-` or holds an unusual character
 #   bad-sha             <sha> is not a commit on the tip of origin/<base> or behind it
 #   bad-shape           spec-shape.sh check did not say `ok`
-#   has-marker          a line of the draft begins with the marker's own prefix
+#   has-marker          a line of the draft begins with either marker prefix (`spec-task:` or `spec-task-escalated:`)
 #   leak                a line matches an obvious local-path or secret shape (a filter, not a boundary)
 #   too-long            the composed body is over 65536 bytes
 #   unreachable         the issue fetch failed, or (App-filed path) the issue's reactions read or second fetch
@@ -78,16 +90,19 @@
 #                renamed into <out-dir>/comment.md. This is the only place the marker is written
 #   hold         the comment is posted only when `identities` is a map and the acting account is
 #                the declared dev App; otherwise it is held
-#   post         the one write, with the body on standard input so gh is handed no path
+#   post         the comment write, with the body on standard input so gh is handed no path
 #   response     the response is read back and must name this comment, this author and this issue
+#   label        `escalate` mode only: one label read, and, only if it finds `status/needs-human`, one
+#                label write, never retried. A stop or a hold before the post makes no label call, and
+#                neither does `post-unknown` or `posted-unreadable`
 #
 # What it never prints: the draft, the body, or `gh`'s output or error text. The POST is never
 # retried.
 #
 # Residuals, each accepted:
 #   - the default-branch reads (`gh repo view`) take the host from the origin URL; the issue
-#     read, the viewer read and the write pin github.com, so those three (five on the App-filed path) share one host and one
-#     credential;
+#     read, the viewer read, the comment write and, in `escalate` mode, the label read and write pin
+#     github.com, so they (and the App-filed path's extra reads) share one host and one credential;
 #   - a `gh` call has no per-call timeout. A hang ends with no word, which the caller treats as
 #     `post-unknown`;
 #   - the leak shapes are a filter, not a boundary;
@@ -98,7 +113,14 @@
 #     account with write access, and is posted; so can text paraphrased from a reacted App-filed
 #     body (the reaction gates the read, not the content, and the hidden-text screen is a filter);
 #   - the App-filed path makes four pinned reads (the default-branch reads aside): the issue, its
-#     reactions, the issue again and the viewer, then, only on a pass, the one write.
+#     reactions, the issue again and the viewer, then, only on a pass, the comment write (and, in
+#     `escalate` mode, the label read and write);
+#   - a hang during the label calls comes after a confirmed post and reads as no word, which the
+#     caller treats as `post-unknown`; that fails closed, because the finder already shows the comment;
+#   - the label lookup is case-sensitive (`grep -Fx`) while GitHub label names are not, so a repository
+#     spelling it `Status/Needs-Human` reads `label-absent` and no write is made (fails closed);
+#   - the label can be deleted between the read and the write, in which case GitHub's add-labels
+#     call may create it.
 #
 # There is no environment override of `gh`, `git` or `yq`; the tests put stubs first on PATH.
 # spec-shape.sh, gh-identity.sh and spec-reaction.sh are found as `$(dirname "$0")/<name>` only, and run
@@ -110,10 +132,16 @@
 set -eu
 
 usage() {
-  echo "usage: spec-post.sh post <N> <sha> <draft-file> <out-dir>" >&2
+  echo "usage: spec-post.sh post|escalate <N> <sha> <draft-file> <out-dir>" >&2
   exit 2
 }
-[ "$#" -eq 5 ] && [ "$1" = post ] || usage
+[ "$#" -eq 5 ] || usage
+mode="$1"
+case "$mode" in
+  post) mark=spec-task ;;
+  escalate) mark=spec-task-escalated ;;
+  *) usage ;;
+esac
 n="$2"
 sha="$3"
 draft="$4"
@@ -283,14 +311,14 @@ match() {
     *) stop unreadable ;;
   esac
 }
-if match -e '^spec-task:'; then stop has-marker; fi
+if match -e '^spec-task:' -e '^spec-task-escalated:'; then stop has-marker; fi
 if match -E -e '(^|[^A-Za-z0-9])[A-Za-z]:[/\\]'; then stop leak; fi
 if match -F -e '/Users/' -e '/home/' -e 'AppData' -e '-----BEGIN'; then stop leak; fi
 if match -E -e '(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}' -e 'github_pat_[A-Za-z0-9]{20,}'; then stop leak; fi
 
 # the composed body
 {
-  printf 'spec-task: issue=%s base=%s sha=%s\n\n' "$n" "$base" "$sha"
+  printf '%s: issue=%s base=%s sha=%s\n\n' "$mark" "$n" "$base" "$sha"
   cat "$tmp/draft.md"
 } >"$tmp/body.md" 2>/dev/null || stop unreadable
 size="$(wc -c <"$tmp/body.md")" || stop unreadable
@@ -468,7 +496,7 @@ sh "$gi" role "$vlogin" "$vid" "$tmp/def.yml" >"$tmp/role" 2>/dev/null || rc=$?
 [ "$rc" -eq 0 ] || held not-dev-app
 [ "$(rd "$tmp/role")" = dev_app ] || held not-dev-app
 
-# post: the one write
+# post: the comment write
 gh api --hostname github.com --method POST "repos/$backlog/issues/$n/comments" -F body=@- <"$tmp/body.md" >"$tmp/resp.json" 2>/dev/null || stop post-unknown
 
 # the response
@@ -484,4 +512,23 @@ case "$cid" in '' | 0* | *[!0-9]*) stop posted-unreadable ;; esac
 [ "$clogin" = "$vlogin" ] && [ "$cuid" = "$vid" ] || stop posted-unreadable
 [ "$(fold "$iurl")" = "$(fold "https://api.github.com/repos/$backlog/issues/$n")" ] || stop posted-unreadable
 [ "$(fold "$hurl")" = "$(fold "https://github.com/$backlog/issues/$n#issuecomment-$cid")" ] || stop posted-unreadable
-printf 'posted %s %s %s\n' "$cid" "$clogin" "$hurl"
+if [ "$mode" = post ]; then
+  printf 'posted %s %s %s\n' "$cid" "$clogin" "$hurl"
+  exit 0
+fi
+
+# label: escalate only. One read, then at most one write, never retried.
+lbl=labelled
+gh api --hostname github.com "repos/$backlog/labels?per_page=100" --paginate --jq '.[].name' >"$tmp/labels" 2>/dev/null || lbl=label-unreadable
+if [ "$lbl" = labelled ]; then
+  lrc=0
+  grep -Fx -e 'status/needs-human' "$tmp/labels" >/dev/null 2>&1 || lrc=$?
+  if [ "$lrc" -eq 1 ]; then
+    lbl=label-absent
+  elif [ "$lrc" -ne 0 ]; then
+    lbl=label-unreadable
+  else
+    gh api --hostname github.com --method POST "repos/$backlog/issues/$n/labels" -f 'labels[]=status/needs-human' </dev/null >/dev/null 2>&1 || lbl=label-failed
+  fi
+fi
+printf 'escalated %s %s %s %s\n' "$cid" "$clogin" "$hurl" "$lbl"

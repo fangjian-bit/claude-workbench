@@ -213,7 +213,7 @@ to its printed `base=`: nothing below means anything against the wrong repo or b
      zero). Its output must be exactly `found <id> <updated_at>`, `<id>` digits with no leading
      zero and `<updated_at>` `YYYY-MM-DDTHH:MM:SSZ`, parsed into `CID` and `CUP` in that call and
      never pasted into a later command. This review holds no pin: it never runs resume, and takes
-     a fresh `found`. Any other word (`none`, `unreacted`, `ambiguous`, `moved`, `unreadable`), a
+     a fresh `found`. Any other word (`none`, `unreacted`, `escalated`, `ambiguous`, `moved`, `unreadable`), a
      non-zero exit or empty output loads no spec, with that word as the reason (an exit or empty
      output reads as `unreadable`) — a stated limit, not a STOP. Never an id found in a PR body or
      title, a comment list, or the issue. Fetch `#I` once, projected at the source (`gh api

@@ -346,6 +346,13 @@ rename. Then **re-run the `jq` listing**: every casing must now show the sha.
   those is churn that breaks the tooling's own conventions. The rule targets automation
   writing labels *as you*, which is the case a reader cannot otherwise detect.
 
+  **One further, named exception (`#746`):** `status/needs-human`, applied by
+  `spec-post.sh escalate`, is un-namespaced although a machine writes it. It is written only by
+  the declared dev App under its own identity, so a reader sees on the label event that a robot put
+  it there, and it sits on the human `status/*` axis because it asks a human to act. It is not the
+  ecosystem-standard case above and does not widen it. An adopter's automation keyed to this label
+  (an `issues: labeled` workflow, for example) now also fires on the dev App's write.
+
 ## Prose economy — the deep record has a lifecycle
 
 `/way-of-working:handoff` bounds the cursor; nothing bounds the deep record (`{roadmap}`,

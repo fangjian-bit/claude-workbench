@@ -6,12 +6,15 @@
 # The real script runs from a local checkout cloned from a fixture origin repository whose default
 # branch (`git init -b main`) carries .ai/project.yml; each case commits the project.yml it needs
 # to that origin. First on PATH, only while the script runs, are a stub `gh` (keyed on the shape of
-# the call; it logs its argv, saves the standard input of the POST and does not interpret --jq) and
+# the call; it logs its argv, saves the standard input of the comment POST and does not interpret --jq) and
 # a logging `git` wrapper. Needs git and yq (mikefarah v4); skips, loudly, without yq.
 #
 # What it pins: the happy path makes exactly one write that is not the viewer query, and its
 # standard input is the marker line, an empty line, then the draft's bytes; every stop and every
-# hold makes none, except `post-unknown`, which makes exactly one and is never retried. Symlink
+# hold makes none, except `post-unknown`, which makes exactly one and is never retried. The
+# `escalate` mode (#746) makes the same comment POST under the escalated marker and then, only
+# after a confirmed post, one label read and at most one label write (never retried); its stops,
+# holds, `post-unknown` and `posted-unreadable` make no label call. Symlink
 # cases skip, loudly, where `ln -s` copies instead of linking (Git Bash).
 # Permitted toolset: POSIX sh.
 set -eu
@@ -75,6 +78,14 @@ case "$*" in
   *graphql*)
     [ -z "${FX_VIEWER_FAIL:-}" ] || fail_with
     printf '%s\t%s\n' "$FX_VLOGIN" "$FX_VID"
+    ;;
+  *"labels?per_page=100"*)
+    [ -z "${FX_LBLR_FAIL:-}" ] || fail_with
+    if [ -n "${FX_LABELS:-}" ]; then "$FX_CAT" "$FX_LABELS"; fi
+    ;;
+  *"--method POST"*"issues/"*"/labels"*)
+    [ -z "${FX_LBLW_FAIL:-}" ] || fail_with
+    printf '[]\n'
     ;;
   *"--method|POST"* | *"--method POST"*)
     "$FX_CAT" >"$FX_STDIN"
@@ -256,8 +267,11 @@ reset_fx() {
   FX_VLOGIN='dev[bot]' FX_VID=200
   FX_VIEW_FAIL= FX_ISSUE_FAIL= FX_VIEWER_FAIL= FX_POST_FAIL= FX_HOOK=
   FX_RX= FX_RX_FAIL= FX_ISSUE2= FX_ISSUE2_FAIL=
+  FX_LABELS="$tmp/labels.txt" FX_LBLR_FAIL= FX_LBLW_FAIL=
+  export FX_LABELS FX_LBLR_FAIL FX_LBLW_FAIL
   export FX_NWO FX_DEF FX_ISSUE FX_RESP FX_VLOGIN FX_VID FX_VIEW_FAIL FX_ISSUE_FAIL FX_VIEWER_FAIL FX_POST_FAIL FX_HOOK
   export FX_RX FX_RX_FAIL FX_ISSUE2 FX_ISSUE2_FAIL
+  printf 'bug\nstatus/needs-human\n' >"$tmp/labels.txt"
   mkissue maint 100 '"OWNER"'
   mkresp 777 'dev[bot]' 200 661
 }
@@ -270,7 +284,13 @@ calls() { # calls <log> -- the number of lines
   echo "$n"
 }
 writes() { # every gh call that is not a known read (repo view, the issue GET, its reactions GET, the exact viewer query)
-  grep -vc -e '^repo|view|' -e '^api|--hostname|github.com|repos/[^|]*/issues/[0-9]*|$' -e '^api|--hostname|github.com|repos/[^|]*/issues/[0-9]*/reactions|--paginate|--jq|' -e '^api|--hostname|github.com|graphql|-f|query={ viewer { login databaseId } }|--jq|' "$glog" || true
+  grep -vc -e '^repo|view|' -e '^api|--hostname|github.com|repos/[^|]*/issues/[0-9]*|$' -e '^api|--hostname|github.com|repos/[^|]*/issues/[0-9]*/reactions|--paginate|--jq|' -e '^api|--hostname|github.com|graphql|-f|query={ viewer { login databaseId } }|--jq|' -e '^api|--hostname|github.com|repos/[^|]*/labels?per_page=100|--paginate|--jq|.\[\].name|' "$glog" || true
+}
+lblcalls() { # lblcalls <read|write> -- the number of label reads or label writes in the gh log
+  case "$1" in
+    read) grep -c 'labels?per_page=100' "$glog" || true ;;
+    *) grep -c -e '--method|POST|repos/[^|]*/issues/[0-9]*/labels|' "$glog" || true ;;
+  esac
 }
 
 # run <args...>: sets rc, out, err. SCRIPT, RUNDIR and XPATH override the defaults.
@@ -287,20 +307,23 @@ run() {
 }
 # post <draft> <out-dir> -- the usual call
 post() { run post 661 "$SHA" "$1" "$2"; }
+esc() { run escalate 661 "$SHA" "$1" "$2"; }
 
 stop_is() { # stop_is <word> -- one word, exit 1, nothing on stderr, no write
   assert_eq "$desc (word)" "$1" "$out"
   assert_eq "$desc (rc)" 1 "$rc"
   assert_eq "$desc (stderr)" "" "$err"
   assert_eq "$desc (no write)" 0 "$(writes)"
+  assert_eq "$desc (no label call)" 0 "$(( $(lblcalls read) + $(lblcalls write) ))"
 }
-held_is() { # held_is <reason> <out-dir> -- a hold: the composed comment is kept, nothing posted
+held_is() { # held_is <reason> <out-dir> [marker-prefix] -- a hold: the composed comment is kept, nothing posted
   assert_eq "$desc (line)" "held $1 $2/comment.md" "$out"
   assert_eq "$desc (rc)" 1 "$rc"
   assert_eq "$desc (stderr)" "" "$err"
   assert_eq "$desc (no write)" 0 "$(writes)"
   assert_eq "$desc (comment kept)" comment.md "$(ls -A "$2")"
-  assert_eq "$desc (marker first)" "spec-task: issue=661 base=main sha=$SHA" "$(head -n 1 "$2/comment.md")"
+  assert_eq "$desc (marker first)" "${3:-spec-task}: issue=661 base=main sha=$SHA" "$(head -n 1 "$2/comment.md")"
+  assert_eq "$desc (no label call)" 0 "$(( $(lblcalls read) + $(lblcalls write) ))"
 }
 usage_is() {
   assert_eq "$desc (stdout)" "" "$out"
@@ -329,7 +352,96 @@ repo|view|$ourl|--json|defaultBranchRef|--jq|.defaultBranchRef.name // \"\"|
 api|--hostname|github.com|repos/acme/backlog/issues/661|
 api|--hostname|github.com|graphql|-f|query={ viewer { login databaseId } }|--jq|[.data.viewer.login, .data.viewer.databaseId] | @tsv|
 api|--hostname|github.com|--method|POST|repos/acme/backlog/issues/661/comments|-F|body=@-|" "$("$real_cat" "$glog")"
+assert_eq "$desc (no label call)" 0 "$(( $(lblcalls read) + $(lblcalls write) ))"
 assert_eq "$desc (the draft keeps its backslash and braces)" 2 "$(grep -c -e 'back\\slash' -e '{pr_base}' "$o/comment.md" || true)"
+
+# -- escalate (#746) -----------------------------------------------------------------------------
+eexpect="$tmp/eexpect.md"
+{ printf 'spec-task-escalated: issue=661 base=main sha=%s\n\n' "$SHA"; "$real_cat" "$dr/draft.md"; } >"$eexpect"
+ehurl="https://github.com/acme/backlog/issues/661#issuecomment-777"
+
+desc="escalate: pass under a map as the dev App"
+o="$(newdir)"
+esc "$dr/draft.md" "$o"
+assert_eq "$desc (line)" "escalated 777 dev[bot] $ehurl labelled" "$out"
+assert_eq "$desc (rc)" 0 "$rc"
+assert_eq "$desc (stderr)" "" "$err"
+assert_eq "$desc (comment POST and label write)" 2 "$(writes)"
+assert_eq "$desc (stdin is escalated marker, blank line, draft bytes)" yes "$(cmp -s "$eexpect" "$gstdin" && echo yes || echo no)"
+assert_eq "$desc (comment.md is the posted body)" yes "$(cmp -s "$eexpect" "$o/comment.md" && echo yes || echo no)"
+assert_eq "$desc (gh log)" "repo|view|$ourl|--json|nameWithOwner|--jq|.nameWithOwner|
+repo|view|$ourl|--json|defaultBranchRef|--jq|.defaultBranchRef.name // \"\"|
+api|--hostname|github.com|repos/acme/backlog/issues/661|
+api|--hostname|github.com|graphql|-f|query={ viewer { login databaseId } }|--jq|[.data.viewer.login, .data.viewer.databaseId] | @tsv|
+api|--hostname|github.com|--method|POST|repos/acme/backlog/issues/661/comments|-F|body=@-|
+api|--hostname|github.com|repos/acme/backlog/labels?per_page=100|--paginate|--jq|.[].name|
+api|--hostname|github.com|--method|POST|repos/acme/backlog/issues/661/labels|-f|labels[]=status/needs-human|" "$("$real_cat" "$glog")"
+
+desc="escalate: the label is absent from the repository"
+printf 'bug\nstatus/needs-human-not\n' >"$tmp/labels.txt"
+o="$(newdir)"
+FX_LABELS="$tmp/labels.txt" esc "$dr/draft.md" "$o"
+assert_eq "$desc (line)" "escalated 777 dev[bot] $ehurl label-absent" "$out"
+assert_eq "$desc (rc)" 0 "$rc"
+assert_eq "$desc (one label read)" 1 "$(lblcalls read)"
+assert_eq "$desc (no label write)" 0 "$(lblcalls write)"
+assert_eq "$desc (one write)" 1 "$(writes)"
+
+desc="escalate: the label read fails"
+o="$(newdir)"
+FX_LBLR_FAIL=1 esc "$dr/draft.md" "$o"
+assert_eq "$desc (line)" "escalated 777 dev[bot] $ehurl label-unreadable" "$out"
+assert_eq "$desc (rc)" 0 "$rc"
+assert_eq "$desc (one label read)" 1 "$(lblcalls read)"
+assert_eq "$desc (no label write)" 0 "$(lblcalls write)"
+
+desc="escalate: the label write fails, made once and never retried"
+o="$(newdir)"
+FX_LBLW_FAIL=1 esc "$dr/draft.md" "$o"
+assert_eq "$desc (line)" "escalated 777 dev[bot] $ehurl label-failed" "$out"
+assert_eq "$desc (rc)" 0 "$rc"
+assert_eq "$desc (one label read)" 1 "$(lblcalls read)"
+assert_eq "$desc (one label write)" 1 "$(lblcalls write)"
+
+desc="escalate: post-unknown makes the comment POST and no label call"
+o="$(newdir)"
+FX_POST_FAIL=1 esc "$dr/draft.md" "$o"
+assert_eq "$desc (word)" post-unknown "$out"
+assert_eq "$desc (one write)" 1 "$(writes)"
+assert_eq "$desc (no label call)" 0 "$(( $(lblcalls read) + $(lblcalls write) ))"
+assert_eq "$desc (comment kept, escalated marker)" "spec-task-escalated: issue=661 base=main sha=$SHA" "$(head -n 1 "$o/comment.md")"
+
+desc="escalate: posted-unreadable makes the comment POST and no label call"
+mkresp 777 'maint' 100 661
+o="$(newdir)"
+esc "$dr/draft.md" "$o"
+assert_eq "$desc (word)" posted-unreadable "$out"
+assert_eq "$desc (one write)" 1 "$(writes)"
+assert_eq "$desc (no label call)" 0 "$(( $(lblcalls read) + $(lblcalls write) ))"
+
+desc="escalate hold: identities null"
+setyml "$tmp/legacy.yml"
+o="$(newdir)"
+esc "$dr/draft.md" "$o"
+held_is no-identities "$o" spec-task-escalated
+setyml "$tmp/map.yml"
+
+desc="escalate hold: the viewer is not the dev App"
+o="$(newdir)"
+FX_VLOGIN=maint FX_VID=100 esc "$dr/draft.md" "$o"
+held_is not-dev-app "$o" spec-task-escalated
+
+for m in post escalate; do
+  for pre in 'spec-task: issue=1 base=main sha=x' 'spec-task-escalated: issue=1 base=main sha=x'; do
+    desc="stop: has-marker in $m mode for a draft line '${pre%%:*}:'"
+    d4="$(newdir)"
+    mkdraft "$d4/draft.md" "$pre"
+    o="$(newdir)"
+    run "$m" 661 "$SHA" "$d4/draft.md" "$o"
+    stop_is has-marker
+    assert_eq "$desc (out-dir empty)" "" "$(ls -A "$o")"
+  done
+done
 
 desc="the checkout's own project.yml is ignored (backlog read at the default branch's)"
 assert_eq "$desc" 0 "$(grep -c 'elsewhere' "$glog" || true)"

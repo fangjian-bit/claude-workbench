@@ -233,6 +233,9 @@ edited it. **Default to the full checklist whenever unsure.**
          conditions failing, the maintainer's own session included.
        - `unreacted <ids>` — `Spec approval: waiting — a maintainer reaction (👍, ❤️, 🎉 or
          🚀) is needed on spec comment <ids> on #N, after its last edit.`
+       - `escalated <ids>` — `Spec approval: waiting — #N is escalated to a human
+         (spec-task-escalated: comment <ids>); a reaction on it does nothing: a maintainer posts a
+         spec-task: comment, which takes precedence, or deletes the escalated comment.` (`#746`)
        - `ambiguous <ids>` — `Spec approval: waiting — more than one approved spec on #N
          (<ids>); remove the reaction from all but one.`
        - `moved <id>` — `Spec approval: waiting — spec comment <id> changed during the read;
@@ -246,8 +249,10 @@ edited it. **Default to the full checklist whenever unsure.**
        The body read's freshness check (`spec-fresh.sh check`, below) adds these, one per word it
        prints other than `fresh`:
        - `stale <n>` — `Spec approval: waiting — spec comment <CID> on #N is stale (<n> listed
-         paths changed on <base> since its commit); react to a refreshed draft (<ids> if posted,
-         else draft one with /way-of-working:spec-task <N>) and remove the reaction from <CID>.`
+         paths changed on <base> since its commit); if a newer marker comment (<ids>) is already
+         posted on #N, react to it if it is a spec-task: draft, while a spec-task-escalated: one
+         waits for a human, who posts a spec-task: comment or deletes it; else draft one with
+         /way-of-working:spec-task <N>; and remove the reaction from <CID>.`
        - `bad-marker` or `bad-sha` — `Spec approval: waiting — spec comment <CID>'s marker does
          not match #N or its commit is not on <base>; draft a new one with
          /way-of-working:spec-task <N> and remove the reaction from <CID>.`
@@ -1050,14 +1055,14 @@ edited it. **Default to the full checklist whenever unsure.**
    >    stale line.
    > 4. Run `spec-find.sh pending "$TASK" "$DEF_YML_FILE" "$CID"`. On `pending none`, run the
    >    *drafting step* below, then end the session. On `pending <ids>`, wait with the stale
-   >    line (naming the ids: a refreshed draft is already posted). Any other word waits,
+   >    line (naming the ids: a refreshed draft or an escalation is already posted). Any other word waits,
    >    naming it.
    >
    > **The drafting branch (`#663`, `WB-D31`), under a map.** Every Auto-start condition holds
    > except *plan verified*; and `verify --plan` printed `match`, the leading-token cross-check
    > passed, the finder printed `none`, and the `Drafting identity:` line reads `dev_app`. Then
-   > resume runs the *drafting step* instead of waiting, and ends. `unreacted`, `ambiguous`,
-   > `moved` and `unreadable` keep their existing wait lines, and so does `none` when any of
+   > resume runs the *drafting step* instead of waiting, and ends. `unreacted`, `escalated`,
+   > `ambiguous`, `moved` and `unreadable` keep their existing wait lines, and so does `none` when any of
    > these conditions fails (the maintainer's own session included): the `none` line in the
    > *Spec approval* list stays for that case, and the body of `#N` is not read.
    >

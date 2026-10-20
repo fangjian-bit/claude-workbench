@@ -851,7 +851,7 @@ if [ -n "$speccomment_hits" ]; then
     "Name bin/spec-find.sh in each reader and take the comment id from its found line; fetch the comment into a file and print it with bin/spec-comment.sh body, never to the transcript; list no comments. resume and the coder also name bin/spec-fresh.sh, run before the body prints (#663). In bin/spec-find.sh keep the one listing line with its projection, and read no .body elsewhere. bin/spec-fresh.sh makes no gh call."
 fi
 
-# --- 18. The spec-task skill carries no posting form; its one write lives in spec-post.sh (#611, #661, WB-D29) --
+# --- 18. The spec-task skill carries no posting form; its writes live in spec-post.sh (#611, #661, #746, WB-D29) --
 #
 # A dev-App spec comment is used only with a declared maintainer's fresh approving reaction. A comment
 # posted under a human-trusted login would be read as "maintainer-authored": it would credit a human with
@@ -860,12 +860,12 @@ fi
 # comment` or other `gh issue`/`gh pr` write verb (flags may sit between the words), no `gh label`,
 # and no `gh api` call with `-X`/`--method` POST|PATCH|PUT|DELETE or with `-f`/`-F` (a value may be
 # attached) or `--field`/`--raw-field`/`--input` (any of which turns a read into a write). A command
-# wrapped over several lines with a trailing backslash is joined before the test. The one write is
+# wrapped over several lines with a trailing backslash is joined before the test. The writes are in
 # bin/spec-post.sh, which the skill must name as `spec-post.sh post`, and that script must exist.
 # In it, lines whose first non-blank character is `#` are dropped BEFORE wrapped lines are joined (a
 # shell comment never continues, except a `#` line right after a backslash-ended line, which the shell joins), and after that every line matching those same write patterns must
-# equal, trimmed, one of two exact lines, compared as fixed strings: the viewer read and the POST.
-# Each appears exactly once, and no line contains `eval` as a word. It is a static check on prose
+# equal, trimmed, one of three exact lines, compared as fixed strings: the viewer read, the comment
+# POST and the label POST its `escalate` mode makes (#746). Each appears exactly once, and no line contains `eval` as a word. It is a static check on prose
 # and a script, not a proof about a model's behaviour: a write through a function wrapper or
 # `"$GH"` is outside it, and tests/spec-post.test.sh is the control for those. A tree with no
 # spec-task skill or no spec-post.sh fails: a check that cannot look must not pass (#243's stance).
@@ -911,14 +911,15 @@ for f in plugins/*/skills/spec-task/SKILL.md plugins/*/skills/spec-task/appendic
 done
 [ "$spectask_seen" -eq 1 ] || spectask_hits+="(no plugins/*/skills/spec-task/SKILL.md found)"$'\n'
 if [ -n "$spectask_hits" ]; then
-  report "the spec-task skill contains a posting form; its one write is bin/spec-post.sh (#611, #661)" \
+  report "the spec-task skill contains a posting form; its writes are in bin/spec-post.sh (#611, #661, #746)" \
     "$spectask_hits" \
     "The skill carries no gh issue/pr write, gh label or gh api write. See docs/decisions.md WB-D29."
 fi
 
-# The two exact lines spec-post.sh may carry, compared as fixed strings after trimming blanks.
+# The three exact lines spec-post.sh may carry, compared as fixed strings after trimming blanks.
 spectask_viewer='gh api --hostname github.com graphql -f query='\''{ viewer { login databaseId } }'\'' --jq '\''[.data.viewer.login, .data.viewer.databaseId] | @tsv'\'' >"$tmp/viewer" 2>/dev/null || held actor-unreadable'
 spectask_post='gh api --hostname github.com --method POST "repos/$backlog/issues/$n/comments" -F body=@- <"$tmp/body.md" >"$tmp/resp.json" 2>/dev/null || stop post-unknown'
+spectask_label='gh api --hostname github.com --method POST "repos/$backlog/issues/$n/labels" -f '\''labels[]=status/needs-human'\'' </dev/null >/dev/null 2>&1 || lbl=label-failed'
 spectask_posts_seen=0
 for f in plugins/*/bin/spec-post.sh; do
   [ -f "$f" ] || continue
@@ -932,7 +933,7 @@ for f in plugins/*/bin/spec-post.sh; do
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     t=$(printf '%s' "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-    if [ "$t" != "$spectask_viewer" ] && [ "$t" != "$spectask_post" ]; then
+    if [ "$t" != "$spectask_viewer" ] && [ "$t" != "$spectask_post" ] && [ "$t" != "$spectask_label" ]; then
       odd+="$f: $t"$'\n'
     fi
   done <<EOF_WRITES
@@ -941,13 +942,14 @@ EOF_WRITES
   # `sort -u` above collapses a repeated line, so each pinned line is counted on the joined text.
   n_viewer=$(printf '%s\n' "$joined" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | grep -cxF -e "$spectask_viewer" || true)
   n_post=$(printf '%s\n' "$joined" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | grep -cxF -e "$spectask_post" || true)
-  [ -z "$odd" ] || report "spec-post.sh carries a gh write line other than the two pinned ones (#661)" \
+  n_label=$(printf '%s\n' "$joined" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | grep -cxF -e "$spectask_label" || true)
+  [ -z "$odd" ] || report "spec-post.sh carries a gh write line other than the three pinned ones (#661, #746)" \
     "$odd" \
-    "Only the viewer read and the one POST are allowed, spelled exactly. See docs/decisions.md WB-D29."
-  if [ "$n_viewer" -ne 1 ] || [ "$n_post" -ne 1 ]; then
-    report "spec-post.sh must carry each pinned gh line exactly once (#661)" \
-      "$f: viewer read x$n_viewer, POST x$n_post" \
-      "The viewer read and the POST each appear exactly once, spelled exactly. See docs/decisions.md WB-D29."
+    "Only the viewer read, the one comment POST and the one label POST are allowed, spelled exactly. See docs/decisions.md WB-D29."
+  if [ "$n_viewer" -ne 1 ] || [ "$n_post" -ne 1 ] || [ "$n_label" -ne 1 ]; then
+    report "spec-post.sh must carry each pinned gh line exactly once (#661, #746)" \
+      "$f: viewer read x$n_viewer, comment POST x$n_post, label POST x$n_label" \
+      "The viewer read, the comment POST and the label POST each appear exactly once, spelled exactly. See docs/decisions.md WB-D29."
   fi
   ev=$(printf '%s\n' "$joined" | grep -nE '(^|[^A-Za-z0-9_])eval([^A-Za-z0-9_]|$)' || true)
   [ -z "$ev" ] || report "spec-post.sh uses eval (#661)" \

@@ -30,8 +30,8 @@
 #   repo-mismatch    the default branch's .repo is not the origin's nameWithOwner
 #   not-map          `identities` is not a map; lanes rely on the finder
 #   exists           prep: the worktree path, prompt file, branch or branch config is taken
-#   finder: WORD     prep: the finder printed WORD (none, unreacted, ambiguous, moved or
-#                    unreadable) instead of `found`
+#   finder: WORD     prep: the finder printed WORD (none, unreacted, escalated, ambiguous,
+#                    moved or unreadable) instead of `found`
 #   bad-issue        prep: the task is closed, a pull request, off milestone M, or not N
 #   failed           prep: a step from the base fetch on (or a signal from the lanes
 #                    directory step on) failed and what this run did was
@@ -456,7 +456,7 @@ prep() {
     *)
       fd_w=${fd_out%% *}
       case "$fd_w" in
-        none | unreacted | ambiguous | moved) stop "finder: $fd_w" ;;
+        none | unreacted | escalated | ambiguous | moved) stop "finder: $fd_w" ;;
         *) stop "finder: unreadable" ;;
       esac
       ;;

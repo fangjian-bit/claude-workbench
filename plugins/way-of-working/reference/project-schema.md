@@ -71,7 +71,7 @@ a smaller plugin, not a bigger schema.
 
 ```yaml
 # ── identity ─────────────────────────────────────────────────────────────────
-repo: glunk-works/bounty-infra   # owner/name. Also the namespace for labels a skill emits.
+repo: glunk-works/bounty-infra   # owner/name. Also the namespace for labels a skill emits (except status/needs-human, see below).
 pr_base: main                    # branch every PR is cut from and based on.
 migration_base: null             # null means no migration is under way; absent prompts.
                                   # Read only from the default branch. See below.
@@ -163,7 +163,8 @@ for the machine-emitted labels **they themselves** apply (`{repo-name}/*`) — c
 a skill's emitter *is* the repo's own automation. The general rule is *namespace by the
 emitting system*, which is not always the repo: a repo running a separately-named engine
 namespaces under the engine. Deriving a skill's own namespace from `repo` is that rule
-applied, not an exception to it. See `reference/conventions.md` § *Issue + label taxonomy*.
+applied, not an exception to it. The one exception is `status/needs-human`, which
+`spec-post.sh escalate` writes as the declared dev App (`#746`); see `reference/conventions.md` § *Issue + label taxonomy*.
 
 `pr_base` is the branch work is cut **from** and based **on**. Normally the repo's default
 branch — the key exists because it does not have to be. A repo mid a large multi-sprint
@@ -986,7 +987,7 @@ must be a clean path through every skill, or the seam is in the wrong place.
 
 A new key is justified when a skill would otherwise name a repo-specific value. Before
 adding one, check the two cheaper answers first: the value may already be derivable from an
-existing key (a skill's own label namespace comes from `repo`; the review gate's trigger
+existing key (a skill's own label namespace comes from `repo`, except `status/needs-human`, which `spec-post.sh escalate` writes as the declared dev App, per `conventions.md`; the review gate's trigger
 paths are `code_paths` when `triggers_on` is `null`), or the behavior may not be portable at
 all, in which case it leaves the plugin instead of growing the schema.
 

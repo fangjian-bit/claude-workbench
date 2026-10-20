@@ -7,8 +7,9 @@
 #   1. Projection fixtures. The listing's --jq program is pulled out of the script, from its one
 #      listing line, and run with `jq -r` over a JSON array of comment fixtures. A failed pull is
 #      a test failure, never a skip. These prove jq's behaviour ONLY. That `gh`'s own gojq agrees
-#      rests on the manual run recorded in the issue's spec, so ANY LATER EDIT TO THE PROGRAM
-#      MUST BE RE-RUN UNDER `gh` (for example `gh api --jq` over a posted comment) and checked
+#      rests on a manual `gh` run over a scratch issue (the #746 change needs one for the escalated
+#      marker and the kind column; see that PR for whether it was done), so ANY LATER EDIT
+#      TO THE PROGRAM MUST BE RE-RUN UNDER `gh` (for example `gh api --jq` over a posted comment) and checked
 #      against the same cases.
 #   2. Script fixtures. Each case copies spec-find.sh into its own fixture bin/ directory and
 #      runs it by path, beside the real spec-reaction.sh and either the real gh-identity.sh or a
@@ -71,7 +72,9 @@ proj() { # <body-or-@null> -> the projected rows for one comment, tab-separated
 }
 
 M="spec-task: issue=7 base=main sha=$SHA"
-want_row="$(printf '11\t2026-09-21T09:00:00Z\tu\tl\t5\t7\tmain')"
+want_row="$(printf '11\t2026-09-21T09:00:00Z\tu\tl\t5\t7\tmain\tspec-task')"
+want_esc="$(printf '11\t2026-09-21T09:00:00Z\tu\tl\t5\t7\tmain\tspec-task-escalated')"
+E="spec-task-escalated: issue=7 base=main sha=$SHA"
 
 assert_eq "projection: a marker first line matches" "$want_row" "$(proj "$M
 the rest of the spec")"
@@ -92,6 +95,14 @@ $SENTINEL")" in
   *"$SENTINEL"*) echo "FAIL - projection: a sentinel in the second line reached the output" >&2; fail=1 ;;
   *) echo "ok - projection: a sentinel in the second line never appears in the output" ;;
 esac
+assert_eq "projection: an escalated marker yields kind spec-task-escalated" "$want_esc" "$(proj "$E
+the rest of the spec")"
+assert_eq "projection: an escalated marker alone matches" "$want_esc" "$(proj "$E")"
+assert_eq "projection: a near-miss spec-task-escalatedx: yields nothing" "" "$(proj "spec-task-escalatedx: issue=7 base=main sha=$SHA")"
+assert_eq "projection: an escalated marker with trailing text yields nothing" "" "$(proj "$E extra")"
+assert_eq "projection: an escalated marker on the second line yields nothing" "" "$(proj "intro
+$E")"
+assert_eq "projection: a spec-task-: first line yields nothing" "" "$(proj "spec-task-: issue=7 base=main sha=$SHA")"
 row="$(proj "spec-task: issue=7 base=feat/x-y.z sha=$SHA")"
 assert_eq "projection: a base with / and - matches and column 7 reads back whole" "feat/x-y.z" "$(printf '%s\n' "$row" | awk -F '\t' '{print $7}')"
 
@@ -198,15 +209,18 @@ use_gi_stub() { # <word>: swap in the logging gh-identity.sh
   printf '%s\n' "$1" >"$cd_/bin/gi.word"
 }
 
-# addrow <id> <login> <uid> [updated] [issue-in-marker] [base] [issue_url]
+# addrow <id> <login> <uid> [updated] [issue-in-marker] [base] [issue_url] [kind]
 addrow() {
   r_updated="${4:-$T1}"
   r_issue="${5:-$ISSUE}"
   r_base="${6:-$Y_PRBASE}"
   r_url="${7:-https://api.github.com/repos/$BACKLOG/issues/$ISSUE}"
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$r_updated" "$r_url" "$2" "$3" "$r_issue" "$r_base" >>"$cd_/list.tsv"
+  r_kind="${8:-spec-task}"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$r_updated" "$r_url" "$2" "$3" "$r_issue" "$r_base" "$r_kind" >>"$cd_/list.tsv"
   printf '%s' "$r_updated" >"$cd_/upd/$1"
 }
+# addesc <id> <login> <uid> [updated] [issue-in-marker] [base] [issue_url] -- an escalated-marker row
+addesc() { addrow "$1" "$2" "$3" "${4:-}" "${5:-}" "${6:-}" "${7:-}" spec-task-escalated; }
 # addrx <id> <user-id> <content> <created_at>
 addrx() { printf '%s\t%s\t%s\n' "$2" "$3" "$4" >>"$cd_/rx/$1.tsv"; }
 # a maintainer-authored (or dev-App) row with a maintainer's fresh approving reaction
@@ -287,6 +301,50 @@ expect "unreacted: a -1 and an eyes reaction" "unreacted 1001"
 
 nc; addrow 1001 maint1 101; addrow 1002 "dev-app[bot]" 201; run
 expect "unreacted: several rows past the role check are listed in order" "unreacted 1001,1002"
+
+# --- escalated (#746) ---
+nc; use_gi_stub dev_app; addesc 1001 "dev-app[bot]" 201; addrx 1001 101 +1 "$T2"; run
+expect "escalated: a dev-App escalated row, even with an approving maintainer reaction" "escalated 1001"
+assert_eq "escalated: the role lookup is called once, for the dev App" "role dev-app[bot] 201 $cd_/project.yml" "$(cat "$cd_/gi.log")"
+if grep -q 'issues/comments/1001' "$cd_/gh.log"; then
+  echo "FAIL - escalated: a reactions or second read was made for an escalated row" >&2
+  fail=1
+else
+  echo "ok - escalated: no reactions or second read for an escalated row"
+fi
+
+nc; addesc 1001 maint1 101; run
+expect "escalated: a maintainer escalated row" "escalated 1001"
+
+nc; addesc 1001 maint1 101; addesc 1002 "dev-app[bot]" 201; run
+expect "escalated: several rows in listing order" "escalated 1001,1002"
+
+nc; addesc 1001 outsider 555; run
+expect "none: an escalated row by an undeclared author" "none"
+
+nc; addesc 1001 maint1 101 "$T1" 8; run
+expect "none: an escalated row naming another issue" "none"
+
+nc; addesc 1001 maint1 101 "$T1" 7 other-branch; run
+expect "none: an escalated row naming another base" "none"
+
+nc; addesc 1001 maint1 101 "$T1" 7 main "https://api.github.com/repos/acme/app/issues/8"; run
+expect "none: an escalated row with another issue_url" "none"
+
+nc; addesc 1001 maint1 101; addrow 1002 maint1 101; run
+expect "unreacted: a spec-task row beside an escalated row wins" "unreacted 1002"
+
+nc; addesc 1001 maint1 101; approved 1002 maint1 101; run
+expect "found: an approved spec-task row beside an escalated row wins" "found 1002 $T1"
+
+nc; addrow 1001 maint1 101 "$T1" 7 main "https://api.github.com/repos/acme/app/issues/7" bogus-kind; run
+expect "none: a row of an unknown kind is dropped" "none"
+
+nc; use_gi_stub maintainer; addesc 1001 "dev-app[bot]" 201; run
+expect "unreadable: role mismatch on an escalated row" "unreadable"
+
+nc; use_gi_stub EXIT2; addesc 1001 maint1 101; run
+expect "unreadable: role exits 2 on an escalated row" "unreadable"
 
 # --- none ---
 nc; run
@@ -566,6 +624,21 @@ runp abc
 expect "exit 2: pending with a non-digit after-id" "" 2
 rc=0; out="$(PATH="$fakebin:$PATH" FX_DIR="$cd_" sh "$cd_/bin/spec-find.sh" pending 7 "$cd_/project.yml" 2>/dev/null)" || rc=$?
 expect "exit 2: pending without an after-id" "" 2
+
+nc; addesc 1001 "dev-app[bot]" 201; runp 1000
+expect "pending: a newer escalated row" "pending 1001"
+
+nc; addesc 1001 "dev-app[bot]" 201; runp 1001
+expect "pending: an escalated row equal to after-id is not newer" "pending none"
+
+nc; addesc 1000 "dev-app[bot]" 201; approved 1001 maint1 101; runp 1001
+expect "pending: an older escalated row" "pending none"
+
+nc; approved 1001 maint1 101; addesc 1002 maint1 101; addrow 1003 "dev-app[bot]" 201; runp 1001
+expect "pending: a newer escalated row and a newer unreacted row" "pending 1002,1003"
+
+nc; approved 1001 maint1 101; addesc 10002 maint1 101; runp 1001
+expect "pending: an escalated id with more digits than after-id is greater" "pending 10002"
 
 # --- exit 2, nothing on stdout ---
 nc; approved 1001 maint1 101

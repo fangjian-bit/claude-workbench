@@ -462,6 +462,8 @@ finder_case none "finder: none" 'none
 '
 finder_case unreacted "finder: unreacted" 'unreacted 5
 '
+finder_case escalated "finder: escalated" 'escalated 5
+'
 finder_case ambiguous "finder: ambiguous" 'ambiguous 5,6
 '
 finder_case moved "finder: moved" 'moved 5

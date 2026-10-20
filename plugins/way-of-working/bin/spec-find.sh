@@ -1,8 +1,8 @@
 #!/bin/sh
 # Which comment on a task issue is its approved spec? One implementation of the selection
 # WB-D29's binding rules for marker readers set out, so the readers do not each carry it in
-# prose (#662). Its callers: /way-of-working:resume, the coder agent and
-# /way-of-working:architect-review (each runs it in the Bash call that uses its result).
+# prose (#662). Its callers: /way-of-working:resume, the coder agent,
+# scripts/lanes/lane.sh and /way-of-working:architect-review (each runs it in the Bash call that uses its result).
 #
 # Usage: spec-find.sh find <issue> <project.yml>
 #        spec-find.sh pending <issue> <project.yml> <after-id>
@@ -13,20 +13,22 @@
 #   <after-id>     `pending` only: a comment id, digits with no leading zero (the found CID)
 #
 # `pending` (#663) uses the same configuration reads, the same one listing and the same static,
-# role, reaction and `moved` logic as `find`. It answers whether an unreacted draft newer than
-# the approved spec is already posted, so resume does not post a duplicate. Its words are, in
-# order: `unreadable`, `moved <id>`, `pending <id>[,<id>...]` (the rows that passed the role
-# check, are not approved candidates and have an id greater than <after-id>, compared as digit
-# strings: the longer is larger, equal lengths compare as strings) or `pending none`.
+# role, reaction and `moved` logic as `find`. It answers whether an unreacted draft, or an
+# escalated comment, newer than the approved spec is already posted, so resume does not post a
+# duplicate. Its words are, in order: `unreadable`, `moved <id>`, `pending <id>[,<id>...]` (the
+# `spec-task:` rows that passed the role check, are not approved candidates and have an id greater
+# than <after-id>, plus the role-passed escalated rows with an id greater than <after-id>, compared
+# as digit strings: the longer is larger, equal lengths compare as strings) or `pending none`.
 #
 # It makes its own `gh` calls: one paginated listing of the issue's comments, then, for each
-# comment that clears the static and role checks, that comment's reactions and a second read of
-# its `updated_at`. Every `gh` call's stderr goes to /dev/null. It never prints comment text,
+# `spec-task:` comment that clears the static and role checks, that comment's reactions and a second
+# read of its `updated_at`. An escalated comment gets the role check only (#746). Every `gh` call's stderr goes to /dev/null. It never prints comment text,
 # on stdout or stderr, and it writes only its own fixed diagnostics to stderr.
 #
 # A comment is a candidate only when ALL of these hold:
 #   - its first line is exactly the spec-task marker (`spec-task: issue=N base=B sha=<40 hex>`),
-#     matched inside gh's own --jq on the raw first line, so the check and the use see the same
+#     or the escalated marker (`spec-task-escalated: ...`, the same fields; such a comment is
+#     never a candidate whatever its reactions, see `escalated` below), matched inside gh's own --jq on the raw first line, so the check and the use see the same
 #     bytes. A body that breaks lines with CR alone, or carries a character the pattern does
 #     not allow, does not match. `sha=` is checked for shape only and never passed to git.
 #   - the marker's `issue=` is <issue> and its `base=` is the project file's `pr_base`, and the
@@ -59,7 +61,10 @@
 #                                   between the listing and the second read
 #   ambiguous <id>,<id>[,...]    -- two or more candidates; the finder never picks one
 #   found <id> <updated_at>      -- exactly one candidate
-#   unreacted <id>[,<id>...]     -- no candidate, but these rows passed the role check
+#   unreacted <id>[,<id>...]     -- no candidate, but these `spec-task:` rows passed the role check
+#   escalated <id>[,<id>...]     -- no `spec-task:` row passed the role check, but these
+#                                   `spec-task-escalated:` rows did (listing order); no reactions
+#                                   are read for them, and a reaction never makes one a spec
 #   none                         -- no row passed the role check
 # Before `found` prints, the id is re-checked as digits and `updated_at` as
 # YYYY-MM-DDTHH:MM:SSZ; a failure prints `unreadable`.
@@ -150,12 +155,12 @@ for app_key in dev_app reviewer_app loop_app; do
 done
 
 # --- the one listing ---------------------------------------------------------------------
-gh api --paginate "repos/$backlog/issues/$issue/comments" --jq '.[] | (((.body // "") + "\n") | split("\n")[0] | rtrimstr("\r")) as $l | select($l | test("^spec-task: issue=[1-9][0-9]* base=[A-Za-z0-9._/][A-Za-z0-9._/-]* sha=[0-9a-f]{40}$")) | ($l | split(" ")) as $f | [(.id|tostring), .updated_at, .issue_url, .user.login, (.user.id|tostring), ($f[1] | ltrimstr("issue=")), ($f[2] | ltrimstr("base="))] | @tsv' >"$tmp/list.tsv" 2>/dev/null || out unreadable
+gh api --paginate "repos/$backlog/issues/$issue/comments" --jq '.[] | (((.body // "") + "\n") | split("\n")[0] | rtrimstr("\r")) as $l | select($l | test("^spec-task(-escalated)?: issue=[1-9][0-9]* base=[A-Za-z0-9._/][A-Za-z0-9._/-]* sha=[0-9a-f]{40}$")) | ($l | split(" ")) as $f | [(.id|tostring), .updated_at, .issue_url, .user.login, (.user.id|tostring), ($f[1] | ltrimstr("issue=")), ($f[2] | ltrimstr("base=")), ($f[0] | rtrimstr(":"))] | @tsv' >"$tmp/list.tsv" 2>/dev/null || out unreadable
 
 # --- the static rules --------------------------------------------------------------------
-# Rows are de-duplicated on id (first kept), then each must have exactly 7 fields, digit ids,
-# the asked-for issue and base, the backlog repo's issue URL and a declared author id. Output
-# is id, login, user id, updated_at, separated by US (0x1f), which is not whitespace to `read`.
+# Rows are de-duplicated on id (first kept), then each must have exactly 8 fields, one of the two
+# kinds (`spec-task`, `spec-task-escalated`), digit ids, the asked-for issue and base, the backlog
+# repo's issue URL and a declared author id. Output is id, login, user id, kind, updated_at, separated by US (0x1f), which is not whitespace to `read`.
 # updated_at is last, so a malformed value cannot shift the others.
 SF_ISSUE="$issue" SF_BASE="$base" SF_URL="https://api.github.com/repos/$backlog/issues/$issue" \
   SF_MAINT=",$maint_ids," SF_DEV="$dev_id" awk -F '\t' '
@@ -164,11 +169,12 @@ SF_ISSUE="$issue" SF_BASE="$base" SF_URL="https://api.github.com/repos/$backlog/
     maint = ENVIRON["SF_MAINT"]; dev = ENVIRON["SF_DEV"]; us = sprintf("%c", 31)
   }
   seen[$1]++ { next }
-  NF != 7 { next }
+  NF != 8 { next }
+  $8 "" != "spec-task" && $8 "" != "spec-task-escalated" { next }
   $1 !~ /^[0-9]+$/ || $5 !~ /^[0-9]+$/ { next }
   $6 "" != issue "" || $3 "" != url "" || $7 "" != base "" { next }
   !(index(maint, "," $5 ",") > 0 || (dev != "" && $5 "" == dev "")) { next }
-  { print $1 us $4 us $5 us $2 }
+  { print $1 us $4 us $5 us $8 us $2 }
 ' "$tmp/list.tsv" >"$tmp/rows" 2>/dev/null || out unreadable
 
 # --- the role, reactions and approval of each remaining row ------------------------------
@@ -178,15 +184,28 @@ cand_ids=
 cand_n=0
 cand_updated=
 role_ids=
+esc_ids=
 pend_ids=
 n=0
-while IFS="$US" read -r c_id c_login c_uid c_updated; do
+# gt <a> <b> -- yes when digit string a is larger than b: the longer is larger, equal lengths compare as
+# strings. awk, since POSIX test has no string order.
+gt() {
+  SF_A="$1" SF_B="$2" awk 'BEGIN { a = ENVIRON["SF_A"]; b = ENVIRON["SF_B"]; print (length(a) > length(b) || (length(a) == length(b) && a "" > b "")) ? "yes" : "no" }'
+}
+while IFS="$US" read -r c_id c_login c_uid c_kind c_updated; do
   n=$((n + 1))
   case "$c_id" in '' | *[!0-9]*) out unreadable ;; esac
   case "$c_uid" in '' | *[!0-9]*) out unreadable ;; esac
   case ",$maint_ids," in *",$c_uid,"*) want=maintainer ;; *) want=dev_app ;; esac
   got="$(sh "$gi" role "$c_login" "$c_uid" "$yml" 2>/dev/null </dev/null)" || out unreadable
   [ "$got" = "$want" ] || out unreadable
+  if [ "$c_kind" = spec-task-escalated ]; then
+    esc_ids="${esc_ids:+$esc_ids,}$c_id"
+    if [ "$mode" = pending ] && [ "$(gt "$c_id" "$after")" = yes ]; then
+      pend_ids="${pend_ids:+$pend_ids,}$c_id"
+    fi
+    continue
+  fi
   role_ids="${role_ids:+$role_ids,}$c_id"
 
   rx="$tmp/rx.$n"
@@ -202,9 +221,7 @@ while IFS="$US" read -r c_id c_login c_uid c_updated; do
     cand_n=$((cand_n + 1))
     cand_updated="$c_updated"
   elif [ "$mode" = pending ]; then
-    # Digit strings with no leading zero: the longer is larger, equal lengths compare as strings.
-    # awk, since POSIX test has no string order.
-    if [ "$(SF_A="$c_id" SF_B="$after" awk 'BEGIN { a = ENVIRON["SF_A"]; b = ENVIRON["SF_B"]; print (length(a) > length(b) || (length(a) == length(b) && a "" > b "")) ? "yes" : "no" }')" = yes ]; then
+    if [ "$(gt "$c_id" "$after")" = yes ]; then
       pend_ids="${pend_ids:+$pend_ids,}$c_id"
     fi
   fi
@@ -225,4 +242,5 @@ if [ "$cand_n" -eq 1 ]; then
   out "found $cand_ids $cand_updated"
 fi
 [ -z "$role_ids" ] || out "unreacted $role_ids"
+[ -z "$esc_ids" ] || out "escalated $esc_ids"
 out none

@@ -1,6 +1,6 @@
 #!/bin/sh
 # Fixture tests for scripts/invariants-check.sh's check 18: the spec-task skill carries no posting
-# form, and its one write is the two pinned `gh` lines of bin/spec-post.sh (#611, #661, WB-D29).
+# form, and its writes are the three pinned `gh` lines of bin/spec-post.sh (#611, #661, #746, WB-D29).
 #
 # Each case mutates a COPY of the real tree and asserts the check fires (or stays silent), so
 # a check that only passes on the real tree cannot hide. Only check 18's own message is
@@ -19,7 +19,7 @@ fail=0
 MSG="the spec-task skill contains a posting form"
 MSG_NAME="the spec-task skill does not name spec-post.sh post"
 MSG_MISSING="plugins/*/bin/spec-post.sh is missing"
-MSG_ODD="spec-post.sh carries a gh write line other than the two pinned"
+MSG_ODD="spec-post.sh carries a gh write line other than the three pinned"
 MSG_ONCE="spec-post.sh must carry each pinned gh line exactly once"
 MSG_EVAL="spec-post.sh uses eval"
 
@@ -52,7 +52,8 @@ assert_silent() { # <desc> <dir> [message]
 
 skill() { ls "$1"/plugins/*/skills/spec-task/SKILL.md; }
 spost() { ls "$1"/plugins/*/bin/spec-post.sh; }
-pinned_post() { grep -F -e '--method POST' "$1" | head -n 1; }
+pinned_post() { grep -F -e '--method POST' "$1" | grep -F -e '/comments"' | head -n 1; }
+pinned_label() { grep -F -e '--method POST' "$1" | grep -F -e '/labels"' | head -n 1; }
 pinned_viewer() { grep -F -e 'graphql' "$1" | head -n 1; }
 
 # Control: the real tree is clean.
@@ -179,17 +180,25 @@ d="$(tree noscript)"
 rm -f "$(spost "$d")"
 assert_fires "a missing spec-post.sh fires" "$d" "$MSG_MISSING"
 
-# In the script: the two pinned lines, exactly once each, spelled exactly.
+# In the script: the three pinned lines, exactly once each, spelled exactly.
 d="$(tree twopost)"
 pinned_post "$(spost "$d")" >>"$(spost "$d")"
 assert_fires "a second POST line fires" "$d" "$MSG_ONCE"
+
+d="$(tree twolabel)"
+pinned_label "$(spost "$d")" >>"$(spost "$d")"
+assert_fires "a second label line fires" "$d" "$MSG_ONCE"
+
+d="$(tree nolabel)"
+sed -i '/issues\/\$n\/labels/d' "$(spost "$d")"
+assert_fires "a script with no label line fires" "$d" "$MSG_ONCE"
 
 d="$(tree twoviewer)"
 pinned_viewer "$(spost "$d")" >>"$(spost "$d")"
 assert_fires "a second viewer line fires" "$d" "$MSG_ONCE"
 
 d="$(tree nopost)"
-sed -i '/--method POST/d' "$(spost "$d")"
+sed -i '/--method POST.*\/comments"/d' "$(spost "$d")"
 assert_fires "a script with no POST line fires" "$d" "$MSG_ONCE"
 
 n=0
@@ -202,8 +211,21 @@ for edit in \
   's/--hostname github.com --method POST/--method POST/'; do
   n=$((n + 1))
   d="$(tree edit$n)"
-  sed -i "/--method POST/ $edit" "$(spost "$d")"
+  sed -i "/--method POST.*\/comments\"/ $edit" "$(spost "$d")"
   assert_fires "an altered POST line fires: $edit" "$d" "$MSG_ODD"
+done
+
+n=0
+for edit in \
+  "s/status\/needs-human/status\/other/" \
+  's# </dev/null##' \
+  's/-f /-F /' \
+  's/--hostname github.com //' \
+  's/--method POST/--method PATCH/'; do
+  n=$((n + 1))
+  d="$(tree labeledit$n)"
+  sed -i "/--method [A-Z]* .*\/labels\"/ $edit" "$(spost "$d")"
+  assert_fires "an altered label line fires: $edit" "$d" "$MSG_ODD"
 done
 
 d="$(tree editviewer)"

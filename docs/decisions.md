@@ -2019,7 +2019,8 @@ take effect. Full reasoning and the task breakdown that implements them:
 - **WB-D29 (`#661`) — `/way-of-working:spec-task` posts its draft as the declared dev App, and
   holds it for a human otherwise.** Child (c) of `#627`; supersedes `WB-D26`. Built as
   `bin/spec-post.sh post <N> <sha> <draft-file> <out-dir>`, the one place that composes the
-  comment, writes its marker and makes the write.
+  comment, writes its marker and makes the write. *Amended by `#746`: the "write" is the comment
+  write; the `escalate` mode (below) adds one label write after a confirmed post.*
   - **The decision.** The comment is posted only when `identities` is a map and the acting account
     is the declared dev App (`gh-identity.sh role` says `dev_app` on the viewer read). In every
     other case the composed comment is written to `<out-dir>/comment.md` and held, and a human
@@ -2055,10 +2056,11 @@ take effect. Full reasoning and the task breakdown that implements them:
       form": the skill carries no `gh issue`/`gh pr` write verb, `gh label` or `gh api` write and must name `spec-post.sh post`;
       `spec-post.sh` carries exactly two `gh` write lines, the viewer read and the POST (a new
       comment on the issue named, body from a file on standard input), each once and spelled
-      exactly, and no `eval`. It is a regression guard; `tests/spec-post.test.sh` is the control for
+      exactly, and no `eval`. *Amended by `#746`: three, the third being the label POST its
+      `escalate` mode makes after a confirmed post (`status/needs-human`, once, never retried).* It is a regression guard; `tests/spec-post.test.sh` is the control for
       a write spelled some other way.
     - The script refuses on its own: a commit that is not on the base, a draft that fails the shape
-      check, carries a line beginning with the marker prefix, matches an obvious local-path or
+      check, carries a line beginning with either marker prefix (`spec-task:` or, `#746`, `spec-task-escalated:`), matches an obvious local-path or
       secret shape, or makes the body longer than 65536 bytes; and an issue that is a pull request,
       closed, locked, or authored by an untrusted login. The POST is never retried. *Amended by
       `WB-D32`: an issue by the dev or reviewer App is read, not stopped `untrusted`: it stops
@@ -2097,7 +2099,8 @@ take effect. Full reasoning and the task breakdown that implements them:
     - **Body-influenced `@mentions` and cross-references** notify and backlink under the dev App.
     - **The default-branch reads** (`gh repo view`) take the host from the origin URL. The issue
       read, the viewer read and the write pin `github.com`. *Amended by `WB-D32`: an App-filed issue
-      adds two more pinned reads, its reactions and a second issue read.* The host residuals `spec-issue.sh`
+      adds two more pinned reads, its reactions and a second issue read. Amended by `#746`: the
+      label read and the label write of `escalate` mode also pin `github.com`.* The host residuals `spec-issue.sh`
       records also apply.
     - **A `gh` call has no per-call timeout.** A hang ends with no word, which the skill treats as
       `post-unknown`.
@@ -2205,6 +2208,17 @@ take effect. Full reasoning and the task breakdown that implements them:
       `/way-of-working:spec-task <N>` instead of waiting and ends without building. In the stale
       case it posts only when no unreacted marker comment newer than the approved one exists
       (`spec-find.sh pending`). The next fresh session builds once a maintainer has reacted.
+    - **Escalation (`#746`, groundwork for `#629`).** `spec-post.sh escalate` posts the draft under
+      the marker `spec-task-escalated: issue=N base=B sha=<40 hex>` and then adds the label
+      `status/needs-human`. `spec-find.sh find` prints `escalated <ids>` for such a comment when no
+      `spec-task:` row passed the role check, and an escalated comment is never a spec, whatever its
+      reactions. `pending` counts a newer escalated comment as a marker comment, so it also blocks
+      redrafting, but a reaction does not release it: only deleting it, de-marking it, or an approved
+      `spec-task:` spec newer than it (`<after-id>` is the found id, so only a newer one moves it past
+      the escalation), does. `status/needs-human` is
+      un-namespaced although a machine writes it: only the declared dev App writes it, under its own
+      identity, so the label event shows a robot put it there, and it sits on the human `status/*`
+      axis because it asks a human to act (`conventions.md`, `project-schema.md` § `repo`).
     - **Drafting ahead.** Because a stale spec can no longer be built from, a spec may be drafted
       ahead for any task whose `depends_on` is met.
   - **Why.** An approved spec is checked against the tree it was drafted on, and that tree moves.
@@ -2267,7 +2281,12 @@ take effect. Full reasoning and the task breakdown that implements them:
        per session, or per loop iteration under `WB-D23`. This extends `WB-D30` residual 8.
     8. Two sessions at once can both post.
     9. An unreacted newer marker comment blocks redrafting until the maintainer reacts to it or
-       deletes it. This fails closed.
+       deletes it. This fails closed. *Amended by `#746`: an escalated comment is released only by
+       deleting or de-marking it, or by an approved `spec-task:` spec newer than it, not by a reaction. While any
+       `spec-task:` row passes the role check, `find` prints `found`, `ambiguous` or `unreacted`
+       and not `escalated`, so a maintainer who removes the stale spec's reaction first sees
+       `unreacted` for the stale spec, not the escalation; redrafting is still blocked, by that
+       `unreacted` wait.*
     10. Shared files that are not marked **(append)** make a spec stale whenever another PR touching
         them merges.
     11. A path cited outside *Files touched* is not checked.

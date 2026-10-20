@@ -39,6 +39,7 @@ waits until `reviewer_app` and `loop_app` are present, each a null value or a ma
 
 ### Changed
 
+- `spec-post.sh escalate` posts a draft under the `spec-task-escalated:` marker and adds `status/needs-human`; `spec-find.sh find` prints `escalated <ids>` and `pending` counts a newer escalated comment. Nothing calls the mode yet (#746, groundwork for #629). A repo on an older installed plugin reads an escalated comment as `none`, so #629 should not call `escalate` before a release carrying this finder is installed.
 - **`spec-task` refuses a declared App id on the maintainer list** (#759): `spec-issue.sh` and `spec-post.sh` stop `unreadable` under a map, for a maintainer or App author, when any declared App's id is on `identities.maintainer` or an App entry is neither null nor well formed or its id is not canonical decimal, or, for a maintainer's issue too, `identities.maintainer` carries an entry that is not well formed, which passed before, all before the issue's reactions are read; `WB-D30` residual 7 is amended.
 - **No declared App is a spec approver** (#708): `spec-find.sh`, `spec-comment.sh` and
   `scripts/loop/preflight.sh github-dispatch` refuse a config that lists the id of the dev, reviewer or
