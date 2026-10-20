@@ -27,7 +27,7 @@
 # write was made), `label-unreadable` (the label read failed, no write was made) or `label-failed`
 # (the one label write failed; it is never retried). The comment is posted in all four.
 # A stop is exactly one word on stdout and exit 1, the first that applies, in the order the
-# stages below run:
+# stages below run (`leak` is the one stop that carries two more fields, `leak <line> <shape>`):
 #   unreadable          a read, a check or a copy failed, or a value was not the shape expected
 #                       Also (#759), under a map and for a maintainer or App author: a declared App's id
 #                       (dev_app, reviewer_app, loop_app) on the maintainer list, an App entry that is
@@ -39,7 +39,11 @@
 #   bad-sha             <sha> is not a commit on the tip of origin/<base> or behind it
 #   bad-shape           spec-shape.sh check did not say `ok`
 #   has-marker          a line of the draft begins with either marker prefix (`spec-task:` or `spec-task-escalated:`)
-#   leak                a line matches an obvious local-path or secret shape (a filter, not a boundary)
+#   leak <line> <shape> a line matches an obvious local-path or secret shape (a filter, not a boundary).
+#                       <shape> is the first of drive, users, home, appdata, pem, token (in that order)
+#                       that matches any line; <line> is the 1-based number, in the draft, of the first
+#                       line it matches. A line number that cannot be read back (a NUL byte anywhere in the draft,
+#                       or under a UTF-8 locale an invalid byte, makes GNU grep print no line) stops `unreadable` instead
 #   too-long            the composed body is over 65536 bytes
 #   unreachable         the issue fetch failed, or (App-filed path) the issue's reactions read or second fetch
 #   not-an-issue        the response has a `pull_request` key
@@ -316,9 +320,27 @@ match() {
   esac
 }
 if match -e '^spec-task:' -e '^spec-task-escalated:'; then stop has-marker; fi
-if match -E -e '(^|[^A-Za-z0-9])[A-Za-z]:[/\\]'; then stop leak; fi
-if match -F -e '/Users/' -e '/home/' -e 'AppData' -e '-----BEGIN'; then stop leak; fi
-if match -E -e '(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}' -e 'github_pat_[A-Za-z0-9]{20,}'; then stop leak; fi
+# leak <shape> <grep-args...> -- stops `leak <line> <shape>` when the copy has a matching line. The
+# decision is match()'s; only after a match does the same grep run once more as `grep -n`, to a file
+# (never piped: sh has no pipefail) with its stderr discarded, and the first line's number is read back.
+leak() {
+  _shape="$1"
+  shift
+  if match "$@"; then
+    _nrc=0
+    grep -n "$@" "$tmp/draft.md" >"$tmp/leakn" 2>/dev/null || _nrc=$?
+    [ "$_nrc" -eq 0 ] || stop unreadable
+    _ln="$(sed -n 1p "$tmp/leakn" | cut -d: -f1)" || stop unreadable
+    case "$_ln" in '' | 0* | *[!0-9]*) stop unreadable ;; esac
+    stop "leak $_ln $_shape"
+  fi
+}
+leak drive -E -e '(^|[^A-Za-z0-9])[A-Za-z]:[/\\]'
+leak users -F -e '/Users/'
+leak home -F -e '/home/'
+leak appdata -F -e 'AppData'
+leak pem -F -e '-----BEGIN'
+leak token -E -e '(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}' -e 'github_pat_[A-Za-z0-9]{20,}'
 
 # the composed body
 {

@@ -62,6 +62,7 @@ and move the maintainer's reaction to the new comment.
   use the same opener test and share `HREF` and `LDEF` lines, and `HID` is now Unicode's default-ignorable set (variation selectors included). Residual 19 of
   `WB-D31` records the forms that still pass. **Behaviour change, `identities: null` repos:** `spec-task`'s `spec-fresh.sh shape` gate has no map
   condition, so a draft carrying a newly refused form is refused on every repo.
+- `spec-post.sh`'s `leak` stop now prints `leak <line> <shape>`, and `spec-task` names the leak shapes in its drafting step (#732).
 
 ### Fixed
 

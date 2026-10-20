@@ -176,6 +176,17 @@ session context: the comment is public.
      short list, so the maintainer can see exactly what the issue contributed. Exactly
      `nothing` when the draft took nothing from it.
 
+   `spec-post.sh` refuses a draft with any of six leak shapes, checked in this order, so the
+   whole draft carries none of them: `drive` (the drive-letter regex `(^|[^A-Za-z0-9])[A-Za-z]:[/\\]`),
+   `users` (the string `/Users/`), `home` (the string `/home/`), `appdata` (the string
+   `AppData`), `pem` (the string `-----BEGIN`) and `token` (the regex
+   `(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}` or `github_pat_[A-Za-z0-9]{20,}`). The four strings are
+   case-sensitive and match as a substring anywhere on a line, URLs, repository paths, longer words
+   and backticks included; they are not prefixes. A path of one of these shapes (a container's home
+   directory, for example) is written in words and tied to the file that names it ("the home
+   directory the dev container file declares"). A credential or key is never written into a draft in
+   any form; only a path is written in words.
+
    Anything the builder needs from the issue text must be in the draft: under a map the builder
    never sees the body. A choice the issue did not specify is **named as a choice** in the last
    section, not slipped in.
@@ -277,6 +288,11 @@ session context: the comment is public.
    - **`posted-unreadable`** and **`post-unknown`**: print "posted, id unknown" or "post state
      unknown". Neither prints the comment for re-posting. Both say to look at `#N` before any
      re-run, because the comment may exist.
+   - **`leak <line> <shape>`**: print `not posted: leak at line <line> (<shape>)`. For `drive`,
+     `users`, `home` or `appdata`, say that line's path is to be rewritten in words per the *Draft against the base's tree, fetched first* step and
+     the skill run again. For `token` or `pem`, say a real credential reached a draft, and that the
+     value is deleted outright, never restated, split, encoded or described. Both directories are
+     removed as for any other stop.
    - **Any other stop word**: print `not posted: <word>`.
    - **No word at all** (`RC=2` is a usage error and nothing was posted; any other `RC`, or no
      `POST=` line, is a signal or a hang) is treated like `post-unknown` (look at `#N` first), unless the tool

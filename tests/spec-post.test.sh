@@ -220,7 +220,7 @@ SHA="$("$real_git" -C "$origin" rev-parse HEAD)"
 SIDE="$("$real_git" -C "$co" -c user.name=fx -c user.email=fx@example.test commit-tree "HEAD^{tree}" -p HEAD -m side)"
 GONE=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
-mkdraft() { # mkdraft <file> [extra-line] -- a draft in the fixed shape; the extra line sits in Goal
+mkdraft() { # mkdraft <file> [extra-line] [later-line] -- a draft in the fixed shape; the extra line sits in Goal, the later line ends Tests
   {
     printf '%s\n' 'Spec for the thing. Drafted against main at abc1234. Back\slash and {pr_base} braces.'
     printf '\n### Goal\n'
@@ -229,6 +229,7 @@ mkdraft() { # mkdraft <file> [extra-line] -- a draft in the fixed shape; the ext
     printf '\n### Files touched\nOne file.\n'
     printf '\n### Done when\nIt runs.\n'
     printf '\n### Tests\nA test.\n'
+    [ -z "${3:-}" ] || printf '%s\n' "$3"
     printf '\n### Out of scope\nNothing else.\n'
     printf '\n### Restated from the issue body\nnothing\n'
   } >"$1"
@@ -309,7 +310,7 @@ run() {
 post() { run post 661 "$SHA" "$1" "$2"; }
 esc() { run escalate 661 "$SHA" "$1" "$2"; }
 
-stop_is() { # stop_is <word> -- one word, exit 1, nothing on stderr, no write
+stop_is() { # stop_is <stop-line> -- the full stop line (one word, or `leak <line> <shape>`), exit 1, nothing on stderr, no write, no label call
   assert_eq "$desc (word)" "$1" "$out"
   assert_eq "$desc (rc)" 1 "$rc"
   assert_eq "$desc (stderr)" "" "$err"
@@ -579,27 +580,69 @@ stop_is has-marker
 assert_eq "$desc (out-dir empty)" "" "$(ls -A "$o")"
 
 tok='abcdefghijklmnopqrstuvwxyz0123'
-for extra in \
-  'C:/x' \
-  'see C:/Users/x and more' \
-  'path D:\work\y' \
-  'at /Users/someone/file' \
-  'at /home/someone/file' \
-  'in AppData' \
-  'ghp_'"$tok" \
-  'gho_'"$tok" \
-  'ghu_'"$tok" \
-  'ghs_'"$tok" \
-  'ghr_'"$tok" \
-  'github_pat_'"$tok" \
-  '-----BEGIN PRIVATE KEY-----'; do
+for case_ in \
+  'drive|C:/x' \
+  'drive|see C:/Users/x and more' \
+  'drive|path D:\work\y' \
+  'users|at /Users/someone/file' \
+  'home|at /home/someone/file' \
+  'appdata|in AppData' \
+  'token|ghp_'"$tok" \
+  'token|gho_'"$tok" \
+  'token|ghu_'"$tok" \
+  'token|ghs_'"$tok" \
+  'token|ghr_'"$tok" \
+  'token|github_pat_'"$tok" \
+  'pem|-----BEGIN PRIVATE KEY-----'; do
+  shp="${case_%%|*}"
+  extra="${case_#*|}"
   desc="stop: leak shape [$extra]"
   mkdraft "$d2/draft.md" "$extra"
   o="$(newdir)"
   post "$d2/draft.md" "$o"
-  stop_is leak
+  stop_is "leak 4 $shp"
   assert_eq "$desc (out-dir empty)" "" "$(ls -A "$o")"
 done
+
+desc="stop: a leak on a later line reports that line"
+mkdraft "$d2/draft.md" '' 'at /home/someone/file'
+o="$(newdir)"
+post "$d2/draft.md" "$o"
+stop_is "leak 14 home"
+assert_eq "$desc (out-dir empty)" "" "$(ls -A "$o")"
+
+desc="stop: the first shape wins over the first line"
+mkdraft "$d2/draft.md" 'at /home/someone/file' 'then D:\work\y'
+o="$(newdir)"
+post "$d2/draft.md" "$o"
+stop_is "leak 15 drive"
+assert_eq "$desc (out-dir empty)" "" "$(ls -A "$o")"
+
+desc="stop: escalate prints the same leak line and writes nothing"
+mkdraft "$d2/draft.md" 'at /Users/someone/file'
+o="$(newdir)"
+esc "$d2/draft.md" "$o"
+stop_is "leak 4 users"
+assert_eq "$desc (out-dir empty)" "" "$(ls -A "$o")"
+
+desc="stop: a NUL byte on the leak line never prints a partial leak line"
+{
+  printf '%s\n' 'Spec for the thing. Drafted against main at abc1234.'
+  printf '\n### Goal\n'
+  printf 'at /home/some'
+  printf '\000'
+  printf 'one\n'
+  printf '%s\n' 'Goal text.'
+  printf '\n### Files touched\nOne file.\n'
+  printf '\n### Done when\nIt runs.\n'
+  printf '\n### Tests\nA test.\n'
+  printf '\n### Out of scope\nNothing else.\n'
+  printf '\n### Restated from the issue body\nnothing\n'
+} >"$d2/draft.md"
+o="$(newdir)"
+post "$d2/draft.md" "$o"
+stop_is unreadable
+assert_eq "$desc (out-dir empty)" "" "$(ls -A "$o")"
 
 desc="no stop: a URL and a short token are not a leak"
 mkdraft "$d2/draft.md" 'See https://github.com/o/r/issues/1 and ghp_short, and e.g. a:b.'
