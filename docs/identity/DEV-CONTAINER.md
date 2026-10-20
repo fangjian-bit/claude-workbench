@@ -88,7 +88,7 @@ that serves the host's git credential (see Hazards that remain).
     `haiku` or `fable`; effort has no config key, so `medium` is fixed in the script.
   - **Attach** is for a driver restart while lanes run in the same container: when the one running
     container is the one the record names, the launcher enters it with `docker exec`, with no compare,
-    no `up` and no recreate, so the lanes are undisturbed. **Why it is sound, and what it trusts.**
+    no `up` and no recreate, so the lanes and spec sessions are undisturbed. **Why it is sound, and what it trusts.**
     Only a container the start-of-day path created and recorded can reach it. Its mounts and run
     arguments were fixed at creation from the compared file, and `docker exec` reads no host file; an
     in-container edit to `.devcontainer/` matters only at the next `up`, which the start-of-day path
@@ -141,7 +141,8 @@ that serves the host's git credential (see Hazards that remain).
 
 A lane is a second Claude session building one task in parallel with the driver session. The
 driver runs in `/workspace`; every lane runs in the same container, in a worktree under
-`/tmp/lanes/N` (`N` the task issue number). `/tmp` is the per-repo `-tmp` volume, so it is
+`/tmp/lanes/N` (`N` the task issue number); a spec session (below) gets a detached worktree
+there too, named `spec-` and six letters or digits. `/tmp` is the per-repo `-tmp` volume, so it is
 writable under the read-only root and the worktree's `.git` file points at a path the
 container can follow. A host worktree beside the checkout cannot be used: the container sees
 only `/workspace`, and its `.git` file names a host path.
@@ -172,23 +173,44 @@ only `/workspace`, and its `.git` file names a host path.
   call does not keep exports, so the lane prefixes the line, and checks that `command -v
   spec-find.sh` finds the worktree's copy, on every call that runs a plugin script. No lane has
   run it that way yet.
-- **Start the lane** from the host, in its own terminal, with `docker exec` (find the container
-  id with `docker ps`):
-  ```sh
-  docker exec -it -u app -e GIT_TERMINAL_PROMPT=0 -w /tmp/lanes/N <container-id> bash -l
-  claude --model sonnet
+- **Start the lane** (#762) from the host, in its own terminal, from `pwsh` 7.2+, as the installed
+  copy beside the driver launcher:
+  ```powershell
+  pwsh -File $env:WOW_HOME\bin\wow-lane.ps1 -Clone <clone> -Reference <other clone> -Issue N -Hash HASH
   ```
-  Do not use a second `devcontainer exec` beside a running session: `exec` re-reads
-  `devcontainer.json` from the host, and that file has to be checked first (see *Opening it*).
-  `GIT_TERMINAL_PROMPT` is a `remoteEnv` value, which `docker exec` does not see, so it is passed
-  by hand; the commit-signing settings are `containerEnv` and arrive without help.
-  Then send the lane this first message in its terminal, with the `prompt-sha256` that `prep`
-  printed in place of `HASH`:
-  > In one Bash call, run: T=$(mktemp -d) && cp /tmp/lanes/N-prompt.md "$T/p.md" && sha256sum
-  > "$T/p.md" && echo "$T/p.md". Stop unless the hash is HASH. If it matches, read only that
-  > copy and follow it.
+  `HASH` is the `prompt-sha256` that `prep` printed. It takes `wow-driver.ps1`'s `-Clone`,
+  `-Reference`, `-WowHome` and `-Base`, and `-Remote` names the remote in the Reference only. Before
+  any interactive `docker exec` it checks the installed copy (the MANIFEST), the arguments, that
+  the clone has exactly one container, running, and the Reference none, that the driver
+  record names that container and the clone, and the relay probe; it reads the model
+  (`models.coder`) from the Reference, then checks in the container, as `app`, that the lanes
+  directory is safe, `/tmp/lanes/N` is a worktree, `/tmp/lanes/N-prompt.md` is a regular file and
+  its sha256 is `HASH`. It needs the driver's start of day to have recorded the container, and it
+  never writes the record. It then enters the container with `docker exec -it -u app -e
+  GIT_TERMINAL_PROMPT=0 -w /tmp/lanes/N`, into `/usr/local/bin/claude --model <models.coder>`, and sends the lane
+  this first message:
+  > In one Bash call, run: T=$(mktemp -d); cp /tmp/lanes/N-prompt.md $T/p.md; sha256sum $T/p.md;
+  > echo $T/p.md. Stop unless that call printed the hash HASH. If it did, read only that copy and
+  > follow it.
 
-  The copy that was hashed is the copy that is followed.
+  The copy that was hashed is the copy that is followed. The check in the container is an accident
+  guard: it runs as `app`, the same user as every lane. Do not use a second `devcontainer exec`
+  beside a running session: `exec` re-reads `devcontainer.json` from the host, and that file has to
+  be checked first (see *Opening it*).
+- **Start a spec session** (#762), the same way:
+  ```powershell
+  pwsh -File $env:WOW_HOME\bin\wow-lane.ps1 -Clone <clone> -Reference <other clone> -Spec N[,N...]
+  ```
+  Up to ten issue numbers, in order. It makes a detached worktree at the Reference's base commit
+  under `/tmp/lanes/spec-XXXXXX` (refusing if the container clone's `origin/<Base>`
+  is another commit than the Reference's), starts a session there on `models.architect` at `--effort high`, and asks it to
+  run `/way-of-working:spec-task` for each issue in turn and build nothing. When the session exits it
+  removes the worktree, without `--force`, only if it is still that detached worktree at that
+  commit. Otherwise it keeps it, prints its path and exits 1. The likely cause is an untracked file
+  the session left, such as `.claude/settings.local.json` after a "don't ask again" answer (it is
+  not gitignored): inspect it, then run `git -C /workspace worktree remove --force
+  /tmp/lanes/spec-XXXXXX` in a `docker exec` shell, or `git worktree remove` once it is clean.
+  `lane.sh done` neither sees nor removes a spec worktree.
 - **Identity.** Every session, driver or lane, acts as the dev App through the container's `gh`
   shim and git credential helper. Do not prefix commands with `GH_TOKEN`. Suites run natively
   (no WSL), and commits are unsigned (`WB-D25`), so no `timeout 90` around signing.
@@ -203,8 +225,8 @@ only `/workspace`, and its `.git` file names a host path.
   is advice: `scripts/lanes/lane.sh` and the prompt it writes are unchanged. On a container whose
   `timeout --version` names uutils, the bound is about 1550 s: run the suite in the background, or
   stop and ask the maintainer. If `command -v timeout` prints `/usr/bin/timeout`, the container
-  predates #741 and the maintainer recreates it, on the host: after every lane and the driver
-  session have exited, `docker stop` the container, then run the launcher (start of day), or use
+  predates #741 and the maintainer recreates it, on the host: after every lane, every spec session and the driver
+  session have exited, `docker stop` the container, then run the driver launcher (start of day), or use
   the hand recreate command in *Opening it*, then runs *The check after a rebuild* in
   *GNU coreutils, not uutils*, which is also how to tell such a container. If it prints another
   path, a uutils copy in `~/.local/bin` shadows the links: the maintainer removes that copy (it
@@ -228,7 +250,7 @@ only `/workspace`, and its `.git` file names a host path.
   - On `kept X skip-ahead` or `kept X skip-unfetchable`, the worktree stays. Inspect it, then
     you may run `git worktree remove` and keep the branch.
   - On `missing`, run `git worktree prune --dry-run -v` first, since `git worktree prune`
-    prunes every stale entry, other lanes' included.
+    prunes every stale entry, other lanes' and kept spec worktrees included.
   - `not-main`, `unsafe-dir`, `unreadable`, `repo-mismatch`, `not-map`, `no-lane`,
     `not-merged`, `ambiguous` and `kept X unreadable` remove nothing, and so does
     `kept X checked-out` unless the second checkout appears just before the worktree is removed.
@@ -261,7 +283,7 @@ in the procedure changed. The trial filed follow-ups #727, #728 and #729.
   container that mounts the clone is running, since any of them can write the file, so a running session could
   change it between the compare and the CLI's read; that also means no second `devcontainer exec`
   shell beside a running session, since `devcontainer exec` re-reads the host file. A `docker exec`
-  into the recorded running container, which is what attach and lanes do, reads no host file and is
+  into the recorded running container, which is what attach, lanes and spec sessions do, reads no host file and is
   allowed. The reasons: the CLI runs `initializeCommand` on the host on each `up`, even
   against a container that already exists, and `exec` re-reads `.devcontainer/devcontainer.json`
   from the host each call (its `remoteUser` and `remoteEnv`, with `${localEnv:*}` resolved from the
@@ -288,7 +310,7 @@ in the procedure changed. The trial filed follow-ups #727, #728 and #729.
   processes), and the second cannot see a relay left running after the backstop removed its files;
   the third can, within this container.
   After an accidental attach, close the VS Code window (or it will offer to reconnect) and stop
-  the container at once (`docker stop`), which ends the relay, so that the next launcher run takes
+  the container at once (`docker stop`), which ends the relay, so that the next driver launcher run takes
   the start-of-day path;
   the exposure runs from the attach until that stop. A running Claude session, or code from a PR it
   builds, counts as untrusted, so in normal use treat every credential the host's git helpers can
@@ -377,8 +399,8 @@ removes it. The login lives on the volume; the binary does not.
   (`.devcontainer/`, `scripts/identity/review/` and `scripts/loop/`; Dependabot does not track
   them, and `tests/devcontainer-image.test.sh` and `tests/review-image.test.sh` hold them equal).
   Take the sha256 from that version's release `manifest.json` (the `linux-x64` entry). Then
-  recreate the container: after every lane and the driver session have exited, `docker stop` it, then
-  run the launcher (start of day), or use the hand recreate command in *Opening it*.
+  recreate the container: after every lane, every spec session and the driver session have exited, `docker stop` it, then
+  run the driver launcher (start of day), or use the hand recreate command in *Opening it*.
 - **Clearing a stopgap install.** A copy from the native installer lives on the home volume, and
   `~/.local/bin` leads `PATH`, so it shadows the image's. Remove `~/.local/bin/claude` and
   `~/.local/share/claude`, then check with `command -v claude` (should print
@@ -420,8 +442,8 @@ removes it. The login lives on the volume; the binary does not.
   `PATH` and get GNU. Anything earlier on `PATH` wins, and `~/.local/bin` leads it. The
   uutils-only extras (for example `hashsum`) and `/usr/sbin/gnuchroot` are not linked. The review
   image and the loop image are separate (#760).
-- **The check after a rebuild**, which comes after every lane and the driver session have exited, `docker stop` of the
-  container, and the launcher (start of day) or the hand recreate command in *Opening it*:
+- **The check after a rebuild**, which comes after every lane, every spec session and the driver session have exited, `docker stop` of the
+  container, and the driver launcher (start of day) or the hand recreate command in *Opening it*:
   `command -v timeout` prints `/usr/local/bin/timeout`, `timeout --version` names GNU coreutils on
   its first line, `date +%s%3N` prints 13 digits, and `ls ~/.local/bin` lists no coreutils name (a
   copy there, on the home volume, would shadow the links).

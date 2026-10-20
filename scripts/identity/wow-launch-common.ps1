@@ -1,8 +1,8 @@
 #Requires -Version 7.2
 <#
 .SYNOPSIS
-  Shared helpers for the host launchers wow-driver.ps1 and (#762) wow-lane.ps1 (WB-D24, WB-D33,
-  issue #728). Dot-sourced, never run.
+  Shared helpers for the host launchers wow-driver.ps1 and wow-lane.ps1 (WB-D24, WB-D33, issues
+  #728 and #762). Dot-sourced, never run.
 
 .DESCRIPTION
   Functions only, with no top-level statements: a launcher dot-sources this file only after its own
@@ -17,7 +17,8 @@
 
   Honest limit. Everything above is an accident guard. If a container can write the Reference clone
   it can plant git config or hooks that run when git runs there; the control is a Reference clone no
-  container opens. #762 relies on this file's id validation and may reuse the record to attach lanes.
+  container opens. wow-lane.ps1 dot-sources this file, relies on its id validation, and reads the
+  driver record without ever writing it.
 #>
 
 # Stop-Launch <message> [code]: one line on stderr, then exit. Anything outside printable ASCII
@@ -350,7 +351,7 @@ function Assert-KnownStates($Containers) {
   }
 }
 
-# --- the relay probe (attach only) -------------------------------------------------------------
+# --- the relay probe (attach, and every wow-lane.ps1 run) -------------------------------------------------------------
 
 # An accident guard, not a boundary. ls and grep by absolute path: it runs as root, and ~/.local/bin on the writable home volume may lead PATH. No & | ^ % or " in the script: it may pass through cmd.exe on a stub.
 function Get-RelayProbeScript {

@@ -47,6 +47,9 @@
   it from pwsh 7.2+ on the host, as the installed copy under $env:WOW_HOME\bin, or under the default
   $HOME\.config\glunk-identity\bin when WOW_HOME is unset (docs/identity/DEV-CONTAINER.md, Opening it):
     pwsh -File $env:WOW_HOME\bin\wow-driver.ps1 -Clone <clone> -Reference <other clone>
+  The lane and spec launcher, wow-lane.ps1, runs the same way, beside the driver's container (#762):
+    pwsh -File $env:WOW_HOME\bin\wow-lane.ps1 -Clone <clone> -Reference <other clone> -Issue N -Hash HASH
+    pwsh -File $env:WOW_HOME\bin\wow-lane.ps1 -Clone <clone> -Reference <other clone> -Spec N[,N...]
   yq (mikefarah v4) must be on PowerShell's PATH too. It runs only from there: it checks the MANIFEST.
 
 .PARAMETER SourceRepo
@@ -80,6 +83,7 @@ $table = @(
   ,@('scripts/identity/wow-review-poll', 'wow-review-poll')
   ,@('scripts/identity/wow-driver.ps1', 'wow-driver.ps1')
   ,@('scripts/identity/wow-launch-common.ps1', 'wow-launch-common.ps1')
+  ,@('scripts/identity/wow-lane.ps1', 'wow-lane.ps1')
   ,@('plugins/way-of-working/bin/review-gate-state.sh', 'review-gate-state.sh')
   ,@('plugins/way-of-working/bin/token-check.sh', 'token-check.sh')
   ,@('plugins/way-of-working/bin/gh-identity.sh', 'gh-identity.sh')

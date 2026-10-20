@@ -1,10 +1,10 @@
 #!/bin/sh
-# Fixture tests for scripts/identity/wow-driver.ps1 and wow-launch-common.ps1 (issue #728).
+# Fixture tests for scripts/identity/wow-driver.ps1, wow-lane.ps1 and wow-launch-common.ps1 (issues #728, #762).
 #
 # Stub docker and devcontainer record their argv in one calls.log and answer from canned files; a
 # recording git wrapper logs its argv and runs the real git. A scratch Reference clone (local bare
 # origin, .devcontainer/ and .ai/project.yml committed), a scratch Clone folder holding a copy of
-# .devcontainer/, and a scratch WowHome with the two scripts and a MANIFEST in install-host-tools.ps1's
+# .devcontainer/, and a scratch WowHome with the three scripts and a MANIFEST in install-host-tools.ps1's
 # format are laid out per case. The stub docker answers its Nth `ps` call of each kind (volume, label)
 # from ps.<kind>.<N>, else ps.<kind>, else empty.
 #
@@ -18,6 +18,11 @@
 #   attach refuses  mismatched/missing/malformed record, another clone, dirty probe, two containers,
 #                   restarting/paused, a failed docker ps, a missing tool
 #   model, canary, edit after up, the declared values the docker exec literals copy
+#   wow-lane        not installed, bad arguments, container and record refusals, the lane probe and the
+#                   spec prep and cleanup scripts run for real (the stub docker runs a non-interactive
+#                   `exec -u app ... /bin/sh -c <script> sh <args>` with the real /bin/sh against a scratch
+#                   lanes directory and a scratch container clone), both happy paths, base-moved and kept
+#                   worktrees, and the static shape of the three scripts and both message templates
 #
 # Permitted toolset: POSIX sh, its standard utilities, pwsh, git, yq and jq (skipped, loudly, if any is absent).
 set -eu
@@ -56,6 +61,7 @@ ID2=$(printf '%064d' 0 | tr 0 b)
 ID3=$(printf '%064d' 0 | tr 0 c)
 
 case "$(uname -s)" in MINGW*|MSYS*) msys=1 ;; *) msys= ;; esac
+STUB_MSYS=$msys; export STUB_MSYS
 
 # --- stubs -------------------------------------------------------------------------------------
 # On MSYS the stubs are .cmd shims that run the sh stubs: they take the same cmd.exe re-parse path as
@@ -92,7 +98,24 @@ case "$1" in
     case "$*" in
       *" -it "*)
         [ ! -e "$STUB_RECORD" ] || cp "$STUB_RECORD" "$d/record-at-exec"
+        [ -z "${STUB_LANES:-}" ] || ls "$STUB_LANES" >"$d/lanes-at-exec" 2>/dev/null
+        [ ! -e "$d/it.hook" ] || sh "$d/it.hook"
         exit "${STUB_SESSION_EXIT:-0}" ;;
+      "exec -u app "*)
+        # wow-lane.ps1's in-container step: run the script for real, with the container's two literal
+        # directories swapped for the scratch ones. MSYS mkdir -m fails (cannot change permissions) under
+        # its /tmp, so there the script runs with a plain mkdir; elsewhere it runs as sent.
+        shift
+        while [ "$1" != /bin/sh ]; do shift; done
+        shift 2; script=$1; shift 2
+        [ -z "${STUB_MSYS:-}" ] || script=$(printf '%s' "$script" | sed 's/mkdir -m 700/mkdir/g')
+        n=$#
+        while [ "$n" -gt 0 ]; do
+          a=$1; shift
+          case $a in /tmp/lanes) a=$STUB_LANES ;; /workspace) a=$STUB_REPO ;; esac
+          set -- "$@" "$a"; n=$((n - 1))
+        done
+        exec /bin/sh -c "$script" sh "$@" ;;
       *)
         [ ! -e "$d/probe.out" ] || cat "$d/probe.out"
         exit "$(cat "$d/probe.exit" 2>/dev/null || echo 0)" ;;
@@ -138,16 +161,23 @@ $G -C "$seed" commit -q -am two
 $real_git -C "$seed" remote add origin "$(wp "$origin")"; $real_git -C "$seed" push -q origin main
 c2=$($real_git -C "$seed" rev-parse HEAD)
 $real_git clone -q "$(wp "$origin")" "$ref"
+# wow-lane's container clone (cloned from the same origin) and a second one whose origin/main is c1.
+crepo="$tmp/crepo" crepo2="$tmp/crepo2" origin2="$tmp/origin2.git" lanes="$tmp/lanes"
+$real_git clone -q "$(wp "$origin")" "$crepo"
+$real_git init -q --bare -b main "$origin2"; $real_git -C "$seed" push -q "$(wp "$origin2")" "$c1:refs/heads/main"
+$real_git clone -q "$(wp "$origin2")" "$crepo2"
+# On MSYS git prints native paths, so the scripts must be handed the native form of the scratch directories.
+STUB_LANES=$(wp "$lanes") STUB_REPO=$(wp "$crepo"); export STUB_LANES STUB_REPO
 set_clone() { rm -rf "$clone"; mkdir -p "$clone"; cp -R "$seed/.devcontainer" "$clone/.devcontainer"; }
 set_clone
 
 mkdir -p "$tmp/other/bin"
-install_to() { # install_to <bin dir>: the two scripts and a MANIFEST in install-host-tools.ps1's format
+install_to() { # install_to <bin dir>: the three scripts and a MANIFEST in install-host-tools.ps1's format
   b=$1
-  cp "$root_dir/scripts/identity/wow-driver.ps1" "$root_dir/scripts/identity/wow-launch-common.ps1" "$b/"
+  cp "$root_dir/scripts/identity/wow-driver.ps1" "$root_dir/scripts/identity/wow-lane.ps1" "$root_dir/scripts/identity/wow-launch-common.ps1" "$b/"
   {
     echo "commit $c2"; echo "installed 2026-01-01T00:00:00Z"
-    for f in wow-driver.ps1 wow-launch-common.ps1; do echo "$(sha256sum <"$b/$f" | cut -d' ' -f1)  $f"; done
+    for f in wow-driver.ps1 wow-lane.ps1 wow-launch-common.ps1; do echo "$(sha256sum <"$b/$f" | cut -d' ' -f1)  $f"; done
   } >"$b/MANIFEST"
 }
 install_to "$home/bin"; install_to "$tmp/other/bin"
@@ -169,7 +199,7 @@ run_with() { # run_with <script> <args...>
 }
 run_drv() { run_with "$home/bin/wow-driver.ps1" -Clone "$(wp "$clone")" -Reference "$(wp "$ref")" -WowHome "$(wp "$home")" "$@"; }
 reset() {
-  rm -f "$stubdir"/calls.log "$stubdir"/git.log "$stubdir"/n.* "$stubdir"/ps.* "$stubdir"/up.* "$stubdir"/probe.* "$stubdir"/record-at-exec
+  rm -rf "$stubdir"/calls.log "$stubdir"/git.log "$stubdir"/n.* "$stubdir"/ps.* "$stubdir"/up.* "$stubdir"/probe.* "$stubdir"/record-at-exec "$stubdir"/it.* "$stubdir"/lanes-at-exec "$stubdir"/spec-* "$stubdir"/moved-wt
   : >"$stubdir/calls.log"; : >"$stubdir/git.log"
   rm -rf "$home/driver"; set_clone
 }
@@ -461,6 +491,230 @@ check "missing tool: yq off PATH exits 1" test "$rc" -eq 1
 check "missing tool: ...naming yq" err_has 'yq not found'
 check "missing tool: ...before any docker call" none_called
 
+# --- wow-lane.ps1 ------------------------------------------------------------------------------------
+run_lane() { run_with "$home/bin/wow-lane.ps1" -Clone "$(wp "$clone")" -Reference "$(wp "$ref")" -WowHome "$(wp "$home")" "$@"; }
+LHASH=$ID1   # any 64 lowercase hex digits are a valid -Hash
+no_app_exec() { ! calls | grep -q ' -u app '; }
+no_banned() { ! calls | grep -q '[&|^%"]'; }
+it_line() { calls | grep ' -it '; }
+app_execs() { calls | grep ' -u app ' | grep -v ' -it '; }
+# app_execs_pinned <n>: exactly n non-interactive -u app execs, each carrying GIT_NO_REPLACE_OBJECTS=1
+app_execs_pinned() { [ "$(app_execs | wc -l | tr -d ' ')" -eq "$1" ] && [ "$(app_execs | grep -c -e '-e GIT_NO_REPLACE_OBJECTS=1')" -eq "$1" ]; }
+no_effort() { ! it_line | grep -q -e '--effort'; }
+exec_shape() { non_ps | awk '{print $2, $3, $4}' | tr '\n' ,; }
+# lane_setup: one running recorded container, a fresh scratch lanes directory with lane 5 prepared (a linked
+# worktree of the container clone, and a prompt file), and the container clone's worktree list pruned.
+lane_setup() {
+  reset; echo "$ID1 running" >"$stubdir/ps.vol.1"; write_record "$ID1" "$c2" "$(json_clone)"
+  rm -rf "$lanes" "$tmp/otherwt" "$stubdir/moved-wt"; $real_git -C "$crepo" worktree prune
+  mkdir "$lanes"; chmod 700 "$lanes" # not mkdir -m: MSYS fails it under its /tmp
+  printf '%s exited /elsewhere/CANARY-LABEL\n' "$ID3" >"$stubdir/ps.label"
+  $real_git -C "$crepo" worktree add -q --detach "$lanes/5" "$c2"
+  printf 'CANARY-PROMPT: do things\n' >"$lanes/5-prompt.md"
+  PH=$(sha256sum <"$lanes/5-prompt.md" | cut -d' ' -f1)
+  cp "$home/driver/wb-driver.json" "$tmp/rec-snap"
+}
+lane_refuses() { # lane_refuses <label>: exit 1, a reason, no interactive exec
+  check "wow-lane refuses ($1): exit 1" test "$rc" -eq 1
+  check "wow-lane refuses ($1): says why on stderr" test -s "$tmp/err"
+  check "wow-lane refuses ($1): no -it exec" no_it
+  [ -z "${LANE_CONTAINER_STAGE:-}" ] || check "wow-lane refuses ($1): no in-container script ran" no_app_exec
+  check "wow-lane refuses ($1): the record is not written" sh -c "[ ! -e '$home/driver/wb-driver.json' ] || cmp -s '$tmp/rec-snap' '$home/driver/wb-driver.json'"
+}
+
+# not installed
+reset; rm -f "$tmp/rec-snap"
+run_with "$root_dir/scripts/identity/wow-lane.ps1" -Clone "$(wp "$clone")" -Reference "$(wp "$ref")" -WowHome "$(wp "$home")" -Issue 5 -Hash "$LHASH"
+check "wow-lane not installed: a checkout (no MANIFEST) exits 1" test "$rc" -eq 1
+check "wow-lane not installed: ...naming the installed copy" err_has 'installed copy'
+check "wow-lane not installed: ...before any stub or git call" none_called
+for f in wow-lane.ps1 wow-launch-common.ps1; do
+  reset; cp "$home/bin/$f" "$tmp/keep"; printf '# edit\n' >>"$home/bin/$f"
+  run_lane -Issue 5 -Hash "$LHASH"
+  check "wow-lane not installed: a wrong hash for $f exits 1 before any call" sh -c "test $rc -eq 1 && ! test -s '$stubdir/calls.log' && ! test -s '$stubdir/git.log'"
+  cp "$tmp/keep" "$home/bin/$f"
+done
+reset; cp "$home/bin/MANIFEST" "$tmp/keep"; grep -v ' wow-lane.ps1$' "$tmp/keep" >"$home/bin/MANIFEST"
+run_lane -Issue 5 -Hash "$LHASH"
+check "wow-lane not installed: a missing wow-lane.ps1 row exits 1 before any call" sh -c "test $rc -eq 1 && ! test -s '$stubdir/calls.log' && ! test -s '$stubdir/git.log'"
+cp "$tmp/keep" "$home/bin/MANIFEST"
+reset; run_with "$tmp/other/bin/wow-lane.ps1" -Clone "$(wp "$clone")" -Reference "$(wp "$ref")" -WowHome "$(wp "$home")" -Issue 5 -Hash "$LHASH"
+check "wow-lane not installed: a bin outside -WowHome exits 1" test "$rc" -eq 1
+check "wow-lane not installed: ...before any stub or git call" none_called
+reset; run_with "$home/bin/wow-lane.ps1" -Clone "$(wp "$clone")" -Reference "$(wp "$ref")" -WowHome "$(wp "$tmp/nothere")" -Issue 5 -Hash "$LHASH"
+check "wow-lane: a bad -WowHome exits 2 before the installed-copy check" test "$rc" -eq 2
+
+# bad arguments
+bad_lane() { # bad_lane <label> <args...>: exit 2, a usage line, no stub or git call
+  l=$1; shift; reset
+  run_with "$home/bin/wow-lane.ps1" "$@"
+  check "wow-lane bad argument: $l exits 2" test "$rc" -eq 2
+  check "wow-lane bad argument: $l prints usage" err_has 'usage: wow-lane.ps1'
+  check "wow-lane bad argument: $l makes no external call" none_called
+}
+bad_lane 'no mode' -Clone "$C" -Reference "$R" -WowHome "$H"
+bad_lane 'both modes' -Clone "$C" -Reference "$R" -WowHome "$H" -Issue 5 -Hash "$LHASH" -Spec 7
+bad_lane '-Hash alone' -Clone "$C" -Reference "$R" -WowHome "$H" -Hash "$LHASH"
+bad_lane '-Issue alone' -Clone "$C" -Reference "$R" -WowHome "$H" -Issue 5
+bad_lane '-Spec with -Hash' -Clone "$C" -Reference "$R" -WowHome "$H" -Spec 7 -Hash "$LHASH"
+for v in 0 07 1a 1234567890 ' 5'; do
+  bad_lane "-Issue '$v'" -Clone "$C" -Reference "$R" -WowHome "$H" -Issue "$v" -Hash "$LHASH"
+done
+for v in abc "$(echo "$ID1" | cut -c1-63)" "$(echo "$ID1" | tr a A)" "$(echo "$ID1" | tr a g)" "${ID1}a"; do
+  bad_lane "-Hash '$v'" -Clone "$C" -Reference "$R" -WowHome "$H" -Issue 5 -Hash "$v"
+done
+for v in '' '1,,2' ',1' '1,' '1,1' '1,2,3,4,5,6,7,8,9,10,11' '1;2' '1 2' '0' '07,8'; do
+  bad_lane "-Spec '$v'" -Clone "$C" -Reference "$R" -WowHome "$H" -Spec "$v"
+done
+bad_lane 'a missing -Clone' -Reference "$R" -WowHome "$H" -Issue 5 -Hash "$LHASH"
+bad_lane 'a -Clone equal to -Reference' -Clone "$R" -Reference "$R" -WowHome "$H" -Spec 7
+bad_lane 'a bad -Remote' -Clone "$C" -Reference "$R" -WowHome "$H" -Spec 7 -Remote 'a b'
+bad_lane 'a bad -Base' -Clone "$C" -Reference "$R" -WowHome "$H" -Spec 7 -Base 'a"b'
+
+# container and record refusals: no interactive exec, no in-container script, no record written
+LANE_CONTAINER_STAGE=1
+lane_setup; : >"$stubdir/ps.vol.1"; run_lane -Issue 5 -Hash "$PH"
+lane_refuses 'zero containers'; check "wow-lane refuses (zero containers): ...no in-container script ran" no_app_exec
+check "wow-lane refuses (zero containers): ...pointing at the driver launcher" err_has 'wow-driver.ps1'
+lane_setup; echo "$ID1 exited" >"$stubdir/ps.vol.1"; run_lane -Issue 5 -Hash "$PH"
+lane_refuses 'one exited container'; check "wow-lane refuses (exited): ...no in-container script ran" no_app_exec
+lane_setup; echo "$ID2 running" >>"$stubdir/ps.vol.1"; run_lane -Issue 5 -Hash "$PH"
+lane_refuses 'two containers'; check "wow-lane refuses (two): ...naming both ids" sh -c "grep -q $ID1 '$tmp/err' && grep -q $ID2 '$tmp/err'"
+lane_setup; echo "$ID1 paused" >"$stubdir/ps.vol.1"; run_lane -Issue 5 -Hash "$PH"
+lane_refuses 'a paused container'
+lane_setup; echo "$ID2 running" >"$stubdir/ps.vol.2"; run_lane -Issue 5 -Hash "$PH"
+lane_refuses 'a container on the Reference'; check "wow-lane refuses (Reference): ...before the fetch" sh -c "! grep -q ' fetch ' '$stubdir/git.log'"
+lane_setup; rm -f "$home/driver/wb-driver.json"; run_lane -Issue 5 -Hash "$PH"
+lane_refuses 'a missing record'; check "wow-lane refuses (no record): ...none written" test ! -e "$home/driver/wb-driver.json"
+lane_setup; write_record "$ID2" "$c2" "$(json_clone)"; cp "$home/driver/wb-driver.json" "$tmp/rec-snap"; run_lane -Issue 5 -Hash "$PH"
+lane_refuses 'a record naming another container'
+lane_setup; write_record "$ID1" "$c2" "$(wp "$tmp/clones/elsewhere" | sed 's,\\,\\\\,g')"; cp "$home/driver/wb-driver.json" "$tmp/rec-snap"; run_lane -Issue 5 -Hash "$PH"
+lane_refuses 'a record naming another clone'
+lane_setup; echo dirty >"$stubdir/probe.out"; run_lane -Issue 5 -Hash "$PH"
+lane_refuses 'a dirty relay probe'; check "wow-lane refuses (probe): ...naming the VS Code attach" err_has 'VS Code'
+check "wow-lane refuses (probe): ...no in-container script ran" no_app_exec
+
+LANE_CONTAINER_STAGE=
+# the lane probe, run for real against the scratch lanes directory
+probe_refuses() { # probe_refuses <label> <reason text>
+  lane_refuses "$1"; check "wow-lane refuses ($1): ...naming its reason" err_has "$2"
+}
+lane_setup; rm -rf "$lanes"; run_lane -Issue 5 -Hash "$PH"; probe_refuses 'the lanes directory missing' 'in the container is missing, a link'
+lane_setup; mv "$lanes" "$tmp/lanes.real"
+if mklink_dir "$lanes" "$tmp/lanes.real"; then
+  run_lane -Issue 5 -Hash "$PH"; probe_refuses 'the lanes directory a link' 'in the container is missing, a link'
+else skip "a directory link cannot be made here; the lanes-directory link fixture did not run"; fi
+rm -rf "$lanes" "$tmp/lanes.real"; $real_git -C "$crepo" worktree prune
+lane_setup; $real_git -C "$crepo" worktree remove --force "$lanes/5"; run_lane -Issue 5 -Hash "$PH"; probe_refuses 'the worktree missing' 'is not a worktree'
+lane_setup; rm "$lanes/5/.git"; run_lane -Issue 5 -Hash "$PH"; probe_refuses 'the worktree with no .git file' 'is not a worktree'
+lane_setup; rm -rf "$lanes/5/.git"; mkdir "$lanes/5/.git"; run_lane -Issue 5 -Hash "$PH"; probe_refuses 'the worktree .git a directory' 'is not a worktree'
+lane_setup; rm -f "$lanes/5-prompt.md"; run_lane -Issue 5 -Hash "$PH"; probe_refuses 'the prompt missing' 'is not a regular file'
+if [ -L "$tmp/probe-link" ]; then
+  lane_setup; mv "$lanes/5-prompt.md" "$tmp/prompt-real"; ln -s "$tmp/prompt-real" "$lanes/5-prompt.md"
+  run_lane -Issue 5 -Hash "$PH"; probe_refuses 'the prompt a link' 'is not a regular file'
+  lane_setup; mv "$lanes/5" "$tmp/wt-real"; ln -s "$tmp/wt-real" "$lanes/5"
+  run_lane -Issue 5 -Hash "$PH"; probe_refuses 'the worktree a link' 'is not a worktree'
+  rm -rf "$lanes/5" "$tmp/wt-real"; $real_git -C "$crepo" worktree prune
+else skip "a file symlink cannot be made here; the prompt-link and worktree-link fixtures did not run"; fi
+lane_setup; run_lane -Issue 5 -Hash "$(echo "$PH" | tr 0-9a-f 1-9a-f0)"; probe_refuses 'a hash mismatch' 'does not hash'
+
+# lane happy path
+lane_setup; run_lane -Issue 5 -Hash "$PH"
+lane_msg="In one Bash call, run: T=\$(mktemp -d); cp /tmp/lanes/5-prompt.md \$T/p.md; sha256sum \$T/p.md; echo \$T/p.md. Stop unless that call printed the hash $PH. If it did, read only that copy and follow it."
+check "wow-lane lane: exits with the session's code" test "$rc" -eq 7
+check "wow-lane lane: the interactive argv is exactly the declared one" test "$(non_ps | tail -1)" = "docker exec -it -u app -e GIT_TERMINAL_PROMPT=0 -w /tmp/lanes/5 $ID1 /usr/local/bin/claude --model sonnet $lane_msg"
+check "wow-lane lane: relay probe, in-container probe, then the session, and nothing else" test "$(exec_shape)" = "exec -u root,exec -u app,exec -it -u,"
+check "wow-lane lane: the one in-container exec carries GIT_NO_REPLACE_OBJECTS=1" app_execs_pinned 1
+check "wow-lane lane: no --effort" no_effort
+check "wow-lane lane: no devcontainer call" no_dc
+check "wow-lane lane: no argv holds & | ^ % or a double quote" no_banned
+check "wow-lane lane: nothing from the prompt file or the listings reaches an argv" no_canary
+check "wow-lane lane: the record is byte-identical afterwards" cmp -s "$tmp/rec-snap" "$home/driver/wb-driver.json"
+check "wow-lane lane: no devcontainer exec" no_dc_exec
+
+# spec happy path: a hook looks at the lanes directory while the session runs
+spec_setup() { lane_setup; rm -rf "$lanes/5" "$lanes/5-prompt.md"; $real_git -C "$crepo" worktree prune; }
+spec_left() { ls "$lanes" | grep -q '^spec-'; }
+not_spec_left() { ! spec_left; }
+cat >"$tmp/hook.ok" <<'HOOK'
+for w in "$STUB_LANES"/spec-*; do
+  git -C "$w" rev-parse HEAD >"$STUB_DIR/spec-head"
+  git -C "$w" symbolic-ref -q HEAD >"$STUB_DIR/spec-symref" 2>/dev/null || echo detached >"$STUB_DIR/spec-symref"
+  basename "$w" >"$STUB_DIR/spec-leaf"
+done
+HOOK
+spec_setup; cp "$tmp/hook.ok" "$stubdir/it.hook"; run_lane -Spec 12,7,30
+spec_line="docker exec -it -u app -e GIT_TERMINAL_PROMPT=0 -w /tmp/lanes/spec-[a-z0-9]{6} $ID1 /usr/local/bin/claude --model opus --effort high Run /way-of-working:spec-task for each of these issues, one at a time, in this order: 12, 7, 30. Build nothing, and start no build for any of them.\$"
+check "wow-lane spec: exits with the session's code" test "$rc" -eq 7
+spec_it_ok() { it_line | grep -E -q -e "^$spec_line"; }
+spec_seen() { # the hook saw a detached worktree at the Reference's commit, under the leaf the argv names
+  l=$(cat "$stubdir/spec-leaf" 2>/dev/null) || return 1
+  [ "$(cat "$stubdir/spec-head")" = "$c2" ] && [ "$(cat "$stubdir/spec-symref")" = detached ] &&
+    printf '%s\n' "$l" | grep -q -x -E 'spec-[a-z0-9]{6}' && grep -q -x "$l" "$stubdir/lanes-at-exec" &&
+    it_line | grep -q -e "-w /tmp/lanes/$l "
+}
+check "wow-lane spec: the interactive argv is the declared one, issues in the given order" spec_it_ok
+check "wow-lane spec: a detached worktree at the Reference's commit existed under the leaf the argv names" spec_seen
+check "wow-lane spec: both non-interactive execs carry GIT_NO_REPLACE_OBJECTS=1" app_execs_pinned 2
+check "wow-lane spec: the worktree is gone afterwards" not_spec_left
+check "wow-lane spec: ...and no worktree of the container clone is left but its own" test "$($real_git -C "$crepo" worktree list | wc -l | tr -d ' ')" -eq 1
+check "wow-lane spec: no argv holds & | ^ % or a double quote" no_banned
+check "wow-lane spec: the record is byte-identical afterwards" cmp -s "$tmp/rec-snap" "$home/driver/wb-driver.json"
+spec_setup; cp "$tmp/hook.ok" "$stubdir/it.hook"; run_lane -Spec 9
+one_issue() { it_line | grep -q -e 'in this order: 9\. Build nothing'; }
+check "wow-lane spec: a single issue is named alone" one_issue
+
+# spec refusals
+spec_setup; STUB_REPO=$(wp "$crepo2"); run_lane -Spec 7; STUB_REPO=$(wp "$crepo")
+lane_refuses 'the container clone origin/main at another commit (base-moved)'
+check "wow-lane refuses (base-moved): ...naming the base" err_has 'origin/main'
+check "wow-lane refuses (base-moved): ...no worktree or leaf directory left" not_spec_left
+check "wow-lane refuses (base-moved): ...no registered worktree" test "$($real_git -C "$crepo2" worktree list | wc -l | tr -d ' ')" -eq 1
+# kept worktrees: exit 1, the path named, and the worktree is not forced away
+kept_check() { # kept_check <label>
+  check "wow-lane kept ($1): exits 1 although the session exited 7" test "$rc" -eq 1
+  check "wow-lane kept ($1): the kept path is named" err_has '/tmp/lanes/spec-'
+  check "wow-lane kept ($1): ...with the hand removal" err_has 'worktree remove --force'
+}
+spec_setup
+printf '%s\n' 'for w in "$STUB_LANES"/spec-*; do echo x >"$w/untracked"; done' >"$stubdir/it.hook"
+run_lane -Spec 7; kept_check 'an untracked file'
+untracked_kept() { ls "$lanes"/spec-*/untracked >/dev/null 2>&1; }
+check "wow-lane kept (untracked): the worktree and the file are still there" untracked_kept
+spec_setup; $real_git -C "$crepo" worktree add -q --detach "$tmp/otherwt" "$c2"
+if [ -L "$tmp/probe-link" ]; then
+  printf '%s\n' 'for w in "$STUB_LANES"/spec-*; do mv "$w" "$STUB_DIR/moved-wt"; ln -s "$STUB_OTHER" "$w"; done' >"$stubdir/it.hook"
+  STUB_OTHER=$tmp/otherwt; export STUB_OTHER; run_lane -Spec 7; kept_check 'the worktree replaced by a link'
+  check "wow-lane kept (link): the other worktree is still present" test -f "$tmp/otherwt/.git"
+  for w in "$lanes"/spec-*; do rm -f "$w"; done
+else skip "a file symlink cannot be made here; the replaced-by-a-link fixture did not run"; fi
+$real_git -C "$crepo" worktree remove --force "$tmp/otherwt" || true
+spec_setup
+printf '%s\n' "for w in \"\$STUB_LANES\"/spec-*; do git -C \"\$w\" checkout -q --detach $c1; done" >"$stubdir/it.hook"
+run_lane -Spec 7; kept_check 'HEAD moved to another commit'
+check "wow-lane kept (HEAD moved): the worktree is still there" spec_left
+rm -rf "$lanes"; $real_git -C "$crepo" worktree prune
+
+# static shape of the three scripts and both message templates
+lane_fn() { sed -n "/^function $1 /,/^}/p" "$root_dir/scripts/identity/wow-lane.ps1"; }
+lane_line() { lane_fn "$1" | sed -n 2p; }
+clean_line() { # no & | ^ % or double quote, and no single quote between the outer pair
+  ! printf '%s\n' "$1" | grep -q '[&|^%"]' && ! printf '%s\n' "$1" | sed "s/^  '//; s/'\$//" | grep -q "'"
+}
+one_quoted() { lane_line "$1" | grep -q "^  '.*'\$"; }
+starts_set_f() { lane_line "$1" | grep -q "^  'set -f; "; }
+for fn in Get-LaneProbeScript Get-SpecPrepScript Get-SpecCleanupScript; do
+  check "static: $fn is a function of exactly one line" test "$(lane_fn $fn | wc -l | tr -d ' ')" -eq 3
+  check "static: $fn returns one single-quoted string" one_quoted $fn
+  check "static: $fn holds none of & | ^ % or a double quote, nor an inner single quote" clean_line "$(lane_line $fn)"
+  check "static: $fn starts with set -f" starts_set_f $fn
+done
+tpl_line() { grep -E "^[\$]script:$1 = '" "$root_dir/scripts/identity/wow-lane.ps1" | sed "s/^[^']*'//; s/'\$//"; }
+for tpl in LaneMessage SpecMessage; do
+  check "static: the $tpl template exists" test -n "$(tpl_line $tpl)"
+  check "static: the $tpl template holds none of & | ^ % or a double quote" clean_line "$(tpl_line $tpl)"
+done
+
 # --- model -------------------------------------------------------------------------------------
 push_yml() { # push_yml <architect value>
   printf 'models:\n  architect: %s\n  coder: sonnet\ncanary: CANARY-YML\n' "$1" >"$seed/.ai/project.yml"
@@ -485,7 +739,9 @@ check "model: a missing models.architect refuses" test "$rc" -eq 1
 dc="$root_dir/.devcontainer/devcontainer.json"
 check "declared: devcontainer.json still carries remoteUser app" grep -q '"remoteUser": "app"' "$dc"
 check "declared: ...and remoteEnv GIT_TERMINAL_PROMPT=0" grep -q '"remoteEnv": { "GIT_TERMINAL_PROMPT": "0" }' "$dc"
-check "declared: the launcher's docker exec carries the same two literals" sh -c "grep -q \"'-u', 'app'\" '$root_dir/scripts/identity/wow-driver.ps1' && grep -q \"'GIT_TERMINAL_PROMPT=0'\" '$root_dir/scripts/identity/wow-driver.ps1'"
+for f in wow-driver.ps1 wow-lane.ps1; do
+  check "declared: $f's docker exec carries the same two literals" sh -c "grep -q \"'-u', 'app'\" '$root_dir/scripts/identity/$f' && grep -q \"'GIT_TERMINAL_PROMPT=0'\" '$root_dir/scripts/identity/$f'"
+done
 
 # --- the helper defines functions only -----------------------------------------------------------
 rc=0; out=$("$pwsh_abs" -NoProfile -NonInteractive -Command "
