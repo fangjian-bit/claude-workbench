@@ -370,6 +370,8 @@ while IFS= read -r lit || [ -n "$lit" ]; do
   check "literal $n appears in review-outbox.sh" grep -qF -- "$lit" "$script"
   check "literal $n appears in wow-review" grep -qF -- "$lit" "$launcher"
 done <"$tmp/literals"
+# The live-run sheet's secret scan uses the same pattern (the third literal), so a change to it shows here.
+check "the secret-pattern literal appears in the live-run sheet" grep -qF -- "$(sed -n 3p "$tmp/literals" | sed -e "s/^LC_ALL=C grep -Eq '//" -e "s/' \"\$1\"\$//")" "$root_dir/docs/identity/REVIEW-LIVE-RUN.md"
 for rule in \
   "jq -e -s 'length == 1 and (.[0] | type) == \"array\"'" \
   "jq -e 'length <= 5'" \

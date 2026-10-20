@@ -214,6 +214,7 @@ case $cmd in
       *outbox-read*)
         kind=$(last "$@")
         echo "docker-outbox-read-$kind" >>"$S/events"
+        [ -e "$S/hdir.after-log" ] || ls -A "$WOW_HOME"/review-host/*/ >"$S/hdir.after-log" 2>&1
         printf '%s\n' "$*" >>"$S/outbox.calls"
         sh "$S/outbox-read-copy" "$kind"; exit $? ;;
     esac
@@ -1215,14 +1216,37 @@ done
 # --- the log -----------------------------------------------------------------------------------
 # =========================================================================================
 new_case
-{ printf 'A\033[31mred\n\302\233X\n\302\302\233\233[2J\n'; head -c 1500000 /dev/zero | tr '\0' 'a'; printf '\n'; } >"$STUB/session-log"
+{ printf 'FIRSTLINE\nA\033[31mred\n\302\233X\n\302\302\233\233[2J\n'; head -c 1500000 /dev/zero | tr '\0' 'a'; printf '\nLASTLINE\n'; } >"$STUB/session-log"
 run o/r 7
 logf=$(ls "$home"/review-logs/*.log)
 sed -n '/^--- session log/,/^--- end of session log/{//!p}' "$logf" >"$tmp/logpart"
-check "log: the session part is at most 1 MiB" test "$(wc -c <"$tmp/logpart" | tr -d ' ')" -le 1048577
+# The filtered stream, as the launcher stages it: C0 and DEL deleted, each C1 pair replaced by ?.
+LC_ALL=C tr -d '\000-\010\013-\037\177' <"$STUB/session-log" | LC_ALL=C sed "s/$(printf '\302')[$(printf '\200')-$(printf '\237')]/?/g" >"$tmp/stream"
+slen=$(wc -c <"$tmp/stream" | tr -d ' ')
+omit="--- $((slen - 1048576)) bytes of the session log omitted ---"
+check "log: the session part is at most the 1 MiB bound plus the inserted newline and the omitted line" test "$(wc -c <"$tmp/logpart" | tr -d ' ')" -le "$((1048577 + 1 + ${#omit} + 1))"
+check "log: the first line of the stream is kept" grep -qxF FIRSTLINE "$tmp/logpart"
+check "log: the last line of the stream is kept" grep -qxF LASTLINE "$tmp/logpart"
+assert_eq "log: the omitted line, once" 1 "$(grep -cxF -- "$omit" "$tmp/logpart")"
+head -c 786432 "$tmp/stream" >"$tmp/head"; printf '\n%s\n' "$omit" >>"$tmp/head"
+check "log: the omitted line follows the head's 786432 bytes and a newline" test "$(head -c "$(wc -c <"$tmp/head" | tr -d ' ')" "$tmp/logpart" | cmp - "$tmp/head" >/dev/null 2>&1; echo $?)" -eq 0
+{ tail -c 262144 "$tmp/stream"; printf '\n'; } >"$tmp/tail"
+check "log: the part ends with the stream's last 262144 bytes and the blank line before the end line" test "$(tail -c 262145 "$tmp/logpart" | cmp - "$tmp/tail" >/dev/null 2>&1; echo $?)" -eq 0
+check "log: the staged session-stream is gone from the host directory at the outbox read" test -f "$STUB/hdir.after-log" -a -z "$(grep -x session-stream "$STUB/hdir.after-log" || true)"
 assert_eq "log: no ESC byte survives" 0 "$(grep -c "$(printf '\033')" "$logf")"
 assert_eq "log: no C1 sequence survives" 0 "$(LC_ALL=C grep -c "$(printf '\302\233')" "$logf")"
 check "log: the log is kept and the header warns it may hold secrets" has "$logf" "may hold secrets"
+
+# A stream under the cap is kept whole, with no omitted line.
+new_case
+{ printf 'FIRSTLINE\nsmall\n'; head -c 2000 /dev/zero | tr '\0' 'b'; printf '\nLASTLINE\n'; } >"$STUB/session-log"
+run o/r 7
+logf=$(ls "$home"/review-logs/*.log)
+sed -n '/^--- session log/,/^--- end of session log/{//!p}' "$logf" >"$tmp/logpart"
+LC_ALL=C tr -d '\000-\010\013-\037\177' <"$STUB/session-log" >"$tmp/stream"; printf '\n' >>"$tmp/stream"
+check "log (under the cap): the stream is kept whole, byte for byte" cmp -s "$tmp/stream" "$tmp/logpart"
+assert_eq "log (under the cap): no omitted line" 0 "$(grep -c 'bytes of the session log omitted' "$logf")"
+check "log (under the cap): the staged session-stream is gone at the outbox read" test -z "$(grep -x session-stream "$STUB/hdir.after-log" || true)"
 
 
 # =========================================================================================

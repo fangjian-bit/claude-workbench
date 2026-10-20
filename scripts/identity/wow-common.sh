@@ -24,7 +24,7 @@
 #                          the broker sweeps).
 #   review-host/<id>/      wow-review's working files, never mounted: the project.yml copy, the outbox
 #                          copies, every kept copy of the session token, and its read-token, post-token
-#                          and filing-token. Removed by the launcher's trap.
+#                          and filing-token, and the transient staged session log. Removed by the launcher's trap.
 #   driver/<leaf>.json     wow-driver.ps1's record of the container it started for the clone <leaf>: {id, commit,
 #                          clone}. Never mounted.
 #   review-state/          wow-review's lock and its dedupe ledger (<owner>/<name>/<N>/<sha>/).
@@ -34,7 +34,8 @@
 #   review-host/poll-<id>/ wow-review-poll's working files and its session token, never mounted. Removed by its trap.
 #   claude-credential      the Claude setup-token credential, one line; read only by wow-review and
 #                          written only to the injector sidecar's stdin.
-#   review-logs/           review run logs; may hold secrets, swept by the broker by age.
+#   review-logs/           review run logs; may hold secrets and private contents the session read, swept by the
+#                          broker by age.
 # Invariant: no path under $WOW_HOME is container-writable. tokens/<repo>/ is mounted only into a
 # dev container, and review-sessions/<id>/ only into a review container, each read-only.
 # claude-credential is never mounted into any container and reaches only the injector's stdin.

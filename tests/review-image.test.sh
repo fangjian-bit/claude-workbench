@@ -9,9 +9,11 @@
 #                   token-check.sh, gh, git and claude record their argv and environment and answer from
 #                   per-fixture files; stdin is closed
 #   Dockerfile      static checks: the FROM line, the claude pin against scripts/loop/Dockerfile's, the
-#                   dev-token rewrite, the marker, the ENV lines against the managed file, the last USER, and
+#                   dev-token rewrite, the marker, the ENV lines against the managed file (less the managed-only
+#                   WOW_MANAGED_PROBE, which no Dockerfile or entrypoint line may name), the last USER, and
 #                   the COPY sources against install-host-tools.ps1's bin/review/ destinations
-#   managed file    parses, and holds exactly the keys the spec names
+#   managed file    parses, and holds exactly the keys the spec names (env: the four variables plus
+#                   WOW_MANAGED_PROBE)
 #
 # Permitted toolset: POSIX sh and its standard utilities, jq and yq (skipped, loudly, if either is absent).
 set -eu
@@ -423,12 +425,12 @@ else
 fi
 
 # --- success, and what it shows ----------------------------------------------------------------
-cleaned() { export GIT_CONFIG_COUNT=1 CLAUDE_CONFIG_DIR=/leak GH_TOKEN=leak CLAUDE_CODE_PLUGIN_CACHE_DIR=/leak; }
+cleaned() { export GIT_CONFIG_COUNT=1 CLAUDE_CONFIG_DIR=/leak GH_TOKEN=leak CLAUDE_CODE_PLUGIN_CACHE_DIR=/leak WOW_MANAGED_PROBE=leak; }
 ep cleaned
 assert_eq "success: claude's status by exec" 0 "$rc"
 check "success: no outcome written" no_outcome
 check "success: the temp directory is gone" tmpd_gone
-for n in GIT_CONFIG_COUNT CLAUDE_CONFIG_DIR GH_TOKEN CLAUDE_CODE_PLUGIN_CACHE_DIR; do
+for n in GIT_CONFIG_COUNT CLAUDE_CONFIG_DIR GH_TOKEN CLAUDE_CODE_PLUGIN_CACHE_DIR WOW_MANAGED_PROBE; do
   if cat "$REC"/*.env 2>/dev/null | grep -q "^$n="; then bad "cleaned environment: $n reached a child"; else ok "cleaned environment: $n reached no child"; fi
 done
 for line in DISABLE_AUTOUPDATER=1 DISABLE_TELEMETRY=1 DISABLE_ERROR_REPORTING=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
@@ -444,7 +446,10 @@ want="[-p]
 [--setting-sources]
 [user]
 [--permission-mode]
-[bypassPermissions]"
+[bypassPermissions]
+[--output-format]
+[stream-json]
+[--verbose]"
 assert_eq "claude's argv is exactly the specified list" "$want" "$(cat "$REC/claude.run.argv")"
 assert_eq "claude runs in the clone" "$W" "$(cat "$REC/claude.run.cwd")"
 assert_eq "claude plugin calls run from HOME" "$H" "$(sort -u "$REC/claude.plugin.cwd")"
@@ -535,8 +540,9 @@ check "Dockerfile: the managed settings are copied root-owned, 0444" grep -qF 'C
 check "Dockerfile: the build requires allowManagedHooksOnly" grep -qF '.allowManagedHooksOnly == true' "$df"
 check "Dockerfile: no /review-out is created" test -z "$(grep -v '^#' "$df" | grep -e 'mkdir.*review-out' -e 'WORKDIR /review-out' || true)"
 env_names=$(awk '/^ENV /{e=1} e{print} e && !/\\$/{e=0}' "$df" | tr -s ' \\' '\n\n' | sed -n 's/^\([A-Z_][A-Z0-9_]*\)=.*/\1/p' | sort | tr '\n' ' ')
-json_names=$(jq -r '.env | keys[]' "$rdir/managed-settings.json" | tr -d '\r' | sort | tr '\n' ' ')
-assert_eq "Dockerfile: the ENV variable names equal the managed file's env keys" "$json_names" "$env_names"
+json_names=$(jq -r '.env | keys[] | select(. != "WOW_MANAGED_PROBE")' "$rdir/managed-settings.json" | tr -d '\r' | sort | tr '\n' ' ')
+assert_eq "Dockerfile: the ENV variable names equal the managed file's env keys less WOW_MANAGED_PROBE" "$json_names" "$env_names"
+check "WOW_MANAGED_PROBE is named nowhere in the Dockerfile or the entrypoint" test -z "$(grep -l WOW_MANAGED_PROBE "$df" "$rdir/entrypoint.sh" || true)"
 assert_eq "Dockerfile: USER 1000:1000 is the last USER" "USER 1000:1000" "$(grep '^USER ' "$df" | tail -1)"
 check "Dockerfile: the entrypoint is the libexec copy" grep -qxF 'ENTRYPOINT ["/usr/local/libexec/entrypoint.sh"]' "$df"
 copy_sources=$(grep '^COPY ' "$df" | sed -e 's/^COPY //' -e 's/--[a-z]*=[^ ]* //g' | awk '{for (i = 1; i < NF; i++) print $i}' | sort)
@@ -553,8 +559,8 @@ check "managed settings: parse" jq -e . "$ms" >/dev/null
 check "managed settings: the only keys are allowManagedHooksOnly, env and strictPluginOnlyCustomization" jq -e 'keys == ["allowManagedHooksOnly", "env", "strictPluginOnlyCustomization"]' "$ms" >/dev/null
 check "managed settings: strictPluginOnlyCustomization is true" jq -e '.strictPluginOnlyCustomization == true' "$ms" >/dev/null
 check "managed settings: allowManagedHooksOnly is true" jq -e '.allowManagedHooksOnly == true' "$ms" >/dev/null
-check "managed settings: env holds exactly the four variables, each \"1\"" jq -e \
-  '.env == {DISABLE_AUTOUPDATER: "1", DISABLE_TELEMETRY: "1", DISABLE_ERROR_REPORTING: "1", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"}' "$ms" >/dev/null
+check "managed settings: env holds exactly five entries, the four variables each \"1\" and WOW_MANAGED_PROBE managed-only" jq -e \
+  '.env == {DISABLE_AUTOUPDATER: "1", DISABLE_TELEMETRY: "1", DISABLE_ERROR_REPORTING: "1", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", WOW_MANAGED_PROBE: "managed-only"}' "$ms" >/dev/null
 
 [ "$fail" -eq 0 ] || exit 1
 echo "all review-image fixtures passed"

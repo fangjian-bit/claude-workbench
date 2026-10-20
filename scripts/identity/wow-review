@@ -57,8 +57,15 @@
 # there exits 1.
 #
 # Logs: $WOW_HOME/review-logs/<name>-<N>-<sha12>-<id>.log holds the launcher's own lines and the
-# session's `docker logs`, capped at 1 MiB and stripped of control bytes. It MAY HOLD SECRETS (a
-# session can print its own token). The broker sweeps review-logs/ by age.
+# session's `docker logs`, stripped of control bytes. It MAY HOLD SECRETS (a session can print
+# its own token). The log now holds the session's event stream, every tool call and tool
+# result included, so it holds private file contents the session read, beside the secrets
+# warning above. The cap keeps a head (768 KiB) and a tail (256 KiB) of a stream past 1 MiB.
+# Docker's own cap on the session (`max-size=10m`, `max-file=1`) restarts the log when it fills,
+# so a long stream can lose its start, `system/init` included, before the launcher reads it.
+# The launcher tried to revoke every unexpired session token it still held before the log was
+# written; a `revocation FAILED` line means that token lives out its hour, and whether a
+# successful revocation takes effect is #636 item 12. The broker sweeps review-logs/ by age.
 #
 # Residuals:
 #  - A misleading pass can post. The checks are mechanical, not a judgement of the review's
@@ -75,8 +82,11 @@
 #    live only until then; that revocation is not yet verified for the stateless token format
 #    (the #636 live run measures it). A failed revocation, or a launcher killed outright, leaves
 #    a copy live for the rest of its hour (for a killed launcher, subject to the refresher
-#    exceptions in the killed-launcher bullet below). Signed URLs the session fetched with a token may
+#    exceptions in the killed-launcher bullet below). A superseded token whose copy failed is never
+#    revoked, and no log line marks that. Signed URLs the session fetched with a token may
 #    outlive the revocation by minutes.
+#  - The log is a copy of what the session read and printed; the copy in review-logs/ goes at the
+#    broker's age sweep, and a staged copy left by a killed launcher is never swept.
 #  - The secret rule is an accident guard: a session can encode a token past any filter.
 #  - Quota: the session can spend the Claude credential's quota on any model for the whole timeout,
 #    or, after a launcher killed outright, until the session ends on its own or a later launcher's
@@ -666,13 +676,25 @@ stop_refresher
 # Revoke before anything slow touches the session's output: the token must not outlive the wait.
 revoke_all
 
-# The session's own log, before any container is removed: capped, C0 and DEL deleted, each C1 pair replaced by ? in one pass (never a loop: nested pairs would be quadratic).
+# The session's own log, before any container is removed: read once into a staged file, C0 and DEL deleted, each C1 pair replaced by ? in one pass (never a loop: nested pairs would be quadratic), then kept whole up to 1 MiB or as a head and a tail around an omitted-bytes line.
 c2=$(printf '\302'); lo=$(printf '\200'); hi=$(printf '\237')
+SSTREAM="$HDIR/session-stream"
 {
-  printf '%s\n' '--- session log (docker logs; capped at 1 MiB, control bytes removed; may hold secrets) ---'
-  dk logs "$S" 2>&1 | LC_ALL=C tr -d '\000-\010\013-\037\177' | LC_ALL=C sed "s/${c2}[${lo}-${hi}]/?/g" | head -c 1048576
+  printf '%s\n' '--- session log (docker logs; head 768 KiB and tail 256 KiB kept past 1 MiB, control bytes removed; may hold secrets) ---'
+  if (umask 077 && dk logs "$S" 2>&1 | LC_ALL=C tr -d '\000-\010\013-\037\177' | LC_ALL=C sed "s/${c2}[${lo}-${hi}]/?/g" >"$SSTREAM"); then
+    slen=$(wc -c <"$SSTREAM" | tr -d ' ')
+    if [ "$slen" -le 1048576 ]; then
+      cat "$SSTREAM"
+    else
+      head -c 786432 "$SSTREAM"
+      printf '\n--- %s bytes of the session log omitted ---\n' "$((slen - 1048576))"
+      tail -c 262144 "$SSTREAM"
+    fi
+  fi
+  rm -f "$SSTREAM"
   printf '\n%s\n' '--- end of session log ---'
 } >>"$LOG" 2>/dev/null || :
+rm -f "$SSTREAM" 2>/dev/null || :
 
 
 mint_read() {

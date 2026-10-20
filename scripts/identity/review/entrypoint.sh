@@ -36,6 +36,11 @@
 #      entry-* reason as proof that this script stopped.
 #   otherwise claude's own status, by exec.
 #
+# The session's stdout is the stream-json event stream (a `system` event of subtype `init`
+# first, then each message and tool call with its result, the final `result` event last),
+# which the launcher keeps in its log; the entrypoint's own stderr lines can come before it
+# there.
+#
 # Timeouts: gh calls 60 s, git clone and git ls-remote 120 s, each `claude plugin` call 300 s.
 # A timeout is that step's failure.
 #
@@ -286,4 +291,5 @@ exec env -i HOME="$HOME" PATH="$PATH" SHELL="$SHELL" LANG=C.UTF-8 GIT_TERMINAL_P
   WOW_REVIEW_PR="$PR" WOW_REVIEW_SHA="$SHA" WOW_REVIEW_REPO="$repo" WOW_REVIEW_MODEL="$model" \
   ANTHROPIC_BASE_URL="$base_url" "$cred_name=$cred_val" $PROXY_ARGS \
   claude -p "/way-of-working:architect-review $PR --pin $SHA" --model "$model" \
-  --setting-sources user --permission-mode bypassPermissions </dev/null
+  --setting-sources user --permission-mode bypassPermissions \
+  --output-format stream-json --verbose </dev/null
