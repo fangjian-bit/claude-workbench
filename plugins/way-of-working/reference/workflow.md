@@ -144,7 +144,9 @@ tool; none of this plugin's agents does, so nothing here nests).
 (mostly Opus subagents) and `architect`/`security-critic` overlap, so `/way-of-working:critic-gate` works out
 which critics a diff *warrants* from the table below, presents that list with a reason each,
 and spawns **only** what the human confirms (or the critics named explicitly in the call). A
-light change may want one critic; a trust-boundary change may want the full set.
+light change may want one critic; a trust-boundary change may want the full set. That is the
+diff mode. Its spec mode, which `/way-of-working:spec-task` runs on every draft, selects the
+critics by rule from the files the spec lists and runs unattended under the same cap.
 
 > **`/way-of-working:critic-gate` is defense-in-depth that runs EARLIER — it is NOT the
 > fresh-session review gate (`review.ci_gate`) and never satisfies it.** Where a repo wires
@@ -273,7 +275,9 @@ description and cannot be mistaken for the human's approval.
   fix, then re-runs the critics on the fixed tree and iterates under its stopping rule —
   never "until the critics are clean," which on a dense diff may never terminate.
   Defense-in-depth that runs *earlier* — **not** the `review.ci_gate` review, which still
-  runs fresh after handoff where a repo wires one.
+  runs fresh after handoff where a repo wires one. Its **spec mode** is the unattended variant
+  `/way-of-working:spec-task` runs on a drafted spec: critics chosen by rule, ending in a
+  critic line or an escalation, never a question.
 - **`/way-of-working:resume`** — run at the **start** of a session. Reads `.ai/state.json` +
   `.ai/next-steps.md` + the pointed sprint plan (a `sprint_plan.md` file, or — under
   `planning.kind: github_milestones` — the pointed milestone's description and open issues,
@@ -357,7 +361,9 @@ description and cannot be mistaken for the human's approval.
   drafting ahead has no such backstop there. It reads the issue only when its author is
   trusted (or, under a map, an App-filed issue a maintainer reacted to, `WB-D32`), drafts the spec comment in the fixed shape against the PR base's tree, then **posts it as the dev App or holds it for a human to post, and stops
   (`bin/spec-post.sh`)**. A declared maintainer reacts on GitHub, and once they have,
-  under a map, the readers find it. Never edits, deletes or reacts (`WB-D29`). Runs on `models.architect`.
+  under a map, the readers find it. Critic-gates every draft first (critic-gate's spec mode, unattended, by rule), then posts it, or
+  posts it as an escalation with its open findings when the gate hits the cap or stops converging.
+  Never edits, deletes or reacts (`WB-D29`); its one label write is the escalation's. Runs on `models.architect`.
 - **`/way-of-working:park-sprint <next-id>`** — set the live sprint aside mid-flight:
   snapshot its cursor into tracked `.ai/parked/<id>-*`, seed the live cursor for the next
   sprint, and open the docs-only cursor-sync PR. Mechanical; any model.

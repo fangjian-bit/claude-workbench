@@ -1097,7 +1097,8 @@ edited it. **Default to the full checklist whenever unsure.**
    > **The drafting step** is `/way-of-working:spec-task <N>`. A session not on `{models.architect}`
    > drafts through an `architect` subagent under spec-task's own model rule. The session prints
    > spec-task's outcome, including `held`, then one line saying it ends without building and that
-   > the next fresh session builds after a maintainer has reacted. It does not build, hand off or
+   > the next fresh session builds after a maintainer has reacted (on spec-task's `escalated`
+   > outcome, that a maintainer decides the escalation instead). It does not build, hand off or
    > write `.ai/`.
    >
    > **What stops a build after drafting.** On the `none` branch the session holds no pin, so the
@@ -1130,8 +1131,9 @@ edited it. **Default to the full checklist whenever unsure.**
    merge of the previous handoff's cursor-sync PR (the `next_action` itself is not shown there,
    `WB-D24`); the approval that carries real signal
    is the **`hitl_gate`**, still absolutely enforced. It never crosses a merge boundary:
-   `/way-of-working:critic-gate` still proposes and the human still picks, and the human still
-   merges. The one derived step that posts a review is the *Derive the review step from GitHub*
+   `/way-of-working:critic-gate` still proposes and the human still picks (said of its diff mode;
+   its spec mode runs inside the drafting step, selects by rule and escalates to a human instead
+   of asking), and the human still merges. The one derived step that posts a review is the *Derive the review step from GitHub*
    step's `auto` verdict (`WB-D22`), which rests on the derivation, not on `next_action`, and is
    never an approval or a merge. The argument is in `appendices/auto-start-rationale.md`.
 

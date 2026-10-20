@@ -2484,6 +2484,49 @@ take effect. Full reasoning and the task breakdown that implements them:
   - **Option not taken.** A required key with a migration line in every consuming repo, for a
     feature most of them will not use. The maintainer may still prefer it.
 
+- **WB-D35 (`#629`) — `/way-of-working:critic-gate` gains a spec mode that `spec-task` runs unattended on
+  every draft before it is posted.** Builds on `WB-D29` (the post), `WB-D31` (the freshness check) and `#746`
+  (`spec-post.sh escalate`).
+  - **The decision.** Every drafted spec is critic-gated with nobody at a terminal. The critics are chosen by
+    rule from the files the spec lists (`architect` always, `security-critic` for a path under `code_paths`,
+    `docs-consistency` for a `load_bearing_docs` match or a new `.md` file outside `code_paths`), under the
+    existing cap: at most 5 rounds, the initial pass and 4 fix-and-re-run rounds, of at most 3 critics per
+    draft. The gate ends converged, cap reached or not converging. Converged posts the spec for approval with
+    one critic line naming the critics, the rounds and the stop; the other two post it through
+    `spec-post.sh escalate`, with its open findings, and it is never offered for approval as-is.
+  - **What it reverses.** For spec mode only, critic-gate's propose-and-the-human-picks rule (the *Propose the
+    applicable critics* step and *Why propose instead of auto-spawning*, with the "the human authorized a
+    pass" reasoning of *Convergence*). Not `WB-D16`'s pick-list mechanism, which the diff mode keeps, and not
+    the diff mode's second-opinion offer, which spec mode never makes.
+  - **The critic line and its check.** `spec-post.sh` stops `no-critic-line` unless the draft carries exactly
+    one well-formed critic line before `### Goal`, with the stop `converged` for `post` and `cap reached` or
+    `not converging` for `escalate` (which also needs an `### Open findings` section); `post` refuses a draft with an ATX heading `Open findings` of any level or case anywhere (a filter: setext and indented forms pass). The line is written by
+    the posting session itself: the check is a filter against a forgotten gate, not proof that critics ran,
+    and the maintainer's reaction stays the only approval.
+  - **Escalation and its resolution.** A maintainer posts a `spec-task:` comment of their own, which takes
+    precedence once reacted to, or deletes the escalated comment. Deleting it without changing the task makes
+    resume's drafting branch draft again unattended on the same body, which will likely escalate again on a maintainer-filed issue (on an App-filed one the rerun is expected to stop `unreacted` first, if the comment and the label move
+    `updated_at`, unmeasured per `WB-D32` residual 14). A
+    statement in the body about a finding is never authority: a rerun's critics still grade it.
+  - **Accepted residuals.**
+    1. Unattended critics are read-only, and confined to the draft and the pinned tree, by their prompt and
+       definition only. They hold Bash and the session's credential, with nobody watching a permission prompt.
+    2. The leak check in `spec-post.sh` and the hidden-text check in `spec-task`'s `spec-fresh.sh shape` re-run on
+       critic-derived text are filters, not boundaries, and the second is a skill step, not enforced at the post.
+    3. An unresolved `security-critic` finding on an escalation is published in the public comment, with
+       nobody reading it first. The drafting rules (leak shapes, no openers) are the only filter.
+    4. An escalation stopped before its post leaves nothing on GitHub, so an unattended run's open findings
+       are seen by nobody and the next run drafts again. A stop that recurs (a `leak` in critic-derived text,
+       `too-long`, a malformed critic line) repeats the gate's whole spend on every unattended run.
+    5. `no-critic-line` covers only comments `spec-post.sh` posts. A maintainer's own hand-posted `spec-task:`
+       comment carries no critic line and no reader checks for one, the maintainer being the approver.
+  - **Not built.** Reading a maintainer's answer from the escalated comment's thread and continuing from it (it
+    reads comments, a trust-boundary change of its own), and a second-opinion round on a spec.
+  - **Slack: open, and nothing writes to it.** Three questions stay open: which identity posts; whether a
+    Slack reply can carry a decision or only notifies; how a reply is authenticated as the maintainer's, so it
+    is never a weaker approval path than a GitHub reaction. Nothing in this plugin writes to Slack until a
+    later entry answers all three.
+
 ## Status
 
 All four of `WB-D1..D4` are implemented by this repo's existence and structure as of

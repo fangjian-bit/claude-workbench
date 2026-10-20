@@ -220,19 +220,30 @@ SHA="$("$real_git" -C "$origin" rev-parse HEAD)"
 SIDE="$("$real_git" -C "$co" -c user.name=fx -c user.email=fx@example.test commit-tree "HEAD^{tree}" -p HEAD -m side)"
 GONE=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
-mkdraft() { # mkdraft <file> [extra-line] [later-line] -- a draft in the fixed shape; the extra line sits in Goal, the later line ends Tests
+# _mk <file> <critic-line> <extra> <later> <findings> -- the shared layout of mkdraft and mkesc
+_mk() {
   {
     printf '%s\n' 'Spec for the thing. Drafted against main at abc1234. Back\slash and {pr_base} braces.'
+    printf '%s\n' "$2"
     printf '\n### Goal\n'
-    [ -z "${2:-}" ] || printf '%s\n' "$2"
+    [ -z "$3" ] || printf '%s\n' "$3"
     printf '%s\n' 'Goal text with back\slash, {pr_base} and ${HOME} left alone.'
     printf '\n### Files touched\nOne file.\n'
     printf '\n### Done when\nIt runs.\n'
     printf '\n### Tests\nA test.\n'
-    [ -z "${3:-}" ] || printf '%s\n' "$3"
+    [ -z "$4" ] || printf '%s\n' "$4"
     printf '\n### Out of scope\nNothing else.\n'
     printf '\n### Restated from the issue body\nnothing\n'
+    [ -z "$5" ] || printf '\n### Open findings\n%s\n' "$5"
   } >"$1"
+}
+CL_OK='Critic gate: architect, security-critic; 3 rounds; converged.'
+CL_ESC='Critic gate: architect, security-critic; 5 rounds; cap reached.'
+mkdraft() { # mkdraft <file> [extra-line] [later-line] -- a draft in the fixed shape; the extra line sits in Goal, the later line ends Tests
+  _mk "$1" "$CL_OK" "${2:-}" "${3:-}" ''
+}
+mkesc() { # mkesc <file> [extra-line] [later-line] -- the same layout, a cap-reached critic line and an Open findings section
+  _mk "$1" "$CL_ESC" "${2:-}" "${3:-}" 'A finding (architect, high): the task is too large. Recommend a split.'
 }
 
 mkissue_to() { # mkissue_to <file> <login> <id-json> <assoc-json> [state] [locked] [pr|-] [updated_at] [title-json] [body-json]
@@ -334,6 +345,8 @@ usage_is() {
 
 dr="$(newdir)"
 mkdraft "$dr/draft.md"
+dre="$(newdir)"
+mkesc "$dre/draft.md"
 expect="$tmp/expect.md"
 { printf 'spec-task: issue=661 base=main sha=%s\n\n' "$SHA"; "$real_cat" "$dr/draft.md"; } >"$expect"
 
@@ -358,12 +371,12 @@ assert_eq "$desc (the draft keeps its backslash and braces)" 2 "$(grep -c -e 'ba
 
 # -- escalate (#746) -----------------------------------------------------------------------------
 eexpect="$tmp/eexpect.md"
-{ printf 'spec-task-escalated: issue=661 base=main sha=%s\n\n' "$SHA"; "$real_cat" "$dr/draft.md"; } >"$eexpect"
+{ printf 'spec-task-escalated: issue=661 base=main sha=%s\n\n' "$SHA"; "$real_cat" "$dre/draft.md"; } >"$eexpect"
 ehurl="https://github.com/acme/backlog/issues/661#issuecomment-777"
 
 desc="escalate: pass under a map as the dev App"
 o="$(newdir)"
-esc "$dr/draft.md" "$o"
+esc "$dre/draft.md" "$o"
 assert_eq "$desc (line)" "escalated 777 dev[bot] $ehurl labelled" "$out"
 assert_eq "$desc (rc)" 0 "$rc"
 assert_eq "$desc (stderr)" "" "$err"
@@ -381,7 +394,7 @@ api|--hostname|github.com|--method|POST|repos/acme/backlog/issues/661/labels|-f|
 desc="escalate: the label is absent from the repository"
 printf 'bug\nstatus/needs-human-not\n' >"$tmp/labels.txt"
 o="$(newdir)"
-FX_LABELS="$tmp/labels.txt" esc "$dr/draft.md" "$o"
+FX_LABELS="$tmp/labels.txt" esc "$dre/draft.md" "$o"
 assert_eq "$desc (line)" "escalated 777 dev[bot] $ehurl label-absent" "$out"
 assert_eq "$desc (rc)" 0 "$rc"
 assert_eq "$desc (one label read)" 1 "$(lblcalls read)"
@@ -390,7 +403,7 @@ assert_eq "$desc (one write)" 1 "$(writes)"
 
 desc="escalate: the label read fails"
 o="$(newdir)"
-FX_LBLR_FAIL=1 esc "$dr/draft.md" "$o"
+FX_LBLR_FAIL=1 esc "$dre/draft.md" "$o"
 assert_eq "$desc (line)" "escalated 777 dev[bot] $ehurl label-unreadable" "$out"
 assert_eq "$desc (rc)" 0 "$rc"
 assert_eq "$desc (one label read)" 1 "$(lblcalls read)"
@@ -398,7 +411,7 @@ assert_eq "$desc (no label write)" 0 "$(lblcalls write)"
 
 desc="escalate: the label write fails, made once and never retried"
 o="$(newdir)"
-FX_LBLW_FAIL=1 esc "$dr/draft.md" "$o"
+FX_LBLW_FAIL=1 esc "$dre/draft.md" "$o"
 assert_eq "$desc (line)" "escalated 777 dev[bot] $ehurl label-failed" "$out"
 assert_eq "$desc (rc)" 0 "$rc"
 assert_eq "$desc (one label read)" 1 "$(lblcalls read)"
@@ -406,7 +419,7 @@ assert_eq "$desc (one label write)" 1 "$(lblcalls write)"
 
 desc="escalate: post-unknown makes the comment POST and no label call"
 o="$(newdir)"
-FX_POST_FAIL=1 esc "$dr/draft.md" "$o"
+FX_POST_FAIL=1 esc "$dre/draft.md" "$o"
 assert_eq "$desc (word)" post-unknown "$out"
 assert_eq "$desc (one write)" 1 "$(writes)"
 assert_eq "$desc (no label call)" 0 "$(( $(lblcalls read) + $(lblcalls write) ))"
@@ -415,7 +428,7 @@ assert_eq "$desc (comment kept, escalated marker)" "spec-task-escalated: issue=6
 desc="escalate: posted-unreadable makes the comment POST and no label call"
 mkresp 777 'maint' 100 661
 o="$(newdir)"
-esc "$dr/draft.md" "$o"
+esc "$dre/draft.md" "$o"
 assert_eq "$desc (word)" posted-unreadable "$out"
 assert_eq "$desc (one write)" 1 "$(writes)"
 assert_eq "$desc (no label call)" 0 "$(( $(lblcalls read) + $(lblcalls write) ))"
@@ -423,20 +436,20 @@ assert_eq "$desc (no label call)" 0 "$(( $(lblcalls read) + $(lblcalls write) ))
 desc="escalate hold: identities null"
 setyml "$tmp/legacy.yml"
 o="$(newdir)"
-esc "$dr/draft.md" "$o"
+esc "$dre/draft.md" "$o"
 held_is no-identities "$o" spec-task-escalated
 setyml "$tmp/map.yml"
 
 desc="escalate hold: the viewer is not the dev App"
 o="$(newdir)"
-FX_VLOGIN=maint FX_VID=100 esc "$dr/draft.md" "$o"
+FX_VLOGIN=maint FX_VID=100 esc "$dre/draft.md" "$o"
 held_is not-dev-app "$o" spec-task-escalated
 
 for m in post escalate; do
   for pre in 'spec-task: issue=1 base=main sha=x' 'spec-task-escalated: issue=1 base=main sha=x'; do
     desc="stop: has-marker in $m mode for a draft line '${pre%%:*}:'"
     d4="$(newdir)"
-    mkdraft "$d4/draft.md" "$pre"
+    if [ "$m" = escalate ]; then mkesc "$d4/draft.md" "$pre"; else mkdraft "$d4/draft.md" "$pre"; fi
     o="$(newdir)"
     run "$m" 661 "$SHA" "$d4/draft.md" "$o"
     stop_is has-marker
@@ -572,6 +585,123 @@ o="$(newdir)"
 post "$d2/draft.md" "$o"
 stop_is bad-shape
 
+# -- the critic line (#629) ----------------------------------------------------------------------
+cl_case() { # cl_case <desc> <mode> <critic-line|-> [position: top|late] -- a draft with that line, expects no-critic-line
+  desc="stop: no-critic-line, $1"
+  dcl="$(newdir)"
+  if [ "$3" = - ]; then
+    _mk "$dcl/draft.md" 'A title line.' '' '' "$( [ "$2" = escalate ] && echo 'Finding.' || true )"
+  elif [ "${4:-top}" = late ]; then
+    _mk "$dcl/draft.md" 'A title line.' "$3" '' "$( [ "$2" = escalate ] && echo 'Finding.' || true )"
+  else
+    _mk "$dcl/draft.md" "$3" '' '' "$( [ "$2" = escalate ] && echo 'Finding.' || true )"
+  fi
+  o="$(newdir)"
+  run "$2" 661 "$SHA" "$dcl/draft.md" "$o"
+  stop_is no-critic-line
+  assert_eq "$desc (out-dir empty)" "" "$(ls -A "$o")"
+}
+cl_case "post with no critic line" post -
+cl_case "escalate with no critic line" escalate -
+cl_case "a well-formed line after ### Goal" post 'Critic gate: architect; 2 rounds; converged.' late
+cl_case "post with cap reached" post 'Critic gate: architect; 5 rounds; cap reached.'
+cl_case "post with not converging" post 'Critic gate: architect; 2 rounds; not converging.'
+cl_case "escalate with converged" escalate 'Critic gate: architect; 2 rounds; converged.'
+cl_case "0 rounds" post 'Critic gate: architect; 0 rounds; converged.'
+cl_case "1 rounds" post 'Critic gate: architect; 1 rounds; converged.'
+cl_case "2 round" post 'Critic gate: architect; 2 round; converged.'
+cl_case "a critic name starting with a dash" post 'Critic gate: -architect; 2 rounds; converged.'
+cl_case "a missing final period" post 'Critic gate: architect; 2 rounds; converged'
+cl_case "trailing text after the period" post 'Critic gate: architect; 2 rounds; converged. ok'
+cl_case "an unknown stop word" post 'Critic gate: architect; 2 rounds; finished.'
+cl_case "an empty critic list" post 'Critic gate: ; 2 rounds; converged.'
+
+desc="stop: no-critic-line, two critic lines"
+dcl="$(newdir)"
+{ printf '%s\n%s\n' 'A title.' "$CL_OK"; printf '%s\n' "$CL_OK"; printf '\n### Goal\ng\n\n### Files touched\nf\n\n### Done when\nd\n\n### Tests\nt\n\n### Out of scope\no\n\n### Restated from the issue body\nr\n'; } >"$dcl/draft.md"
+o="$(newdir)"
+post "$dcl/draft.md" "$o"
+stop_is no-critic-line
+
+desc="stop: no-critic-line, escalate without an Open findings heading"
+dcl="$(newdir)"
+_mk "$dcl/draft.md" "$CL_ESC" '' '' ''
+o="$(newdir)"
+esc "$dcl/draft.md" "$o"
+stop_is no-critic-line
+
+desc="stop: no-critic-line, escalate with Open findings only before the restated section"
+dcl="$(newdir)"
+{ printf '%s\n%s\n' 'A title.' "$CL_ESC"; printf '\n### Open findings\nF.\n\n### Goal\ng\n\n### Files touched\nf\n\n### Done when\nd\n\n### Tests\nt\n\n### Out of scope\no\n\n### Restated from the issue body\nr\n'; } >"$dcl/draft.md"
+o="$(newdir)"
+esc "$dcl/draft.md" "$o"
+stop_is no-critic-line
+
+desc="stop: no-critic-line, escalate with an empty Open findings body"
+dcl="$(newdir)"
+_mk "$dcl/draft.md" "$CL_ESC" '' '' ''
+printf '\n### Open findings\n\n   \n## Next\nx\n' >>"$dcl/draft.md"
+o="$(newdir)"
+esc "$dcl/draft.md" "$o"
+stop_is no-critic-line
+
+desc="stop: no-critic-line, post with an Open findings section"
+dcl="$(newdir)"
+_mk "$dcl/draft.md" "$CL_OK" '' '' 'A finding.'
+o="$(newdir)"
+post "$dcl/draft.md" "$o"
+stop_is no-critic-line
+
+desc="stop: no-critic-line, post with an Open findings heading before the restated section"
+dcl="$(newdir)"
+{ printf '%s\n%s\n' 'A title.' "$CL_OK"; printf '\n### Goal\ng\n\n## open Findings\nF.\n\n### Files touched\nf\n\n### Done when\nd\n\n### Tests\nt\n\n### Out of scope\no\n\n### Restated from the issue body\nr\n'; } >"$dcl/draft.md"
+o="$(newdir)"
+post "$dcl/draft.md" "$o"
+stop_is no-critic-line
+
+desc="order: a draft failing the shape and the critic line stops bad-shape"
+dcl="$(newdir)"
+printf 'A title.\n\n### Goal\nonly this\n' >"$dcl/draft.md"
+o="$(newdir)"
+post "$dcl/draft.md" "$o"
+stop_is bad-shape
+
+desc="order: no critic line and a marker line stops no-critic-line, not has-marker"
+dcl="$(newdir)"
+_mk "$dcl/draft.md" 'A title.' 'spec-task: issue=1 base=main sha=x' '' ''
+o="$(newdir)"
+post "$dcl/draft.md" "$o"
+stop_is no-critic-line
+
+desc="pass: post with 1 round; converged."
+dcl="$(newdir)"
+_mk "$dcl/draft.md" 'Critic gate: architect; 1 round; converged.' '' '' ''
+o="$(newdir)"
+post "$dcl/draft.md" "$o"
+assert_eq "$desc (posted)" posted "$(printf '%s' "$out" | cut -d' ' -f1)"
+assert_eq "$desc (one POST)" 1 "$(writes)"
+
+desc="pass: post with a draft that is CRLF throughout"
+dcl="$(newdir)"
+mkdraft "$dcl/lf.md"
+sed 's/$/\r/' "$dcl/lf.md" >"$dcl/draft.md"
+o="$(newdir)"
+post "$dcl/draft.md" "$o"
+assert_eq "$desc (posted)" posted "$(printf '%s' "$out" | cut -d' ' -f1)"
+assert_eq "$desc (one POST)" 1 "$(writes)"
+
+for stopw in 'cap reached:5 rounds' 'not converging:2 rounds'; do
+  sw="${stopw%%:*}"
+  rd_="${stopw#*:}"
+  desc="pass: escalate with $rd_; $sw."
+  dcl="$(newdir)"
+  _mk "$dcl/draft.md" "Critic gate: architect, docs-consistency; $rd_; $sw." '' '' 'Open: a finding.'
+  o="$(newdir)"
+  esc "$dcl/draft.md" "$o"
+  assert_eq "$desc (escalated)" escalated "$(printf '%s' "$out" | cut -d' ' -f1)"
+  assert_eq "$desc (comment POST and label write)" 2 "$(writes)"
+done
+
 desc="stop: a draft with a line beginning with the marker prefix"
 mkdraft "$d2/draft.md" 'spec-task: issue=1 base=main sha=x'
 o="$(newdir)"
@@ -600,7 +730,7 @@ for case_ in \
   mkdraft "$d2/draft.md" "$extra"
   o="$(newdir)"
   post "$d2/draft.md" "$o"
-  stop_is "leak 4 $shp"
+  stop_is "leak 5 $shp"
   assert_eq "$desc (out-dir empty)" "" "$(ls -A "$o")"
 done
 
@@ -608,26 +738,27 @@ desc="stop: a leak on a later line reports that line"
 mkdraft "$d2/draft.md" '' 'at /home/someone/file'
 o="$(newdir)"
 post "$d2/draft.md" "$o"
-stop_is "leak 14 home"
+stop_is "leak 15 home"
 assert_eq "$desc (out-dir empty)" "" "$(ls -A "$o")"
 
 desc="stop: the first shape wins over the first line"
 mkdraft "$d2/draft.md" 'at /home/someone/file' 'then D:\work\y'
 o="$(newdir)"
 post "$d2/draft.md" "$o"
-stop_is "leak 15 drive"
+stop_is "leak 16 drive"
 assert_eq "$desc (out-dir empty)" "" "$(ls -A "$o")"
 
 desc="stop: escalate prints the same leak line and writes nothing"
-mkdraft "$d2/draft.md" 'at /Users/someone/file'
+mkesc "$d2/draft.md" 'at /Users/someone/file'
 o="$(newdir)"
 esc "$d2/draft.md" "$o"
-stop_is "leak 4 users"
+stop_is "leak 5 users"
 assert_eq "$desc (out-dir empty)" "" "$(ls -A "$o")"
 
 desc="stop: a NUL byte on the leak line never prints a partial leak line"
 {
   printf '%s\n' 'Spec for the thing. Drafted against main at abc1234.'
+  printf '%s\n' "$CL_OK"
   printf '\n### Goal\n'
   printf 'at /home/some'
   printf '\000'

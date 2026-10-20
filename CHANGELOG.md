@@ -43,6 +43,11 @@ reference, a named reference to an invisible character, or a default-ignorable c
 `spec-task`'s shape gate refuses such a draft on every repo, and an App-filed issue carrying one stops `hidden`. Re-draft the spec
 and move the maintainer's reaction to the new comment.
 
+**⚠️ Migration** — `/way-of-working:spec-task` now spawns critic subagents on every draft (real spend,
+bounded by the cap) and stops `no-critics` on a repo whose `agents.enabled` lacks `architect`. `spec-post.sh`
+refuses a draft without a critic line, so re-posting a body drafted before this change needs one (#629,
+`WB-D35`).
+
 ### Added
 
 - **Context controls and lane state for the long-running driver session** (#729, `WB-D34`). A
@@ -58,7 +63,11 @@ and move the maintainer's reaction to the new comment.
 
 ### Changed
 
-- `spec-post.sh escalate` posts a draft under the `spec-task-escalated:` marker and adds `status/needs-human`; `spec-find.sh find` prints `escalated <ids>` and `pending` counts a newer escalated comment. Nothing calls the mode yet (#746, groundwork for #629). A repo on an older installed plugin reads an escalated comment as `none`, so #629 should not call `escalate` before a release carrying this finder is installed.
+- **`critic-gate` gains a spec mode, and `spec-task` runs it on every draft** (#629, `WB-D35`): critics chosen by
+  rule, unattended, under the same cap; a converged draft is posted with a critic line, a draft that hits the cap
+  or stops converging is posted through `spec-post.sh escalate` with its open findings. `spec-post.sh` stops
+  `no-critic-line` on a draft without a well-formed critic line for its mode. Nothing writes to Slack.
+- `spec-post.sh escalate` posts a draft under the `spec-task-escalated:` marker and adds `status/needs-human`; `spec-find.sh find` prints `escalated <ids>` and `pending` counts a newer escalated comment. `spec-task` calls the mode as of #629, in the same release as this finder.
 - **`spec-task` refuses a declared App id on the maintainer list** (#759): `spec-issue.sh` and `spec-post.sh` stop `unreadable` under a map, for a maintainer or App author, when any declared App's id is on `identities.maintainer` or an App entry is neither null nor well formed or its id is not canonical decimal, or, for a maintainer's issue too, `identities.maintainer` carries an entry that is not well formed, which passed before, all before the issue's reactions are read; `WB-D30` residual 7 is amended.
 - **No declared App is a spec approver** (#708): `spec-find.sh`, `spec-comment.sh` and
   `scripts/loop/preflight.sh github-dispatch` refuse a config that lists the id of the dev, reviewer or

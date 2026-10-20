@@ -613,7 +613,7 @@ review:
 
 `agents.enabled` is which of the plugin's agents this repo uses. `/way-of-working:critic-gate` proposes
 from this list only — it never offers an agent the repo has not enabled, and never one that
-is not in the plugin at all.
+is not in the plugin at all. Its spec mode selects from this list only as well.
 
 A repo may define **additional** agents locally in `.claude/agents/`. Those are repo-local
 by definition and out of the plugin's scope; adding one to `agents.enabled` does not make it

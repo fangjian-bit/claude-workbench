@@ -5,7 +5,7 @@ holding `way-of-working`: a portable Claude Code session-handoff protocol
 (`/way-of-working:resume` → `/way-of-working:handoff` → `/way-of-working:critic-gate` → `/way-of-working:ship` → `/way-of-working:pr-checks` → `/way-of-working:archive-sprint`,
 plus `/way-of-working:retro`, `/way-of-working:plan-sprint` for triaging the backlog into
 milestones under `github_milestones` planning, `/way-of-working:spec-task` for drafting a
-task's spec comment (it posts as the dev App or holds the comment for a human, then stops),
+task's spec comment (it critic-gates the draft, then posts as the dev App or holds the comment for a human, and stops),
 `/way-of-working:architect-review` for a repo
 that wires a fresh-session review gate, and `/way-of-working:park-sprint` /
 `/way-of-working:unpark-sprint` for

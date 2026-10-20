@@ -7,9 +7,10 @@
 # Two modes (#746). `post` is the spec comment, marker `spec-task: issue=N base=B sha=<sha>`.
 # `escalate` runs every stage and check `post` runs, composes the same body under the distinct
 # first line `spec-task-escalated: issue=N base=B sha=<sha>` (which no reader takes for the spec
-# marker) and, after a confirmed post, makes one label write adding `status/needs-human`. Nothing
-# calls `escalate` yet; spec-find.sh shows such a comment as `escalated` (or in `pending`), so
-# the escalation lives on GitHub in the comment, not in the label.
+# marker) and, after a confirmed post, makes one label write adding `status/needs-human`.
+# spec-task calls `escalate` when critic-gate's spec mode ends on the cap or on non-convergence
+# (#629); spec-find.sh shows such a comment as `escalated` (or in `pending`), so the escalation
+# lives on GitHub in the comment, not in the label.
 #
 # Who calls it: spec-task's *Post or hold* stage, after spec-shape.sh said `ok`. Why it exists:
 # the skill used to hand its draft to the maintainer to post (WB-D26). It now posts it itself
@@ -38,6 +39,8 @@
 #   bad-base            `pr_base` is empty, begins with `-` or holds an unusual character
 #   bad-sha             <sha> is not a commit on the tip of origin/<base> or behind it
 #   bad-shape           spec-shape.sh check did not say `ok`
+#   no-critic-line      the draft does not carry a well-formed critic line for its mode (#629): see
+#                       the grammar below
 #   has-marker          a line of the draft begins with either marker prefix (`spec-task:` or `spec-task-escalated:`)
 #   leak <line> <shape> a line matches an obvious local-path or secret shape (a filter, not a boundary).
 #                       <shape> is the first of drive, users, home, appdata, pem, token (in that order)
@@ -80,7 +83,7 @@
 #   commit       after a fetch of origin/<base>, <sha> must be a commit that `git merge-base
 #                --is-ancestor` places on it. An ancestor is accepted, not only the tip, so a merge
 #                during drafting does not force a redraft
-#   content      shape, marker prefix, leak shapes and length, each on the copy
+#   content      shape, critic line, marker prefix, leak shapes and length, each on the copy
 #   issue        the issue is fetched to a file and its author judged as spec-issue.sh judges it
 #                (`gh-identity.sh task-author`). After the author is judged, `app_check` runs for a `trusted` or
 #                `agent` verdict, before the App-filed path reads any reaction (see `unreadable` above). An author the dev or reviewer App declares (`agent`) passes
@@ -101,6 +104,16 @@
 #                label write, never retried. A stop or a hold before the post makes no label call, and
 #                neither does `post-unknown` or `posted-unreadable`
 #
+# The critic line (#629). Exactly one line of the draft begins `Critic gate:`, and it comes before
+# the first `### Goal` heading. Its grammar, which critic-gate's spec mode repeats:
+#   Critic gate: <critic>[, <critic>...]; <k> rounds; <stop>.
+# `<critic>` is [A-Za-z0-9][A-Za-z0-9_-]*; `<k> rounds` is `1 round` or a count of 2 or more
+# (`<k>` counts every critic round run, the initial pass included); `<stop>` is `converged`,
+# `cap reached` or `not converging`. In `post` mode the stop must be `converged`. In `escalate`
+# mode it must be `cap reached` or `not converging`, and an `### Open findings` heading must follow
+# the `### Restated from the issue body` heading with a non-blank line before the next heading.
+# In `post` mode no ATX heading (`#`s, a space, then `Open findings` in any case) may appear anywhere.
+#
 # What it never prints: the draft, the body, or `gh`'s output or error text. The POST is never
 # retried.
 #
@@ -111,6 +124,8 @@
 #   - a `gh` call has no per-call timeout. A hang ends with no word, which the caller treats as
 #     `post-unknown`;
 #   - the leak shapes are a filter, not a boundary;
+#   - the critic line is written by the posting session itself, so its check is a filter against a
+#     forgotten gate, not proof that critics ran; the maintainer's reaction stays the only approval;
 #   - the work-tree checks compare lowercased paths on every platform, so a differently cased alias is refused (it
 #     fails closed); an 8.3 short name is not recognised. A <draft-file> or <out-dir> must be the
 #     caller's own fresh mktemp -d: a planted entry or a linked worktree's git data is not checked;
@@ -308,6 +323,43 @@ git -C "$gtop" merge-base --is-ancestor "$sha" "refs/remotes/origin/$base" >/dev
 # the content, on the copy
 sh "$shape" check "$tmp/draft.md" >"$tmp/shape" 2>/dev/null || stop bad-shape
 [ "$(rd "$tmp/shape")" = ok ] || stop bad-shape
+
+# The critic line (#629): exactly one line begins `Critic gate:`, before the first `### Goal`
+# heading, in the grammar of the header; `post` takes `converged`, `escalate` takes `cap reached`
+# or `not converging` and an `### Open findings` section after the restated section. One awk
+# program over the copy, whose result goes to a file (never a pipe) and is one of two words.
+LC_ALL=C CG_MODE="$mode" awk '
+  BEGIN {
+    mode = ENVIRON["CG_MODE"]
+    re = "^Critic gate: [A-Za-z0-9][A-Za-z0-9_-]*(, [A-Za-z0-9][A-Za-z0-9_-]*)*; (1 round|([2-9]|[1-9][0-9]+) rounds); (converged|cap reached|not converging)\\.$"
+    count = 0; anyof = 0; goal = 0; rest = 0; of = 0; ofbody = 0; inof = 0
+  }
+  {
+    line = $0
+    sub(/\r$/, "", line)
+    if (index(line, "Critic gate:") == 1) { count++; cline = line; cnr = NR }
+    if (line ~ /^#+ /) {
+      inof = 0
+      if (line ~ /^### Goal[ \t]*$/ && !goal) goal = NR
+      if (line ~ /^### Restated from the issue body[ \t]*$/ && !rest) rest = NR
+      else if (rest && !of && line ~ /^### Open findings[ \t]*$/) { of = NR; inof = 1 }
+      if (tolower(line) ~ /^#+[ \t]+open findings/) anyof = 1
+      next
+    }
+    if (inof && line ~ /[^ \t]/) ofbody = 1
+  }
+  END {
+    ok = (count == 1 && goal && cnr < goal && cline ~ re)
+    if (ok && mode == "post") ok = ((cline ~ /; converged\.$/) && !anyof)
+    if (ok && mode == "escalate") ok = ((cline ~ /; (cap reached|not converging)\.$/) && of && ofbody)
+    print (ok ? "critic-ok" : "critic-bad")
+  }
+' "$tmp/draft.md" >"$tmp/critic" 2>/dev/null || stop unreadable
+case "$(rd "$tmp/critic")" in
+  critic-ok) : ;;
+  critic-bad) stop no-critic-line ;;
+  *) stop unreadable ;;
+esac
 
 # match <grep-args...> -- 0 when the copy has a matching line, 1 when not; any other status is a stop
 match() {
