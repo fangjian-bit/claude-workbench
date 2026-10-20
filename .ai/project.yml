@@ -108,3 +108,9 @@ identities:
   dev_app: { login: "glunk-dev[bot]", id: 339840170 }
   reviewer_app: { login: "glunk-review[bot]", id: 339841158 }
   loop_app: { login: "glunk-loop[bot]", id: 338193635 }
+
+# ── coder lanes ──────────────────────────────────────────────────────────────
+# #793: scripts/lanes/lane.sh and wow-lane.ps1 put each lane at /tmp/lanes/<N> in the dev
+# container. Declared so handoff records the live lanes and resume reports them.
+lanes:
+  dir: /tmp/lanes

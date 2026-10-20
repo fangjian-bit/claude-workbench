@@ -221,8 +221,8 @@ only `/workspace`, and its `.git` file names a host path.
   lane, and the second shows a line telling the driver to run handoff before new work. Both stay silent
   in a lane or spec worktree and outside a main worktree, never block a compaction, and a manual
   `/compact` runs neither. The status line marks no threshold: the value is still open. Lane state
-  takes effect once `.ai/project.yml` declares `lanes: { dir: /tmp/lanes }`, which the maintainer adds
-  (lanes never write under `.ai/`); `bin/lane-state.sh` then lets handoff record the live lanes and
+  reads `lanes: { dir: /tmp/lanes }` in `.ai/project.yml` (#793; kept by the maintainer or driver,
+  since lanes never write under `.ai/`), and `bin/lane-state.sh` lets handoff record the live lanes and
   resume report them.
 - **Identity.** Every session, driver or lane, acts as the dev App through the container's `gh`
   shim and git credential helper. Do not prefix commands with `GH_TOKEN`. Suites run natively
