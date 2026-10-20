@@ -25,6 +25,8 @@
 #   review-host/<id>/      wow-review's working files, never mounted: the project.yml copy, the outbox
 #                          copies, every kept copy of the session token, and its read-token, post-token
 #                          and filing-token. Removed by the launcher's trap.
+#   driver/<leaf>.json     wow-driver.ps1's record of the container it started for the clone <leaf>: {id, commit,
+#                          clone}. Never mounted.
 #   review-state/          wow-review's lock and its dedupe ledger (<owner>/<name>/<N>/<sha>/).
 #   review-poll.json       {"repos": ["owner/name", ...]}, the repos wow-review-poll polls (the maintainer writes it).
 #   review-poll.log        wow-review-poll's decision log, rotated to review-poll.log.1 past 1 MiB.
@@ -42,7 +44,8 @@
 # tokens (wow-review-mint --read / --file, written only to the path --out names), and the .mint.* file
 # mint.sh stages beside any token it writes. wow-review (the launcher) also writes its own review-sessions/,
 # review-host/, review-state/ and review-logs/ entries. wow-review-poll writes review-poll.log (and .1),
-# review-state/.poll-lock and review-host/poll-<id>/. Nothing else under $WOW_HOME is modified.
+# review-state/.poll-lock and review-host/poll-<id>/. wow-driver.ps1 writes driver/<leaf>.json and its same-directory
+# temp file. Nothing else under $WOW_HOME is modified.
 #
 # The caller sets $prog before sourcing. Toolset: POSIX sh, jq, plus what mint.sh needs.
 

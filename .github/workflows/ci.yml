@@ -138,6 +138,8 @@ jobs:
         run: sh tests/devcontainer-image.test.sh
       - name: wow-review launcher fixtures
         run: sh tests/identity-review.test.sh
+      - name: host driver launcher fixtures
+        run: sh tests/identity-launchers.test.sh
       - name: blocking-criteria.sh fixtures
         run: sh tests/blocking-criteria.test.sh
       - name: invariants-check.sh check 19 (milestone reads) fixtures

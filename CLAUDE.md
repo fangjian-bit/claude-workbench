@@ -92,6 +92,7 @@ sh tests/loop-critic.test.sh   # scripts/loop/critic.sh bundle, launch line and 
 sh tests/identity-mint.test.sh  # scripts/identity/mint.sh JWT, request and failure fixtures, stub curl (not yet required)
 sh tests/identity-wow.test.sh   # scripts/identity/wow-admin and wow-review-mint fixtures, stub curl (not yet required)
 sh tests/identity-broker.test.sh  # scripts/identity/broker.ps1 dev-token rotation and install-host-tools.ps1 fixtures, stub minters; needs pwsh, skips without (not yet required)
+sh tests/identity-launchers.test.sh  # scripts/identity/wow-driver.ps1 and wow-launch-common.ps1 vs stub docker, devcontainer and a recording git; needs pwsh, git, yq and jq, skips without (not yet required)
 sh tests/review-image.test.sh   # scripts/identity/review/ entrypoint, outbox-read, Dockerfile and build-context fixtures (not yet required)
 sh tests/devcontainer-image.test.sh  # .devcontainer/ Dockerfile shape, claude pin equal to the loop's, DISABLE_AUTOUPDATER in containerEnv, the managed settings file, and the GNU coreutils links (not yet required)
 sh tests/identity-review.test.sh  # scripts/identity/wow-review launcher fixtures vs stub docker, gh and wow-review-mint (not yet required; 88 s, bound 176 s, run alone, see the Runtime bullet of the Lanes section of docs/identity/DEV-CONTAINER.md)
@@ -102,5 +103,5 @@ sh tests/lane.test.sh          # scripts/lanes/lane.sh prep/done fixtures vs a s
 `yq` (mikefarah v4) and `jq` on PATH too — it fails the gate, never skips it, when either is missing.
 `tests/review-base-anchor.test.sh`, `tests/schema-complete.test.sh`, `tests/milestone-desc.test.sh`, `tests/spec-issue.test.sh`, `tests/spec-post.test.sh`, `tests/spec-fresh.test.sh` (which also needs `git`) and `tests/draft-identity.test.sh` need `yq` on PATH as
 well (each skips itself, loudly, if absent). `tests/lane.test.sh` needs `git`, `yq` and `jq`, and skips itself loudly without them. `tests/review-image.test.sh` needs `jq` and `yq`,
-and skips itself loudly without them. `tests/invariants-files-filter.test.sh` needs `jq` on PATH
+and skips itself loudly without them. `tests/identity-launchers.test.sh` needs `pwsh`, `git`, `yq` and `jq`, and skips itself loudly without them. `tests/invariants-files-filter.test.sh` needs `jq` on PATH
 (the checker's check 20 does), and skips itself loudly without it.

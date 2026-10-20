@@ -275,7 +275,7 @@ done <"$table"
 check "install: every review-context file lands under bin/review" test -n "$review_ok"
 check "install: bin/review holds only table entries" test "$(find "$home/bin/review" -type f | wc -l | tr -d ' ')" -eq "$review_entries"
 in_bin_with_manifest() { test -f "$home/bin/$1" && grep -qE "^[0-9a-f]{64}  $1\$" "$home/bin/MANIFEST"; }
-for f in wow-review review-gate-state.sh token-check.sh gh-identity.sh; do
+for f in wow-review review-gate-state.sh token-check.sh gh-identity.sh wow-driver.ps1 wow-launch-common.ps1; do
   check "install: $f lands in bin with a MANIFEST line" in_bin_with_manifest "$f"
 done
 check "install: files are LF" not_cr "$home/bin/mint.sh" "$home/bin/wow-admin" "$home/bin/broker.ps1"

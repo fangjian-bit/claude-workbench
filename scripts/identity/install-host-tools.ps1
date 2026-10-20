@@ -43,6 +43,12 @@
   installed copy (wow-review finds wow-review-mint beside itself). Run on its own it does not stop a running
   broker unless -StopTask is given; a held file then fails the swap cleanly.
 
+  The driver launcher is not a Git Bash command (Git Bash's HOME doubles the container mount path). Run
+  it from pwsh 7.2+ on the host, as the installed copy under $env:WOW_HOME\bin, or under the default
+  $HOME\.config\glunk-identity\bin when WOW_HOME is unset (docs/identity/DEV-CONTAINER.md, Opening it):
+    pwsh -File $env:WOW_HOME\bin\wow-driver.ps1 -Clone <clone> -Reference <other clone>
+  yq (mikefarah v4) must be on PowerShell's PATH too. It runs only from there: it checks the MANIFEST.
+
 .PARAMETER SourceRepo
   The git checkout to install from. Default: the repository containing this script.
 
@@ -72,6 +78,8 @@ $table = @(
   ,@('scripts/identity/wow-admin', 'wow-admin')
   ,@('scripts/identity/wow-review', 'wow-review')
   ,@('scripts/identity/wow-review-poll', 'wow-review-poll')
+  ,@('scripts/identity/wow-driver.ps1', 'wow-driver.ps1')
+  ,@('scripts/identity/wow-launch-common.ps1', 'wow-launch-common.ps1')
   ,@('plugins/way-of-working/bin/review-gate-state.sh', 'review-gate-state.sh')
   ,@('plugins/way-of-working/bin/token-check.sh', 'token-check.sh')
   ,@('plugins/way-of-working/bin/gh-identity.sh', 'gh-identity.sh')

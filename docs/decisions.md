@@ -2438,6 +2438,7 @@ take effect. Full reasoning and the task breakdown that implements them:
   attach is unsupported.** Builds on `WB-D24` item 4 (the dev container) and blocks the `#397` cutover.
   - **The decision.** The container is started with `devcontainer up` and entered with
     `devcontainer exec`. VS Code's Dev Containers extension is not attached to it.
+    *Amended by `#728`: the container is entered with `docker exec` into the container `devcontainer up` reported, recreated at start of day and attached to while it runs; see `docs/identity/DEV-CONTAINER.md`.*
   - **Why.** Found during the `#397` cutover on 2026-10-17: with the host setting
     `dev.containers.gitCredentialHelperConfigLocation` at `none`, git's helper list held only
     `dev-token`, yet every VS Code attach still created the helper client
