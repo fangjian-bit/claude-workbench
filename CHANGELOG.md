@@ -43,6 +43,19 @@ reference, a named reference to an invisible character, or a default-ignorable c
 `spec-task`'s shape gate refuses such a draft on every repo, and an App-filed issue carrying one stops `hidden`. Re-draft the spec
 and move the maintainer's reaction to the new comment.
 
+### Added
+
+- **Context controls and lane state for the long-running driver session** (#729, `WB-D34`). A
+  `PreCompact` and a `PostCompact` hook (matcher `auto`, `hooks/compact-handoff.sh`) tell the driver
+  to run `/way-of-working:handoff` when an automatic compaction happens; they are silent outside a
+  main worktree, never block, and a manual `/compact` is untouched. This repo's `.claude/settings.json`
+  gains a `statusLine` that shows `ctx NN%`. `bin/lane-state.sh` derives the live lanes from the
+  `dir/<N>` worktrees, the spec finder and GitHub's same-repository PRs; `/way-of-working:handoff`
+  writes them to the cursor's new `lanes` field and `/way-of-working:resume` prints a `Lanes:` line
+  and compares it with the record. The new key `lanes` (`null` or `{ dir }`) is optional and never
+  asked (`reference/project-schema.md` § `lanes`). No consuming repo needs a migration: a repo opts in
+  by adding `lanes` to its project file.
+
 ### Changed
 
 - `spec-post.sh escalate` posts a draft under the `spec-task-escalated:` marker and adds `status/needs-human`; `spec-find.sh find` prints `escalated <ids>` and `pending` counts a newer escalated comment. Nothing calls the mode yet (#746, groundwork for #629). A repo on an older installed plugin reads an escalated comment as `none`, so #629 should not call `escalate` before a release carrying this finder is installed.

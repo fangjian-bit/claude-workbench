@@ -36,8 +36,8 @@ failure the skill exists to prevent.
 Same rule for an individual key: a key that is absent is not a key that is `null`. `null` is
 a decision ("this repo has no review CI gate"); **absent is an unanswered question, always —
 no key has a default any more** (`WB-D17`, `#142`, reversing `#127`'s Optional-key clause).
-(`rulesets`, the one optional list, is the stated exception: an absent one is simply not declared and is never asked, and
-its section says so.)
+(`rulesets` and `lanes`, the two optional keys, are the stated exception: an absent one is simply not declared and is never asked, and
+each one's section says so.)
 `/way-of-working:resume` is the one place a missing key is asked for, once per session, at
 its own *Ensure the schema is complete* step (`bin/schema-complete.sh`) — every other skill
 and every agent still reports an absent key unreadable and does only the part of its job
@@ -150,6 +150,10 @@ orchestration: null              # null means the loop never dispatches into thi
 # ── declared identities ──────────────────────────────────────────────────────
 identities: null                 # null means this repo has not cut over to App identities (the
                                  # pre-WB-D24 model); absent prompts. A map declares them — see below.
+
+# ── parallel lanes (optional) ────────────────────────────────────────────────
+lanes: null                      # null means this repo runs no lanes. Optional: an undeclared
+                                 # key is never asked. A map { dir } declares them — see below.
 ```
 
 ---
@@ -888,6 +892,31 @@ repeats it with the token variables removed to see whether a stored login would 
 lost, and prints `dev_app` only when neither does: `/way-of-working:resume` drafts unattended only
 on that word.
 
+### `lanes`
+
+`lanes` is **optional**, like `rulesets`: it is either `null` or a map with one sub-key, `dir`.
+`null` means the repo runs no lanes. An undeclared `lanes` is simply not declared and is never
+asked (`WB-D34`): the readers then do nothing with lanes, exactly as under `null`. The checker is
+silent when it is not there, accepts `null`, and otherwise needs a map whose `dir` is present.
+
+- **`dir`** — the directory that holds the lane worktrees. It must be an absolute path of
+  `A-Za-z0-9._/-` with no `//`, no `.` or `..` component and no trailing slash; it is bound as a
+  value, never spliced into shell text.
+
+**The layout contract.** A lane is a git worktree at exactly `<dir>/<N>`, where `<N>` is the task
+issue's number (digits, no leading zero), checked out on a branch. That layout is the whole
+contract: `bin/lane-state.sh` lists the worktrees under `dir`, runs the spec finder for each
+`<N>` and asks GitHub for the same-repository pull requests on its branch, and prints them as
+one JSON array. A worktree anywhere else, or one on a detached head, is not a lane.
+
+**Read from the default branch's copy.** Like every other value that gates or reports on a
+repo, `lanes.dir` is read from the **default branch's** committed `.ai/project.yml`, never from
+a working tree's, which a branch can edit. `/way-of-working:handoff` writes the live array into
+the cursor's `lanes` field, and `/way-of-working:resume` reports the live lanes on a `Lanes:`
+line and compares them with the recorded ones. Nothing else that gates work acts on `lanes`: a lane
+line never blocks or enables an auto-start. (A declared but malformed `lanes` is `incomplete` like any key and holds auto-start as one does, and
+the interview never asks for it: an `invalid lanes…` or `missing lanes.dir` finding is fixed by hand, or by removing the key.)
+
 ---
 
 ## Worked example — a second repo, to show the seams move
@@ -976,6 +1005,9 @@ identities:
   dev_app: null                   # a { login, id } pair once the App exists
   reviewer_app: null
   loop_app: null
+
+lanes:
+  dir: /tmp/lanes                 # worktrees at dir/<N>, one per task issue N
 ```
 
 The two configurations differ in every value and in the *shapes* (`backlog.kind`, and

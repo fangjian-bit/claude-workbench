@@ -121,6 +121,8 @@ ruleset.name
 ruleset.rule_types
 ruleset.required_checks
 rulesets if-present
+lanes if-present
+lanes.dir if-map
 review.ci_gate
 review.ci_gate.check if-map
 review.ci_gate.header if-map
@@ -137,7 +139,7 @@ identities.maintainer if-map
 identities.dev_app if-map
 identities.reviewer_app if-map
 identities.loop_app if-map"
-assert_eq "keys: the exact required path set, conditionals suffixed if-map, optional rulesets if-present" \
+assert_eq "keys: the exact required path set, conditionals suffixed if-map, optional rulesets and lanes if-present" \
   "$expected_keys" "$("$script" keys)"
 
 echo "# check -- the complete fixture"
@@ -700,6 +702,63 @@ f="$tmp/rs_null.yml"; { cat "$base"; echo 'rulesets: null'; } >"$f"
 assert_eq "rulesets: null is invalid (absent is the old shape; null is not an answer)" \
   'incomplete
 invalid rulesets null' "$(run_check "$f")"
+
+echo "# check -- lanes (WB-D34): the second optional key; null or a map with an absolute dir"
+
+lanes_fixture() { { cat "$base"; printf '%s\n' "$1"; } >"$2"; }
+
+assert_eq "lanes absent is complete -- never asked (the base fixture)" \
+  "complete" "$(run_check "$base")"
+
+lanes_fixture 'lanes: null' "$tmp/ln_null.yml"
+assert_eq "lanes: null is complete (the repo runs no lanes)" \
+  "complete" "$(run_check "$tmp/ln_null.yml")"
+
+lanes_fixture 'lanes:
+  dir: /tmp/lanes' "$tmp/ln_map.yml"
+assert_eq "lanes: { dir: /tmp/lanes } is complete" \
+  "complete" "$(run_check "$tmp/ln_map.yml")"
+
+lanes_fixture 'lanes: {}' "$tmp/ln_nodir.yml"
+assert_eq "a lanes map without dir is incomplete" \
+  'incomplete
+missing lanes.dir value' "$(run_check "$tmp/ln_nodir.yml")"
+
+lanes_fixture 'lanes:
+  dir: null' "$tmp/ln_nulldir.yml"
+assert_eq "lanes.dir: null is invalid (a declared map needs a path)" \
+  'incomplete
+invalid lanes.dir null' "$(run_check "$tmp/ln_nulldir.yml")"
+
+lanes_fixture 'lanes:
+  dir: lanes/work' "$tmp/ln_rel.yml"
+assert_eq "a relative lanes.dir is invalid" \
+  'incomplete
+invalid lanes.dir "lanes/work"' "$(run_check "$tmp/ln_rel.yml")"
+
+for d in '/tmp/../etc' '/tmp/./lanes' '/tmp//lanes' '/tmp/lanes/' '/tmp/..' '/tmp/lanes//'; do
+  lanes_fixture "lanes:
+  dir: $d" "$tmp/ln_bad.yml"
+  assert_eq "lanes.dir $d is invalid (lane.sh's shape rule)" \
+    "incomplete
+invalid lanes.dir \"$d\"" "$(run_check "$tmp/ln_bad.yml")"
+done
+
+lanes_fixture 'lanes:
+  dir: "/tmp/a b"' "$tmp/ln_space.yml"
+assert_eq "a lanes.dir outside the charset is invalid" \
+  'incomplete
+invalid lanes.dir "/tmp/a b"' "$(run_check "$tmp/ln_space.yml")"
+
+lanes_fixture 'lanes: /tmp/lanes' "$tmp/ln_scalar.yml"
+assert_eq "lanes: a scalar is invalid" \
+  'incomplete
+invalid lanes "/tmp/lanes"' "$(run_check "$tmp/ln_scalar.yml")"
+
+lanes_fixture 'lanes: [a]' "$tmp/ln_seq.yml"
+assert_eq "lanes: a list is invalid" \
+  'incomplete
+invalid lanes ["a"]' "$(run_check "$tmp/ln_seq.yml")"
 
 echo "# check -- ruleset.name (#451): bound as a value, so only an empty or control-character name is rejected"
 

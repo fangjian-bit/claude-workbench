@@ -211,6 +211,19 @@ only `/workspace`, and its `.git` file names a host path.
   not gitignored): inspect it, then run `git -C /workspace worktree remove --force
   /tmp/lanes/spec-XXXXXX` in a `docker exec` shell, or `git worktree remove` once it is clean.
   `lane.sh done` neither sees nor removes a spec worktree.
+- **Driver handoff points** (#729). The driver runs `/way-of-working:handoff` after each lane PR
+  merges and its `lane.sh done N` has run, after each batch of spec sessions, and whenever the
+  status line shows the context running high, rather than only when it runs low.
+- **Context controls** (#729). The project `.claude/settings.json` sets a status line that shows
+  `ctx NN%`, the integer part of the session's context use (`ctx --` before the first message). The
+  plugin's `PreCompact` and `PostCompact` hooks fire on an automatic compaction only (matcher `auto`):
+  the first adds instructions to the summary to keep the next action, any open gate and every in-flight
+  lane, and the second shows a line telling the driver to run handoff before new work. Both stay silent
+  in a lane or spec worktree and outside a main worktree, never block a compaction, and a manual
+  `/compact` runs neither. The status line marks no threshold: the value is still open. Lane state
+  takes effect once `.ai/project.yml` declares `lanes: { dir: /tmp/lanes }`, which the maintainer adds
+  (lanes never write under `.ai/`); `bin/lane-state.sh` then lets handoff record the live lanes and
+  resume report them.
 - **Identity.** Every session, driver or lane, acts as the dev App through the container's `gh`
   shim and git credential helper. Do not prefix commands with `GH_TOKEN`. Suites run natively
   (no WSL), and commits are unsigned (`WB-D25`), so no `timeout 90` around signing.

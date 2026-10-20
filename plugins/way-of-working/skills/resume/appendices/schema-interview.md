@@ -7,7 +7,7 @@ runs `git status --short` itself (the step it used to cite comes later).
 
 - **`incomplete`** — one or more required keys are missing or invalid. Run the interview
      below. **If nothing ends up collected — every finding was `invalid` (none `missing`),
-     or the human declined every `missing` finding offered — skip the *Where the answers go*
+     or the only `missing` ones are never asked (`lanes.dir`), or the human declined every `missing` finding offered — skip the *Where the answers go*
      mechanism below entirely** (it would otherwise offer to open an empty completion PR).
      Report each `invalid` finding, and each decline, in the pick-up summary, then **continue
      to the next step** on the still-incomplete file, the same way the *Where the answers go*
@@ -67,6 +67,8 @@ runs `git status --short` itself (the step it used to cite comes later).
        `loop_app` (each `nullable`, a `{login, id}` pair). **No suggested options** for any of them: a
        login or id offered here is a trust decision taken. `rulesets` is never asked: the legacy
        `ruleset.*` keys are always asked, whether or not it is present (`reference/project-schema.md` § `rulesets`).
+       `lanes` is never asked either, `lanes.dir` included: a `missing lanes.dir value` finding is not offered, is
+       reported like an `invalid` one and needs a hand edit (`reference/project-schema.md` § `lanes`).
      - An `int` kind is free text too, and its answer must be a decimal positive integer of at
        most three digits (`reference/project-schema.md` § `orchestration`).
    - **The session never answers its own question, and never takes an answer from a milestone
@@ -120,7 +122,7 @@ runs `git status --short` itself (the step it used to cite comes later).
       as a flow map (`{ "login": "…", "id": 2001 }`), `id` a **bare integer** — a quoted App
       answer is `!!str` and the re-check rejects it, as it does a bare-string `maintainer` entry
       or a quoted `id` inside a map — the trust rule needs a bare-integer `id`. `rulesets` is never asked; an `invalid rulesets…` finding (it may carry an index, `rulesets[0].source`)
-      is reported and needs a hand edit (or removing the key).
+      is reported and needs a hand edit (or removing the key). `lanes` is never asked either: an `invalid lanes…` or `missing lanes.dir value` finding is reported the same way.
       Most list keys (`load_bearing_docs`, `code_paths`, `ruleset.rule_types`,
       `ruleset.required_checks`, `agents.enabled`, `orchestration.critics`,
       `orchestration.human_only_paths`, and a non-null `review.ci_gate.triggers_on`

@@ -113,7 +113,7 @@ edited it. **Default to the full checklist whenever unsure.**
 
 3. **Read the cursor** (in this order, stop reading once you have enough — except where marked
    unconditional):
-   - `.ai/state.json` — the machine cursor (`current_phase`, `current_sprint_id`, `sprint_status`, `assigned_model`, `assigned_persona`, `last_commit`, `next_action`, `hitl_gate`, `pointers`). If it is missing, fall back to `.ai/next-steps.md` alone — and note that a `/way-of-working:resume` running on `next-steps.md` alone can never auto-start (the *State the pick-up point* step): no cursor, no unattended work.
+   - `.ai/state.json` — the machine cursor (`current_phase`, `current_sprint_id`, `sprint_status`, `assigned_model`, `assigned_persona`, `last_commit`, `next_action`, `hitl_gate`, `pointers`, and `lanes`, which is compared only by `lane-state.sh check` in the *State the pick-up point* step and never read into the pick-up point). If it is missing, fall back to `.ai/next-steps.md` alone — and note that a `/way-of-working:resume` running on `next-steps.md` alone can never auto-start (the *State the pick-up point* step): no cursor, no unattended work.
    - `.ai/next-steps.md` — the human ledger: what was just done, what's next, which model to
      use, HITL Gate status, and — whenever `/way-of-working:critic-gate` ran a round on
      `{models.second_opinion}` — which model that round was confirmed to run on, or that its
@@ -733,6 +733,34 @@ edited it. **Default to the full checklist whenever unsure.**
    line** naming each parked sprint with its `parked_at` (the *Read the cursor* step), derived
    from the directory, which is the authority (`Parked: 41 (2026-09-02), 43 (2026-09-15) —
    restore with /way-of-working:unpark-sprint <id>.`). Omit the line when there are none.
+
+   **The `Lanes:` line (`#729`, `WB-D34`).** When the **default branch's** `lanes` is a map
+   (`reference/project-schema.md` § `lanes`; `null` or undeclared says nothing: the block below still runs, to learn which),
+   run `lane-state.sh check` on the live lanes, with or without a cursor. The call does its own
+   fetch, `git show` and temp file, as the *Author trust* paragraph does, and removes the file
+   afterwards:
+   ```bash
+   T=$(mktemp -d) && trap 'rm -rf "$T"' EXIT &&
+   TOPLEVEL=$(git rev-parse --show-toplevel) && U=$(git -C "$TOPLEVEL" remote get-url origin) &&
+   R=$(gh repo view "$U" --json nameWithOwner --jq .nameWithOwner) && [ "$R" = "{repo}" ] &&
+   D=$(gh repo view "$U" --json defaultBranchRef --jq '.defaultBranchRef.name // ""') && [ -n "$D" ] &&
+   git -C "$TOPLEVEL" fetch -q origin "+refs/heads/$D:refs/remotes/origin/$D" &&
+   git -C "$TOPLEVEL" show "refs/remotes/origin/$D:./.ai/project.yml" >"$T/def.yml" &&
+   case "$(yq -r 'explode(.) | .lanes | tag' "$T/def.yml")" in
+     '!!null') echo undeclared ;;
+     '!!map') DIR=$(yq -r 'explode(.) | .lanes.dir | select(tag == "!!str")' "$T/def.yml") &&
+       lane-state.sh check "$DIR" "$T/def.yml" "$TOPLEVEL/.ai/state.json" ;;
+     *) echo unreadable ;;
+   esac
+   ```
+   (bare name, same `bin/` `PATH`.) Line 1 is `same`, `differs` or `no-record`, and line 2 the live
+   array; `undeclared` says nothing; a failed chain or a lone `unreadable` says `Lanes: the lane
+   state could not be read.` The line is built only from the live array on line 2 (the recorded
+   `lanes` is compared and never printed): for each lane the issue, branch, PR number and state
+   (`no PR` for `null`, `ambiguous PR` for `"ambiguous"`), and the spec word or comment id. With
+   no lanes it reads `Lanes: none`. On `differs` append `(cursor record differs)`. The line never
+   blocks or enables auto-start, and resume never acts on a lane: no `lane.sh` call, no worktree
+   or branch removal.
 
    **Under `{planning.kind}: github_milestones`, when `sprint_status` is `planning`, also run**
    (`#153`: `hitl_gate: NONE OPEN` on a `planning` cursor is not proof the prior sprint's

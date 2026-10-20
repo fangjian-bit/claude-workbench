@@ -97,11 +97,14 @@ sh tests/review-image.test.sh   # scripts/identity/review/ entrypoint, outbox-re
 sh tests/devcontainer-image.test.sh  # .devcontainer/ Dockerfile shape, claude pin equal to the loop's, DISABLE_AUTOUPDATER in containerEnv, the managed settings file, and the GNU coreutils links (not yet required)
 sh tests/identity-review.test.sh  # scripts/identity/wow-review launcher fixtures vs stub docker, gh and wow-review-mint (not yet required; 88 s, bound 176 s, run alone, see the Runtime bullet of the Lanes section of docs/identity/DEV-CONTAINER.md)
 sh tests/lane.test.sh          # scripts/lanes/lane.sh prep/done fixtures vs a stub gh and a scratch repo with a local bare origin (not yet required)
+sh tests/compact-handoff.test.sh  # compact-handoff.sh pre/post text, silence outside a main worktree, and the hooks.json registration (not yet required)
+sh tests/statusline-context.test.sh  # the project statusLine command's ctx NN% / ctx -- fixtures on canned stdin; needs jq (not yet required)
+sh tests/lane-state.test.sh     # lane-state.sh list/check fixtures vs a scratch repo with real worktrees, a stub gh and a stub spec-find.sh; needs git, jq and yq (not yet required)
 ```
 
 `scripts/lint.sh` needs the `claude` CLI and `jq` on PATH. `scripts/invariants-check.sh` needs
 `yq` (mikefarah v4) and `jq` on PATH too — it fails the gate, never skips it, when either is missing.
 `tests/review-base-anchor.test.sh`, `tests/schema-complete.test.sh`, `tests/milestone-desc.test.sh`, `tests/spec-issue.test.sh`, `tests/spec-post.test.sh`, `tests/spec-fresh.test.sh` (which also needs `git`) and `tests/draft-identity.test.sh` need `yq` on PATH as
-well (each skips itself, loudly, if absent). `tests/lane.test.sh` needs `git`, `yq` and `jq`, and skips itself loudly without them. `tests/review-image.test.sh` needs `jq` and `yq`,
+well (each skips itself, loudly, if absent). `tests/lane.test.sh` and `tests/lane-state.test.sh` need `git`, `yq` and `jq`, `tests/statusline-context.test.sh` needs `jq`, and `tests/compact-handoff.test.sh` needs `git` (and `jq` for its registration cases); each skips itself loudly without them. `tests/review-image.test.sh` needs `jq` and `yq`,
 and skips itself loudly without them. `tests/identity-launchers.test.sh` needs `pwsh`, `git`, `yq` and `jq`, and skips itself loudly without them. `tests/invariants-files-filter.test.sh` needs `jq` on PATH
 (the checker's check 20 does), and skips itself loudly without it.

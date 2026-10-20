@@ -2469,6 +2469,21 @@ take effect. Full reasoning and the task breakdown that implements them:
   - **Not claimed.** Whether the CLI forwards the host ssh-agent or a GPG socket; those hazards stay
     documented as they were.
 
+- **WB-D34 (`#729`) — `lanes` is a second optional `.ai/project.yml` key.** An exception to
+  `WB-D17`, as `rulesets` is.
+  - **The decision.** `lanes` is `null` or a map `{ dir }` naming the directory that holds lane
+    worktrees at `dir/<N>`. An undeclared `lanes` is never asked, and the readers then do nothing with
+    lanes, as under `null`. `bin/lane-state.sh` derives the live lanes from that layout, the spec
+    finder and GitHub's same-repository PRs; handoff records the array in the cursor and resume
+    reports it. The plugin carries this because one worktree per task under a directory is a pattern
+    any repo running parallel sessions can declare.
+  - **Why an exception is safe.** The only behaviour an undeclared key can switch off is a report: no
+    lane line, and a null cursor field. Nothing else that gates work acts on `lanes` (a malformed one is `incomplete` like any key, and holds auto-start as any incomplete key does), so an undeclared key
+    cannot make a repo behave as if it had declared one, which is the failure `WB-D17` removed
+    defaults to prevent.
+  - **Option not taken.** A required key with a migration line in every consuming repo, for a
+    feature most of them will not use. The maintainer may still prefer it.
+
 ## Status
 
 All four of `WB-D1..D4` are implemented by this repo's existence and structure as of

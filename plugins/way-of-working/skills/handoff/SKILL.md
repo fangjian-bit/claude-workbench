@@ -147,6 +147,11 @@ names `{backlog.repo}` takes `{repo}` then (the derive line below passes `-` ins
        `planning` cursor (or one with no milestone chosen yet) writes `sprint_plan: null` and
        `plan_anchor: null` — "no milestone picked yet" is the legal state
        `/way-of-working:archive-sprint` seeds, per `reference/project-schema.md` § `planning`.
+   - `lanes` (`#729`, `WB-D34`) — the live lanes, derived, not remembered: an array from
+     `lane-state.sh list` when the default branch's `lanes` is a map
+     (`reference/project-schema.md` § `lanes`), otherwise `null`. The *Write `.ai/state.json`*
+     step fills it in. The ledger lists no lanes: the array is derivable
+     (`reference/conventions.md` § *Prose economy*).
 
    **The plan anchor, under `{planning.kind}: github_milestones`.** Before writing `pointers`,
    establish reach on `{backlog.repo}` the same way `/way-of-working:resume`'s ruleset-check
@@ -320,7 +325,7 @@ names `{backlog.repo}` takes `{repo}` then (the derive line below passes `-` ins
       body edit, never before. A `drift`, an `unreadable`, an `untrusted`, or a no-baseline result **opens
       `hitl_gate`**, and a gate change is a cursor change: the ledger PR, not a no-op. That is
       the main way a no-op falls back, visibly.
-   4. **Write `.ai/state.json`** (the next step) with these differences from an ordinary
+   4. **Write `.ai/state.json`** (the next step, `lanes` included) with these differences from an ordinary
       cursor:
       - `pointers.review_pr` = `{"number": <M>, "head_oid": "<oid>"}`, the full 40-hex head.
       - `next_action` begins `` review PR #M — `` when `{review.ci_gate}` is set, or
@@ -379,6 +384,34 @@ names `{backlog.repo}` takes `{repo}` then (the derive line below passes `-` ins
    prose can carry copied issue or PR titles —
    `G=$(jq -r '.hitl_gate // ""' .ai/state.json) && hitl-gate-closed.sh "$G"` — and rewrite
    the prose, then re-check, until it prints `closed`, before the ledger below is built.
+
+   **Then write `lanes`** (`#729`, `WB-D34`), the one field this step fills in after the file
+   is written. It is one Bash call: it makes a default-branch copy of `.ai/project.yml` the way
+   the no-op handoff block's App-mode branch does, reads `lanes.dir` from that copy, runs
+   `lane-state.sh list` with that dir and that copy, and sets the array as `.lanes`. A `null` or
+   undeclared `lanes` writes `"lanes": null`, and so does any failure on the way, with the word
+   `unreadable`:
+   ```bash
+   T=$(mktemp -d) && trap 'rm -rf "$T"' EXIT && L=null && W=unreadable &&
+   if TOPLEVEL=$(git rev-parse --show-toplevel) && U=$(git -C "$TOPLEVEL" remote get-url origin) &&
+     R=$(gh repo view "$U" --json nameWithOwner --jq .nameWithOwner) && [ "$R" = "{repo}" ] &&
+     D=$(gh repo view "$U" --json defaultBranchRef --jq '.defaultBranchRef.name // ""') && [ -n "$D" ] &&
+     git -C "$TOPLEVEL" fetch -q origin "+refs/heads/$D:refs/remotes/origin/$D" &&
+     git -C "$TOPLEVEL" show "refs/remotes/origin/$D:./.ai/project.yml" >"$T/def.yml"; then
+     case "$(yq -r 'explode(.) | .lanes | tag' "$T/def.yml")" in
+       '!!null') W=none ;;
+       '!!map') DIR=$(yq -r 'explode(.) | .lanes.dir | select(tag == "!!str")' "$T/def.yml") &&
+         A=$(lane-state.sh list "$DIR" "$T/def.yml") &&
+         printf '%s' "$A" | jq -e 'type == "array"' >/dev/null && L=$A && W=ok ;;
+     esac
+   fi
+   jq --argjson l "$L" '.lanes = $l' .ai/state.json >"$T/s.json" && mv "$T/s.json" .ai/state.json && echo "lanes: $W" || echo "lanes: unreadable"
+   ```
+   `none` is a repo that declares no lanes (the key is `null`, or not declared: it is optional and
+   never asked); `unreadable` is a lane state that could not be read, and the *Report* step says
+   so. The array is derived live from the `dir/<N>` worktrees, the spec finder and GitHub's
+   pull requests, so it needs no cursor to start from. A no-op handoff's
+   `.ai/state.json` write (link 4 of the no-op block, above) runs this too.
 
 4. **Regenerate `.ai/next-steps.md`** (git-tracked — this is the durable human ledger).
    **Skipped, with the *Commit `.ai/next-steps.md` as its own docs-only PR* step, on a no-op handoff** (the *no-op handoff* block in the *Determine
@@ -551,7 +584,7 @@ names `{backlog.repo}` takes `{repo}` then (the derive line below passes `-` ins
      squash merge mints a different SHA than the local branch tip anyway, so no value
      written here could match what `/way-of-working:resume` later reads.
 
-6. **Report** the new `sprint_status`, the `next_action`, and the recommended next model in 2–3 lines. If the critic pass was skipped by choice (the *Check the QA-critic pass ran* step), say so here. Then **end with the exact next-session command block** — the human runs the mechanical switch (`/clear` / `/model` / `/way-of-working:resume` are harness commands a skill **cannot** execute), so hand them the literal keystrokes, not a description:
+6. **Report** the new `sprint_status`, the `next_action`, and the recommended next model in 2–3 lines. If the critic pass was skipped by choice (the *Check the QA-critic pass ran* step), say so here. If the `lanes` write printed `lanes: unreadable`, say the lane state could not be read. Then **end with the exact next-session command block** — the human runs the mechanical switch (`/clear` / `/model` / `/way-of-working:resume` are harness commands a skill **cannot** execute), so hand them the literal keystrokes, not a description:
 
    ```
    Next session:

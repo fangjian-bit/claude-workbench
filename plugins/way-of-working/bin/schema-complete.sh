@@ -53,8 +53,9 @@
 #     are suffixed ` if-map` -- each group is required only when its parent
 #     (`review.ci_gate`, `orchestration`) itself resolves to a map, never when it
 #     is `null`. `identities` itself is unsuffixed and its four sub-keys carry ` if-map`,
-#     as `orchestration` does. `rulesets` is suffixed ` if-present` -- the one OPTIONAL
-#     path: never reported when absent, validated when there (WB-D24 dual mode, below).
+#     as `orchestration` does. `rulesets` and `lanes` are suffixed ` if-present` -- the two OPTIONAL
+#     paths: never reported when absent, validated when there (WB-D24 dual mode, WB-D34, below).
+#     `lanes.dir` is suffixed ` if-map`, required only when `lanes` itself is a map.
 #     Always exits 0.
 #
 # The key set is NOT derived from `.ai/project.yml` or from walking any YAML
@@ -155,9 +156,11 @@ set -eu
 #   kind:  value | nullable | list | nelist | int | enum:<a>|<b>|...
 #          | cigate (review.ci_gate only) | orchmap (orchestration only)
 #          | identmap (identities only) | optnelist (rulesets only: optional, non-empty if present)
-#   shape: - | ownername | branch | ghlogin | rulename | textname | pair   (consulted for
+#          | optlanemap (lanes only: optional; null or a map if present)
+#   shape: - | ownername | branch | ghlogin | rulename | textname | pair | lanesdir   (consulted for
 #          value/nullable; `pair` is a {login, id} map, `identities.*_app` only; `textname`
-#          is a ruleset name a reader binds as a value, #451)
+#          is a ruleset name a reader binds as a value, #451; `lanesdir` is `lanes.dir`'s
+#          absolute-path rule, WB-D34)
 MAIN_KEYS='
 repo value ownername
 pr_base value branch
@@ -199,6 +202,18 @@ RULESET_KEYS='
 ruleset.name value textname
 ruleset.rule_types list -
 ruleset.required_checks list -
+'
+
+# `lanes` (WB-D34) is the second OPTIONAL key. Absent is not declared and is never asked
+# (`optlanemap`): silent when absent, `null` or a map when present (a scalar or a list is
+# `invalid`). Only a map makes `lanes.dir` required, and it must be an absolute path of
+# `A-Za-z0-9._/-` with no `//`, no `.` or `..` component and no trailing `/` -- the rule
+# scripts/lanes/lane.sh holds for its lanes directory.
+LANES_TOP='
+lanes optlanemap -
+'
+LANES_KEYS='
+lanes.dir value lanesdir
 '
 
 # `identities` is a nullable map exactly like `orchestration`: `null` is the explicit
@@ -255,6 +270,11 @@ case "$mode" in
       printf '%s\n' "$path"
     done
     printf '%s\n' "rulesets if-present"
+    printf '%s\n' "lanes if-present"
+    printf '%s\n' "$LANES_KEYS" | while IFS=' ' read -r path kind shape; do
+      [ -n "$path" ] || continue
+      printf '%s if-map\n' "$path"
+    done
     printf '%s\n' "review.ci_gate"
     printf '%s\n' "$CIGATE_KEYS" | while IFS=' ' read -r path kind shape; do
       [ -n "$path" ] || continue
@@ -371,6 +391,20 @@ is_rule_name() { # is_rule_name <unquoted-json> -- see the rulename shape
   esac
 }
 
+is_lanes_dir() { # is_lanes_dir <value> -- an absolute path, no //, no . or .. component, no trailing /
+  case "$1" in
+    /*) ;;
+    *) return 1 ;;
+  esac
+  case "$1" in
+    *// | */) return 1 ;;
+  esac
+  case "$1/" in
+    *//* | */./* | */../*) return 1 ;;
+  esac
+  return 0
+}
+
 is_gh_login() { # is_gh_login <value> -- a GitHub login, optionally an App's `<slug>[bot]`
   # `orchestration.loop_identity` is compared against PR authors and interpolated by a
   # later driver, so the stem is held to [A-Za-z0-9-], non-empty, never leading or trailing with
@@ -483,6 +517,10 @@ check_value_shape() { # check_value_shape <shape> <tag> <safe> <json> -- exit 0 
                        # "Shape-valid" now requires "is actually a string" first.
   shape="$1"; tag="$2"; safe="$3"; json="$4"
   case "$shape" in
+    lanesdir)
+      # `safe` holds the charset; the rest is lane.sh's lanes_shape_ok.
+      [ "$tag" = '!!str' ] && [ "$safe" = true ] && is_lanes_dir "$(unquote "$json")"
+      ;;
     ownername)
       [ "$tag" = '!!str' ] && [ "$safe" = true ] && is_owner_name "$(unquote "$json")"
       ;;
@@ -538,7 +576,7 @@ check_row() { # check_row <path> <kind> <shape> <present> <tag> <safe> <json>
   path="$1"; kind="$2"; shape="$3"; present="$4"; tag="$5"; safe="$6"; json="$7"
 
   if [ "$present" != true ]; then
-    if [ "$kind" = optnelist ]; then return; fi   # an absent optional list is not a finding
+    case "$kind" in optnelist | optlanemap) return ;; esac   # an absent optional key is not a finding
     case "$kind" in cigate | orchmap | identmap) kind=nullable ;; nelist) kind=list ;; esac   # printed as the interview asks it
     add_finding "missing $path $kind"
     return
@@ -592,6 +630,13 @@ check_row() { # check_row <path> <kind> <shape> <present> <tag> <safe> <json>
       ;;
     optnelist)
       { [ "$tag" = '!!seq' ] && [ "$json" != '[]' ]; } || invalid_finding "$path" "$json"
+      ;;
+    optlanemap)
+      case "$tag" in
+        '!!null') : ;;
+        '!!map') lanes_is_map=1 ;;
+        *) invalid_finding "$path" "$json" ;;
+      esac
       ;;
     int)
       # A quoted "2" is !!str and invalid on purpose: the key is a number, not text.
@@ -718,10 +763,13 @@ check_identity_entries() {
 cigate_is_map=0
 orch_is_map=0
 ident_is_map=0
+lanes_is_map=0
 run_table "$MAIN_KEYS"
 run_table "$RULESETS_KEYS"
 check_ruleset_entries
 run_table "$RULESET_KEYS"
+run_table "$LANES_TOP"
+[ "$lanes_is_map" = 1 ] && run_table "$LANES_KEYS"
 [ "$cigate_is_map" = 1 ] && run_table "$CIGATE_KEYS"
 [ "$orch_is_map" = 1 ] && run_table "$ORCH_KEYS"
 [ "$ident_is_map" = 1 ] && run_table "$IDENT_KEYS"

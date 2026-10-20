@@ -10,5 +10,9 @@
         "ref": "v0.20.0"
       }
     }
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "jq -r '(try .context_window.used_percentage catch null) as $p | if ($p | type) == \"number\" and $p >= 0 and $p <= 100 then \"ctx \\($p | floor)%\" else \"ctx --\" end'"
   }
 }
