@@ -1,22 +1,24 @@
 # Cursor — claude-workbench
 
-**Now:** **Sprint 16** (cursor id `sprint-16`) on [milestone 19, *Identity M4: claude-workbench cutover*](https://github.com/glunk-works/claude-workbench/milestone/19). Status: **implementing**. Lanes run one at a time when the maintainer calls them up. The next ones are #756 and #744, then #761 once its spec is posted.
+**Now:** **Sprint 16** (cursor id `sprint-16`) on [milestone 19, *Identity M4: claude-workbench cutover*](https://github.com/glunk-works/claude-workbench/milestone/19). Status: **implementing**. Lanes run when the maintainer calls them up. The #756 lane is in flight now.
 
-**Just done (2026-10-19/20, driver session in the container, opus):**
-- **Three lanes built and merged:** #759 (#772), #754 (#773) and #755 (#774). Each was cleaned up with `lane.sh done`, and the maintainer set milestone 19 on each PR.
-- **Redrafted specs, file-based:** each drafter (a `general-purpose` subagent on opus, model confirmed with `spawn-model.sh`) wrote its own `draft.md` and returned only the path and check words. Critics returned a verdict and terse findings, which went back to the same drafter.
-  - #756: posted `6280054245`, 2 rounds plus a one-phrase fix, converged (architect, security-critic, docs-consistency). Approved.
-  - #744: posted `6280128174`, 2 rounds plus two small fixes, each checked by diff. Approved.
-  - #761: round 1 had 7 findings, all addressed. The confirming round has not run, so it is not posted.
-- **Commented on #770** (`6280136680`): proposes a dedicated `spec-drafter` agent with Write limited to its draft directory, so file-based drafting is sanctioned rather than improvised.
+**Just done (2026-10-20, driver session in the container, opus):**
+- **#761:** the spec was redrafted, posted (`6280407609`) and approved, then built and merged as #776. The lane was cleaned up with `lane.sh done`.
+  - Critic pass on the spec: 3 rounds (architect, security-critic, docs-consistency), all on opus, confirmed by `spawn-model.sh`. Round 3's fixes went back to the same drafter. The driver then checked the final draft by reading it end to end and posted it, with no fourth round.
+- **#744:** its spec went stale when #776 changed `docs/decisions.md`, but in WB-D24, which #744 does not touch. It got a **light refresh**: the same text re-posted on the new base (`6281226099`, no critic round). It was then built and merged as #777, and its lane was cleaned up.
+- **#756:** lane prepared (`/tmp/lanes/756`, branch `docs/resume-bad-shape-line`). It is building now.
+- #776 and #777 are both on milestone 19.
 
-**Lessons:**
-- **Each merge can make later specs stale.** #772 staled #744, #756, #746 and #728, and #774 staled #761 and #729. Check `spec-fresh.sh` right before each prep.
-- **Auto mode blocks the driver's own GitHub writes other than `spec-post.sh`** (a PR's milestone, an issue comment). Hand the maintainer a one-line `!` command, and keep `lane.sh done` in its own call.
-- **A removed reaction must be re-added** before `spec-issue.sh` passes. #761's first re-reaction did not take.
+**Lessons (also in the driver's memory):**
+- **Respecs waste compute.** Draft a spec only when its lane is next, or when its files are disjoint from every lane queued ahead of it. Run tasks that share a file back to back. Mark append-only files `**(append)**` in Files touched.
+- **Light refresh, approved by the maintainer.** A stale spec whose cited text, named sections and line numbers did not change is re-posted on the new base with no critic round, checked by diff.
+- **Verify every critic sub-claim before forwarding it.** One #761 round was spent fixing a false claim the driver had passed on.
+- **The next lane is #746, after its spec is redrafted.** `#728` overlaps #746 on `docs/decisions.md` and `CLAUDE.md`, so it waits until #746 merges. `#729` overlaps #756 and #728, so it waits for both. `#757`, `#732` and `#629` follow #746.
 
-**Next:** on **opus** (driver), as the cursor's `next_action` says. First finish the #761 spec: its revised draft is at `/tmp/tmp.vE2I1IYk0V/draft.md`, on base `9c895d6`. Run one confirming critic round on it, then post it with `spec-post.sh`. The maintainer then reacts and removes the reaction from the stale `6276728284`. After that, prepare one lane at a time when the maintainer calls it up: #756 and #744 (disjoint files), then #761. Check freshness before each prep. Redraft the stale #729, #728 and #746, at most 3 per session (#770). #762 waits on #728.
+**Next:** on **opus** (driver), as the cursor's `next_action` says.
+1. Redraft the stale #746 spec: a fresh drafter, critics to convergence, then post it with `spec-post.sh`. The maintainer then reacts and removes any reaction from the stale `6276937014`.
+2. When the #756 PR merges and its lane has exited, run `lane.sh done 756` and give the maintainer the milestone command.
 
-**HITL Gate: NONE OPEN** — next gate: the maintainer says when each lane is up and merges its PR
+**HITL Gate: NONE OPEN** — next gate: the maintainer reacts to the 746 spec, says when each lane is up and merges its PR
 
 **Pointers:** [docs/decisions.md](../docs/decisions.md) · [milestone 19](https://github.com/glunk-works/claude-workbench/milestone/19) · [docs/identity/DEV-CONTAINER.md](../docs/identity/DEV-CONTAINER.md) · [.ai/parked/](parked/)
