@@ -22,7 +22,7 @@
 #   fresh        -- no checked path changed (or none is checked)
 #   stale <n>    -- <n> checked paths changed between the marker's commit and the base tip
 #   bad-marker   -- the first line is not a marker for <issue> on the project file's `pr_base`
-#   bad-shape    -- the body carries a character from HID below, an HTML comment opener or a stray
+#   bad-shape    -- the body carries a refused form on some line (see the Shape rules below) or a stray
 #                   CR (a HID character on the marker line reads bad-marker), or the *Files touched*
 #                   section has a shape this check cannot read
 #   bad-sha      -- the marker's commit is not a commit, or not an ancestor of the base tip
@@ -38,7 +38,7 @@
 #            line with one trailing CR removed.
 #   Marker   the first line (up to the first LF, one trailing CR removed) matches
 #            `spec-task: issue=<N> base=<B> sha=<40 hex>` with <N> = <issue>, <B> = pr_base.
-#   Shape    no HID character, HTML comment opener or stray CR on any line, and the *Files touched*
+#   Shape    no refused form (the Shape rules below) or stray CR on any line, and the *Files touched*
 #            section (from the one `### Files touched` heading to the one `### Done when` heading
 #            after it) is readable: see below.
 #   Fetch    `git fetch` of the base into refs/remotes/origin/<base>, then rev-parse of it.
@@ -57,11 +57,18 @@
 # more spaces of indent while an item is open) is ignored. Prose (column 0, not starting with a
 # list, quote, table, link, heading, code, tab or ordered-list character) closes an item.
 # Blank lines neither open nor close one. Anything else, a code fence, a line starting with `#`
-# or `<` (inside the section), a character from HID below (zero-width, bidi, soft hyphen U+00AD and
-# Unicode tag U+E0000 to U+E007F characters), an HTML comment opener or a CR that is not the last
-# character of its line (each anywhere in the body), not exactly one of each heading, or no bullet
-# at all, is bad-shape. Other invisible characters (variation selectors and other default-ignorable
-# characters) are not refused (#709).
+# or `<` (inside the section), a CR that is not the last character of its line, not exactly one of
+# each heading, or no bullet at all, is bad-shape. So is any of these on any line of the body, after
+# one trailing CR is removed: an opener (a `<` followed by `!` or `?`, or a `<` and a slash followed
+# by a character that is not an ASCII letter or by the end of the line, which inside an HTML block
+# starts a bogus comment); a one-line link reference definition (LDEF below, a footnote definition
+# too); a numeric character reference (HREF below, with or without its semicolon); a named reference
+# that decodes only to an invisible character (the seventeen HREF names, `shy` included); and a
+# character from HID, which is exactly Unicode's Default_Ignorable_Code_Point set (U+00AD, U+034F,
+# U+061C, U+115F-1160, U+17B4-17B5, U+180B-180F, U+200B-200F, U+202A-202E, U+2060-206F, U+3164,
+# U+FE00-FE0F, U+FEFF, U+FFA0, U+FFF0-FFF8, U+1BCA0-1BCA3, U+1D173-1D17A, U+E0000-E0FFF; Unicode 15.0
+# data). HID, HREF and LDEF are byte-for-byte copies in spec-issue.sh and spec-post.sh (#757); the
+# opener and CR tests are inline in each awk program. Other hiding forms stay open (WB-D31 residual 19).
 #
 # Permitted toolset: POSIX sh, git, yq (mikefarah v4), awk, mktemp and tr. Runs under LC_ALL=C.
 # No gh, no eval.
@@ -104,21 +111,28 @@ out() {
 
 # The Shape stage over a file whose lines may end in CR. On a pass it writes the checked paths,
 # one per line, to the second argument and returns 0; otherwise it returns 1.
-HID="$(printf '\330\234|\342\200[\213-\217]|\342\200[\252-\256]|\342\201[\240-\244]|\342\201[\246-\251]|\357\273\277|\302\255|\363\240[\200-\201][\200-\277]')"
+HID="$(printf '\302\255|\315\217|\330\234|\341\205[\237-\240]|\341\236[\264-\265]|\341\240[\213-\217]|\342\200[\213-\217]|\342\200[\252-\256]|\342\201[\240-\257]|\343\205\244|\357\270[\200-\217]|\357\273\277|\357\276\240|\357\277[\260-\270]|\360\233\262[\240-\243]|\360\235\205[\263-\272]|\363\240[\200-\277][\200-\277]')"
+HREF='&#[0-9xX]|&shy|&(zwnj|zwj|lrm|rlm|ZeroWidthSpace|NegativeVeryThinSpace|NegativeThinSpace|NegativeMediumSpace|NegativeThickSpace|NoBreak|ApplyFunction|af|InvisibleTimes|it|InvisibleComma|ic);'
+LDEF='^ ? ? ?\[[^]]+\]:'
 shape_stage() { # <in> <paths-out>
-  FRESH_HID="$HID" awk '
+  FRESH_HID="$HID" FRESH_HREF="$HREF" FRESH_LDEF="$LDEF" awk '
     BEGIN {
       hid = ENVIRON["FRESH_HID"]
+      href = ENVIRON["FRESH_HREF"]; ldef = ENVIRON["FRESH_LDEF"]
       state = 0; nf = 0; nd = 0; bad = 0; item = 0; nb = 0
     }
     {
       line = $0
       sub(/\r$/, "", line)
-      if (index(line, "<" "!--") > 0) bad = 1
+      # An opener: < then ! or ?, or < and a slash then a non-letter or the end of the line (a bogus
+      # comment inside an HTML block hides text up to the next >).
+      if (line ~ /<[!?]/ || line ~ /<\/[^A-Za-z]/ || line ~ /<\/$/) bad = 1
       # A CR left after the strip is a line break to a Markdown renderer but not to awk, so a
       # bullet could render as two and be checked as one.
       if (index(line, "\r") > 0) bad = 1
       if (line ~ hid) bad = 1
+      if (line ~ href) bad = 1
+      if (line ~ ldef) bad = 1
       if (line ~ /^### Files touched[ \t]*$/) {
         nf++
         if (state == 0) state = 1

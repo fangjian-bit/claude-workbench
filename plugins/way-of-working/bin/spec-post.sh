@@ -50,7 +50,8 @@
 #   unreacted           the issue's author is the declared dev or reviewer App and no declared maintainer
 #                       has reacted approvingly to the issue strictly after its last update (WB-D32, #664)
 #   hidden              an App-filed issue's reacted title or body carries text a reader of the rendered
-#                       issue cannot see (the screen spec-issue.sh's header describes)
+#                       issue cannot see (the screen spec-issue.sh's header describes: an opener, a
+#                       character reference, a link definition line or a default-ignorable character)
 #   post-unknown        the POST failed; it was made once and is never retried, so the comment may exist
 #   posted-unreadable   the POST answered, but the response is not one this run can vouch for;
 #                       the comment exists
@@ -272,8 +273,11 @@ case "$def" in '' | -* | *[!A-Za-z0-9._/-]*) stop unreadable ;; esac
 git -C "$gtop" fetch -q origin "+refs/heads/$def:refs/remotes/origin/$def" >/dev/null 2>&1 || stop unreadable
 git -C "$gtop" show "refs/remotes/origin/$def:./.ai/project.yml" >"$tmp/def.yml" 2>/dev/null || stop unreadable
 
-# HID: spec-fresh.sh's zero-width, bidi, soft hyphen and Unicode tag set, byte for byte (the App-filed path's hidden-text screen)
-HID="$(printf '\330\234|\342\200[\213-\217]|\342\200[\252-\256]|\342\201[\240-\244]|\342\201[\246-\251]|\357\273\277|\302\255|\363\240[\200-\201][\200-\277]')"
+# HID, HREF, LDEF: spec-fresh.sh's three lines (Unicode's default-ignorable set; numeric and invisible named character references; a link reference
+# definition line), byte for byte (the App-filed path's hidden-text screen; the opener and CR tests are inline in the awk below)
+HID="$(printf '\302\255|\315\217|\330\234|\341\205[\237-\240]|\341\236[\264-\265]|\341\240[\213-\217]|\342\200[\213-\217]|\342\200[\252-\256]|\342\201[\240-\257]|\343\205\244|\357\270[\200-\217]|\357\273\277|\357\276\240|\357\277[\260-\270]|\360\233\262[\240-\243]|\360\235\205[\263-\272]|\363\240[\200-\277][\200-\277]')"
+HREF='&#[0-9xX]|&shy|&(zwnj|zwj|lrm|rlm|ZeroWidthSpace|NegativeVeryThinSpace|NegativeThinSpace|NegativeMediumSpace|NegativeThickSpace|NoBreak|ApplyFunction|af|InvisibleTimes|it|InvisibleComma|ic);'
+LDEF='^ ? ? ?\[[^]]+\]:'
 
 # the repo it names
 yrepo="$(yq -r '.repo // ""' "$tmp/def.yml" 2>/dev/null)" || stop unreadable
@@ -438,14 +442,15 @@ agent_path() {
   J2 '.title' >"$tmp/title.txt" || stop unreadable
   J2 '.body // ""' >"$tmp/body.txt" || stop unreadable
   for f in "$tmp/title.txt" "$tmp/body.txt"; do
-    hid_word="$(LC_ALL=C SI_HID="$HID" SI_LDEF='^ ? ? ?\[[^]]+\]:' awk '
-      BEGIN { hid = ENVIRON["SI_HID"]; ldef = ENVIRON["SI_LDEF"]; bad = 0 }
+    hid_word="$(LC_ALL=C SI_HID="$HID" SI_HREF="$HREF" SI_LDEF="$LDEF" awk '
+      BEGIN { hid = ENVIRON["SI_HID"]; href = ENVIRON["SI_HREF"]; ldef = ENVIRON["SI_LDEF"]; bad = 0 }
       {
         line = $0
         sub(/\r$/, "", line)
-        if (index(line, "<" "!") > 0 || index(line, "<" "?") > 0) bad = 1
+        if (line ~ /<[!?]/ || line ~ /<\/[^A-Za-z]/ || line ~ /<\/$/) bad = 1
         if (index(line, "\r") > 0) bad = 1
         if (line ~ hid) bad = 1
+        if (line ~ href) bad = 1
         if (line ~ ldef) bad = 1
       }
       END { print (bad ? "hidden" : "clean") }

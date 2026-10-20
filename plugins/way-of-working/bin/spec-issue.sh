@@ -34,7 +34,8 @@
 #                  declared maintainer has reacted approvingly to the issue strictly after its last
 #                  update (spec-reaction.sh, the rule spec comments follow)
 #   hidden         an `agent` author's reacted title or body carries text a reader of the rendered
-#                  issue cannot see (see below)
+#                  issue cannot see: an opener, a character reference, a link definition line or a
+#                  default-ignorable character (see below)
 # Nothing is written to stderr on a stop. Any other argument count, a first argument other than
 # `fetch`, a bad <N> or <out-dir>, a slash-less $0 or a missing sibling gh-identity.sh or
 # spec-reaction.sh prints a usage line (or, for the last two, a one-line diagnostic) on stderr and nothing on stdout, and exits 2,
@@ -85,9 +86,11 @@
 # it (20:10:46) and so did a title edit (20:10:52). plan-anchor.sh's header records the same for
 # comments (#498). The `hidden` screen decodes the JSON first (`yq -p=json` into a file, matched with
 # `awk` under LC_ALL=C, the patterns passed through ENVIRON), so a JSON escape cannot hide a match. It
-# refuses `<!` and `<?` (an HTML comment, declaration, CDATA section or processing instruction opener), a CR that is not the last character of its line (a browser-edited
-# CRLF body passes, as in spec-fresh.sh), a character from spec-fresh.sh's HID set (zero-width, bidi,
-# soft hyphen and Unicode tag; copied byte for byte) and a line that is a Markdown link reference definition (renders as
+# refuses an opener (`<!` or `<?`, an HTML comment, declaration, CDATA section or processing instruction opener, or a `<` and a
+# slash followed by a character that is not an ASCII letter or by the end of the line, a bogus closing tag), a CR that is not the last character of its line (a browser-edited
+# CRLF body passes, as in spec-fresh.sh), a numeric character reference or one of the seventeen named references that decode only to
+# an invisible character (HREF), a character from spec-fresh.sh's HID set (Unicode's Default_Ignorable_Code_Point set;
+# HID, HREF and LDEF are copied byte for byte) and a line that is a Markdown link reference definition (renders as
 # nothing). It is a filter, not a boundary. The reaction gates this script's read of the body, never
 # a build: a builder reads no body under a map.
 #
@@ -193,8 +196,11 @@ fold() { printf '%s' "$1" | tr 'A-Z' 'a-z' | sed 's/\[bot\]$//'; }
 # rd <file> -- the first line of a file, or nothing.
 rd() { _l=; IFS= read -r _l <"$1" || [ -n "$_l" ] || true; printf '%s' "$_l"; }
 
-# HID: spec-fresh.sh's zero-width, bidi, soft hyphen and Unicode tag set, byte for byte (the agent path's hidden-text screen)
-HID="$(printf '\330\234|\342\200[\213-\217]|\342\200[\252-\256]|\342\201[\240-\244]|\342\201[\246-\251]|\357\273\277|\302\255|\363\240[\200-\201][\200-\277]')"
+# HID, HREF, LDEF: spec-fresh.sh's three lines (Unicode's default-ignorable set; numeric and invisible named character references; a link reference
+# definition line), byte for byte (the agent path's hidden-text screen; the opener and CR tests are inline in the awk below)
+HID="$(printf '\302\255|\315\217|\330\234|\341\205[\237-\240]|\341\236[\264-\265]|\341\240[\213-\217]|\342\200[\213-\217]|\342\200[\252-\256]|\342\201[\240-\257]|\343\205\244|\357\270[\200-\217]|\357\273\277|\357\276\240|\357\277[\260-\270]|\360\233\262[\240-\243]|\360\235\205[\263-\272]|\363\240[\200-\277][\200-\277]')"
+HREF='&#[0-9xX]|&shy|&(zwnj|zwj|lrm|rlm|ZeroWidthSpace|NegativeVeryThinSpace|NegativeThinSpace|NegativeMediumSpace|NegativeThickSpace|NoBreak|ApplyFunction|af|InvisibleTimes|it|InvisibleComma|ic);'
+LDEF='^ ? ? ?\[[^]]+\]:'
 
 # 1. the origin's URL
 git -C "$gtop" remote get-url origin >"$tmp/url" 2>/dev/null || stop unreadable
@@ -339,14 +345,15 @@ agent_path() {
   J2 '.title' >"$tmp/title.txt" || stop unreadable
   J2 '.body // ""' >"$tmp/body.txt" || stop unreadable
   for f in "$tmp/title.txt" "$tmp/body.txt"; do
-    hid_word="$(LC_ALL=C SI_HID="$HID" SI_LDEF='^ ? ? ?\[[^]]+\]:' awk '
-      BEGIN { hid = ENVIRON["SI_HID"]; ldef = ENVIRON["SI_LDEF"]; bad = 0 }
+    hid_word="$(LC_ALL=C SI_HID="$HID" SI_HREF="$HREF" SI_LDEF="$LDEF" awk '
+      BEGIN { hid = ENVIRON["SI_HID"]; href = ENVIRON["SI_HREF"]; ldef = ENVIRON["SI_LDEF"]; bad = 0 }
       {
         line = $0
         sub(/\r$/, "", line)
-        if (index(line, "<" "!") > 0 || index(line, "<" "?") > 0) bad = 1
+        if (line ~ /<[!?]/ || line ~ /<\/[^A-Za-z]/ || line ~ /<\/$/) bad = 1
         if (index(line, "\r") > 0) bad = 1
         if (line ~ hid) bad = 1
+        if (line ~ href) bad = 1
         if (line ~ ldef) bad = 1
       }
       END { print (bad ? "hidden" : "clean") }

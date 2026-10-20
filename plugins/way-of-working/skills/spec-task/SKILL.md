@@ -110,7 +110,7 @@ session context: the comment is public.
    - **`unreacted`** stops, printed as: "a declared maintainer reacts to #N after its last change
      (remove and re-add the reaction if one is already there), then run this again".
    - **`hidden`** stops, printed as: "#N's title or body may carry text a reader of the rendered issue
-     cannot see (the screen also refuses a visible `<!` or `<?`); edit it out on GitHub, react again, then run this again".
+     cannot see (the screen also refuses a numeric character reference, or a named one to an invisible character, even where it renders visibly, and a `<` and a slash followed by a non-letter or the end of a line, beside the visible `<!` or `<?` openers); edit it out on GitHub, react again, then run this again".
    - **`legacy`** (`identities: null`) — fall back to the allowlist on `ASSOC`: `OWNER`, `MEMBER`
      or `COLLABORATOR` passes; anything else stops.
    - **`untrusted`** stops, with no draft and the body never read (the loop App, or an account
@@ -162,8 +162,8 @@ session context: the comment is public.
      or in sub-bullets. The section has no code fence, and no line at any indent that starts with `#` or `<`. A column-0 line other
      than a bullet is plain prose that does not start with a list, quote, table, link, backtick, `~`, tab or
      number-and-period character. The
-     whole draft contains no HTML comment opener, not even inside backticks, and no character from
-     `spec-fresh.sh`'s `HID` set (zero-width, bidi, soft hyphen or Unicode tag characters); write
+     whole draft contains no `<` followed by `!` or `?` and no `<` and slash followed by a non-letter or the end of a line (not even inside backticks), no link reference definition line, no numeric character reference, no named reference to an invisible character, and no character from
+     `spec-fresh.sh`'s `HID` set (now Unicode's default-ignorable set, variation selectors included); write
      such a character as its code point (U+200B) instead. Only the first
      backtick span of each top-level bullet is checked for freshness, so a bullet names one
      file, and its path uses only letters, digits, `.`, `_`, `-` and `/`, starts with a letter, digit, `.` or `_`, and has no empty, `.` or `..` segment (so no `./` prefix). A bullet whose change only adds an entry (a changelog line, a list line) may carry
@@ -245,7 +245,7 @@ session context: the comment is public.
    and both directories are removed. `unreadable`, or anything else (an empty `SHAPE=` means
    `spec-shape.sh` is not on `PATH`), stops the same way.
 
-   After `spec-shape.sh` says `ok`, check that the draft has no `HID` character and its *Files touched* section is one the
+   After `spec-shape.sh` says `ok`, check that the draft has no hidden or refused text and its *Files touched* section is one the
    freshness check can read, binding `DD` by value as above:
    ```bash
    DD='<printed draft dir>' &&

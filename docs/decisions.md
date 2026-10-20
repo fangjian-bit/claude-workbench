@@ -2244,6 +2244,9 @@ take effect. Full reasoning and the task breakdown that implements them:
       **(append)** (an entry added to a shared file) is skipped, never on a `.github/` path.
       `.ai/next-steps.md` and `.ai/parked/` are dropped from the changed set, as `cursor-drift.sh`
       treats them as a cursor sync.
+      *Amended by `#757`: all three screens share the opener test, the numeric and invisible named character
+      reference test (`HREF`) and the link definition test (`LDEF`), and `HID` is exactly Unicode's
+      Default_Ignorable_Code_Point set, so a spec carrying any of them reads `bad-shape` (see residual 19).*
     - The `coder` never drafts or posts; it reports the word. The stale branch runs only in the
       session that auto-started the build, and re-runs the finder, the checks and `draft-identity.sh`
       itself rather than trusting a `coder`'s report.
@@ -2285,6 +2288,12 @@ take effect. Full reasoning and the task breakdown that implements them:
        body, and the zero-width and bidi characters listed in `spec-fresh.sh` inside *Files touched*;
        other invisible characters (Unicode tag characters, soft hyphen) and hidden text elsewhere
        are still not refused.
+       *Narrowed again by `#757`: `spec-fresh.sh`, the `hidden` screen in `spec-issue.sh` and the one in
+       `spec-post.sh` now refuse, on every line, a `<` followed by `!` or `?`, a `<` and a slash followed by a
+       non-letter or the end of the line, a one-line link reference definition, every numeric character reference, the seventeen
+       named references that decode only to an invisible character, and every default-ignorable character,
+       variation selectors included. The forms residual 19 lists stay open, and so does `WB-D29`'s
+       public-backlog hold, which `#757` does not touch.*
     7. Deleting or de-marking an unreacted draft lets the next session post again. That is one post
        per session, or per loop iteration under `WB-D23`. This extends `WB-D30` residual 8.
     8. Two sessions at once can both post.
@@ -2315,6 +2324,32 @@ take effect. Full reasoning and the task breakdown that implements them:
         `[slug]` always read `bad-shape` for an adopter that has them.
     18. The `none` drafting branch does not check that `#N` is open or on the milestone before
         drafting; `spec-post.sh` stops a closed issue after the draft is made.
+    19. *Added by `#757`: what the shared screen refuses and what it still passes.*
+        - **Choices.** Every numeric character reference is refused, so no second table of code points
+          has to be kept in step with `HID`. Seventeen named references are refused: the ones HTML
+          decodes only to a `HID` character, `shy` included (the math ones that add U+FE00 to a visible
+          symbol are not). `HID` is the whole default-ignorable set, not only the ranges the issue listed.
+        - **Still hides text, recorded and not refused.** Text after the name inside a closing tag
+          (a `</b` then junk then `>` renders as nothing inside an HTML block, or a block-level name such as `</div` at the start of a line); a `video` element's inner text, which browsers do not show; Markdown image alt text; attribute text and
+          link titles; a `script` element (GitHub escapes it and shows it as text, so it hides nothing, but
+          the issue named it); GitHub math that renders blank; link definitions that span lines, sit in a quote or
+          list item or carry an escaped bracket, and the same for footnote definitions in a quote or list item; GFM table cells beyond the header count, which are
+          dropped; links and images with empty text, and link destinations shown only on hover; text a diagram fence's renderer does not draw (for example `%%`
+          comment lines, `accTitle:` and `accDescr:` in a mermaid fence, geojson or topojson feature properties, an ASCII stl solid name); nested `sub`, `sup` or `small`
+          elements that shrink text to nothing visible; an `rp` element; a collapsed `details` element;
+          the interlinear annotation characters U+FFF9 to U+FFFB, which are format characters but not
+          default-ignorable; and, with low confidence, C0 and C1 control characters.
+        - **False positives, which fail closed.** Japanese ideographic variation sequences (U+E0100 to
+          U+E01EF), Mongolian free variation selectors, Hangul fillers, the combining grapheme joiner
+          U+034F, subdivision-flag emoji (their tag characters are refused since `#709`), an emoji
+          written with U+FE0F, a reference quoted inside backticks, a `<` and a slash followed by a
+          non-letter in ordinary text (the slash then `3`, the slash then `>`, or a line ending in the slash), quoted or not, and
+          this file's own residual 6 note, which quotes a numeric and a named reference, so a spec
+          restating it is refused.
+        - **Scope.** On an approved spec comment at build time the screen runs only where `spec-fresh.sh check`
+          runs, in `resume` and the `coder` (`spec-task`'s `shape` gate and the `hidden` screens run it on drafts and issues).
+          `architect-review`'s map branch never runs it, and `scripts/loop/preflight.sh` builds from a
+          spec unscreened, though nothing calls that path yet.
 - **WB-D32 (`#664`) — an issue the dev or reviewer App filed can be drafted once a declared
   maintainer reacts to it, and built and dispatched once its spec comment is approved.** Amends
   `WB-D26` (the author `spec-task` reads), `WB-D27` (the trusted issue author as a further check),
@@ -2362,6 +2397,9 @@ take effect. Full reasoning and the task breakdown that implements them:
     7. The preflight carries its own copy of the role set, held to `task-author` by fixtures only.
     8. `HID` now has three copies (`spec-fresh.sh`, `spec-issue.sh`, `spec-post.sh`); a fixture holds
        the two new ones byte for byte to `spec-fresh.sh`'s.
+       *Amended by `#757`: `HREF` and `LDEF` join `HID` as byte-for-byte copies, held by fixtures. The opener
+       test stays inline in each awk program, held by behaviour fixtures and by a fixture that holds the
+       two hidden-screen awk programs equal.*
     9. *Amended by `#709`: the `hidden` screen now also refuses Unicode tag characters and soft
        hyphens.*
        The `hidden` check is a filter, not a boundary, and this list is not exhaustive. It refuses `<!`
@@ -2373,8 +2411,13 @@ take effect. Full reasoning and the task breakdown that implements them:
        whose label spans lines, and a link definition inside a quote or list item or with
        an escaped bracket in its label still pass, so `WB-D31` residual 1 (the drafting session reads
        injected text with the dev App's permissions) still holds for an unfenced dev-App body.
+       *Amended by `#757`: the `hidden` screen also refuses a `<` and a slash followed by a non-letter or the end of the line, every
+       numeric character reference, the seventeen named references that decode only to an invisible
+       character, and every default-ignorable character; the forms `WB-D31` residual 19 lists still pass.*
     10. A reviewer finding that quotes `<!` or `<?` inside wow-review's code fence stops
         `hidden` although the text is visible: a known false positive, which fails closed.
+        *Amended by `#757`: a finding that quotes a numeric or invisible named character reference, a newly
+        added `HID` character or a bogus closing-tag opener now also stops `hidden`.*
     11. **The builders' "no body under a map" premise is enforced by prose** in `resume` and the
         `coder` (check 15 covers `architect-review` only). A builder that fetched `#N` unprojected would
         hold an App-authored body that now passes the author rule where it used to stop. A follow-up

@@ -581,6 +581,17 @@ for v in \
   "an HTML comment opener written as a JSON escape|\"t\"|\"a \\u003c!-- x\"" \
   "a zero-width space written as a JSON escape|\"t\"|\"\\u200b\"" \
   "a soft hyphen in the body|\"t\"|\"a\\u00adb\"" \
+  "a decimal numeric reference in the body|\"t\"|\"a &#8203; b\"" \
+  "a hex numeric reference in the title|\"a &#x200b; b\"|\"b\"" \
+  "a shy reference in the body|\"t\"|\"a &shy; b\"" \
+  "a zwj reference in the body|\"t\"|\"a &zwj; b\"" \
+  "a closing-tag opener at the end of a line|\"t\"|\"a </\\nb\"" \
+  "a bogus closing tag in the body|\"t\"|\"a </ x>\"" \
+  "a variation selector 16 in the title|\"a\\ufe0fb\"|\"b\"" \
+  "a variation selector 17 in the body|\"t\"|\"a\\udb40\\udd00b\"" \
+  "a combining grapheme joiner in the body|\"t\"|\"a\\u034fb\"" \
+  "a Mongolian vowel separator in the body|\"t\"|\"a\\u180eb\"" \
+  "an inhibit symmetric swapping in the title|\"a\\u206ab\"|\"b\"" \
   "a tag character in the title|\"a\\udb40\\udc41b\"|\"b\""; do
   label="${v%%|*}"
   rest="${v#*|}"
@@ -592,6 +603,12 @@ for v in \
   FX_RX="$RXF" run fetch 611 "$o"
   stop_is hidden "$o"
 done
+
+desc="hidden: a normal closing tag, a plain ampersand and a bracketed line indented four spaces pass"
+mkissue 'dev[bot]' 200 '"NONE"' - 2026-10-17T20:10:28Z '"t &amp; u"' '"a </b> c &copy; d\n    [x]: y"'
+o="$(newout)"
+FX_RX="$RXF" run fetch 611 "$o"
+assert_eq "$desc" "ok B=acme/backlog BASE=main VERDICT=reacted ASSOC=NONE" "$out"
 
 desc="hidden: the screen runs on the second copy, not the first"
 mkissue 'dev[bot]' 200 '"NONE"'
@@ -633,6 +650,10 @@ assert_eq "$desc (no reactions read)" 0 "$(grep -c reactions "$glog" || true)"
 desc="HID is spec-fresh.sh's line, byte for byte"
 assert_eq "$desc" "$(grep '^HID=' "$bindir/spec-fresh.sh")" "$(grep '^HID=' "$script")"
 assert_eq "$desc (one line each)" 1 "$(grep -c '^HID=' "$script")"
+for k in HREF LDEF; do
+  assert_eq "$k is spec-fresh.sh's line, byte for byte" "$(grep "^$k=" "$bindir/spec-fresh.sh")" "$(grep "^$k=" "$script")"
+  assert_eq "$k is one line" 1 "$(grep -c "^$k=" "$script")"
+done
 mkissue maint 100 '"OWNER"'
 
 # -- gh-identity.sh exit 2 (today: not-trusted) ---------------------------------------------

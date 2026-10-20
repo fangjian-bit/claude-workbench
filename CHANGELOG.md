@@ -37,6 +37,12 @@ waits until `reviewer_app` and `loop_app` are present, each a null value or a ma
 
 **⚠️ Migration** — on a map repo, `/way-of-working:spec-task` now stops `unreadable` (from `spec-issue.sh` or `spec-post.sh`), until the config is corrected on the default branch (#759): on a maintainer's or the dev or reviewer App's task issue when `identities.maintainer` lists a declared App's id (other than the author's own, which stops `untrusted`), the dev App's included, or when a declared App entry, the dev App's included, is neither null nor well formed or its id is not canonical decimal; and, for a maintainer's issue too, when `identities.maintainer` carries an entry that is not well formed, which passed before.
 
+**⚠️ Migration** — on a map repo a build now refuses, as `bad-shape`, an approved spec carrying any newly refused form:
+a `<` followed by `!` or `?`, a `<` and a slash followed by a non-letter or the end of the line, a link reference definition line, any numeric character
+reference, a named reference to an invisible character, or a default-ignorable character such as a variation selector (#757, `WB-D31`).
+`spec-task`'s shape gate refuses such a draft on every repo, and an App-filed issue carrying one stops `hidden`. Re-draft the spec
+and move the maintainer's reaction to the new comment.
+
 ### Changed
 
 - `spec-post.sh escalate` posts a draft under the `spec-task-escalated:` marker and adds `status/needs-human`; `spec-find.sh find` prints `escalated <ids>` and `pending` counts a newer escalated comment. Nothing calls the mode yet (#746, groundwork for #629). A repo on an older installed plugin reads an escalated comment as `none`, so #629 should not call `escalate` before a release carrying this finder is installed.
@@ -52,6 +58,10 @@ waits until `reviewer_app` and `loop_app` are present, each a null value or a ma
   **Behaviour change, `identities: null` repos:** `spec-task`'s `spec-fresh.sh shape` gate has no map
   condition, so a draft carrying such a character is refused on every repo.
 - `/way-of-working:plan-sprint` shows each unmilestoned issue's author as `trusted`, `agent`, `untrusted`, `legacy` (or `unjudged`), judged by `gh-identity.sh task-author` through the new read-only `plan-gather.sh authors`, so an issue filed by the declared dev or reviewer App no longer reads `untrusted`. An `agent` row carries a note that drafting its spec needs a declared maintainer's approving reaction after the issue's last change. Display only: nothing is gated on the word (#710, `WB-D32`).
+- **One hidden-text screen for spec comments and App-filed issues** (#757, `WB-D31`): `spec-fresh.sh`, `spec-issue.sh` and `spec-post.sh`
+  use the same opener test and share `HREF` and `LDEF` lines, and `HID` is now Unicode's default-ignorable set (variation selectors included). Residual 19 of
+  `WB-D31` records the forms that still pass. **Behaviour change, `identities: null` repos:** `spec-task`'s `spec-fresh.sh shape` gate has no map
+  condition, so a draft carrying a newly refused form is refused on every repo.
 
 ### Fixed
 

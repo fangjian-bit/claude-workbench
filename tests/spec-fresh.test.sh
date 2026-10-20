@@ -371,8 +371,97 @@ full tests '\342\200\213'
 expect "shape bad: a zero-width space only in Tests" "bad-shape"
 full goal '\342\200\224\342\200\231\302\240\303\251'
 expect "shape ok: typographic characters outside Files touched" "ok"
-full goal '\302\254\302\256\363\237\277\277\363\240\202\200'
+full goal '\302\254\302\256\363\237\277\277\363\241\200\200'
 expect "shape ok: the neighbours of the new ranges" "ok"
+
+# --- bad-shape: the shared markup and character reference tests (#757) --------------------------
+# Each row is a label and a printf argument; every place the full helper covers must refuse it.
+# The tests apply to every line, so the argument starts with a newline where it needs its own line.
+for row in \
+  'a bang opener with DOCTYPE|<!DOCTYPE x>' 'a CDATA opener|<![CDATA[ x' 'a question mark opener|<?x y' \
+  'a closing tag then a space|</ x>' 'a closing tag then a digit|</3' 'a closing tag at the end of the line|</\nz' \
+  'a decimal numeric reference|&#8203;' 'a hex numeric reference with x|&#x200b;' \
+  'a hex numeric reference with X|&#X200B;' 'a numeric reference without a semicolon|&#8203' \
+  'shy with a semicolon|&shy;' 'shy without a semicolon|&shy' \
+  'zwnj|&zwnj;' 'zwj|&zwj;' 'lrm|&lrm;' 'rlm|&rlm;' 'ZeroWidthSpace|&ZeroWidthSpace;' \
+  'NegativeVeryThinSpace|&NegativeVeryThinSpace;' 'NegativeThinSpace|&NegativeThinSpace;' \
+  'NegativeMediumSpace|&NegativeMediumSpace;' 'NegativeThickSpace|&NegativeThickSpace;' \
+  'NoBreak|&NoBreak;' 'ApplyFunction|&ApplyFunction;' 'af|&af;' 'InvisibleTimes|&InvisibleTimes;' \
+  'it|&it;' 'InvisibleComma|&InvisibleComma;' 'ic|&ic;' \
+  'a link definition with no indent|\n[a]: b' 'a link definition with three spaces|\n   [a]: b' \
+  'a footnote definition|\n[^x]: y' \
+  'a combining grapheme joiner|\315\217' 'a variation selector 16|\357\270\217' \
+  'a variation selector 17|\363\240\204\200' 'the last variation selector 256|\363\240\207\257' \
+  'a Mongolian free variation selector|\341\240\216' 'the invisible operators U+206A|\342\201\252' \
+  'U+206F|\342\201\257' 'a Hangul filler|\343\205\244' 'a halfwidth Hangul filler|\357\276\240' \
+  'U+FFF0|\357\277\260' 'a musical symbol begin beam|\360\235\205\263'; do
+  for place in title goal detail done tests out restated; do
+    # a link definition on the detail line is refused by the column-0 rule too; the three-space row tests LDEF there
+    full "$place" "${row#*|}"
+    expect "shape bad: ${row%%|*} in $place" "bad-shape"
+  done
+done
+for row in \
+  'amp|&amp;' 'lt|&lt;' 'copy|&copy;' 'an ampersand, a hash, a space|&# x' 'a less-than then a space|< x' \
+  'a less-than then a letter|<b' 'a closing tag|</b>' 'it with no semicolon in running text|&it is' \
+  'a bracketed line indented four spaces|\n    [a]: b'; do
+  for place in title goal detail done tests out restated; do
+    full "$place" "${row#*|}"
+    expect "shape ok: ${row%%|*} in $place" "ok"
+  done
+done
+
+# The exhaustive HID fixture: every code point of the seventeen ranges matches the script's own line,
+# and the code point either side of each range does not, so a hole mid-range cannot hide behind
+# end-point fixtures. awk encodes each code point to UTF-8 and prints its bytes as octal escapes.
+eval "$(grep '^HID=' "$script")"
+cat >"$D/ranges.txt" <<'EOF'
+173 173
+847 847
+1564 1564
+4447 4448
+6068 6069
+6155 6159
+8203 8207
+8234 8238
+8288 8303
+12644 12644
+65024 65039
+65279 65279
+65440 65440
+65520 65528
+113824 113827
+119155 119162
+917504 921599
+EOF
+hid_res="$(LC_ALL=C HIDRE="$HID" awk '
+  function enc(cp) {
+    if (cp < 2048) return sprintf("%c%c", 192 + int(cp / 64), 128 + cp % 64)
+    if (cp < 65536) return sprintf("%c%c%c", 224 + int(cp / 4096), 128 + int(cp / 64) % 64, 128 + cp % 64)
+    return sprintf("%c%c%c%c", 240 + int(cp / 262144), 128 + int(cp / 4096) % 64, 128 + int(cp / 64) % 64, 128 + cp % 64)
+  }
+  function inrange(cp,   i) { for (i = 1; i <= n; i++) if (lo[i] <= cp && cp <= hi[i]) return 1; return 0 }
+  BEGIN { re = ENVIRON["HIDRE"] }
+  { lo[++n] = $1; hi[n] = $2 }
+  END {
+    for (i = 1; i <= n; i++) {
+      for (c = lo[i]; c <= hi[i]; c++) { tin++; if (enc(c) !~ re) inbad++ }
+      for (k = 0; k < 2; k++) {
+        c = k ? hi[i] + 1 : lo[i] - 1
+        if (inrange(c)) continue
+        tout++; if (enc(c) ~ re) outbad++
+      }
+    }
+    print tin + 0, inbad + 0, tout + 0, outbad + 0
+  }
+' "$D/ranges.txt")"
+set -- $hid_res
+hid_in=$1 hid_in_bad=$2 hid_out=$3 hid_out_bad=$4
+assert_eq "HID: every code point of the seventeen ranges is checked" 4174 "$hid_in"
+assert_eq "HID: every in-range code point matches" 0 "$hid_in_bad"
+assert_eq "HID: the neighbours of the ranges are checked" 34 "$hid_out"
+assert_eq "HID: no neighbour of a range matches" 0 "$hid_out_bad"
+
 
 nc; BODY="$(printf '%s\n\n### Goal\n\nx%sy\n\n### Files touched\n\n- `f1`\n\n### Done when\n\nx\n\n### Tests\n\nx\n' "$(marker)" "$(printf '\342\200\213')")"; tojson; run
 expect "bad-shape: a zero-width space in Goal of a comment" "bad-shape"
@@ -417,6 +506,17 @@ expect "bad-shape: a span failing the allowlist" "bad-shape"
 
 nc; BODY="$(printf '%s\n\n### Goal\n\nx %s y\n\n### Files touched\n\n- `f1`\n\n### Done when\n\nx\n' "$(marker)" "<!--")"; tojson; run
 expect "bad-shape: an HTML comment opener anywhere in the body" "bad-shape"
+
+# check mode: the same tests, and no git call
+nc; BODY="$(printf '%s\n\n### Goal\n\nx <!DOCTYPE y\n\n### Files touched\n\n- `f1`\n\n### Done when\n\nx\n\n### Tests\n\nx\n' "$(marker)")"; tojson; run
+expect "bad-shape: an opener in Goal of a comment" "bad-shape"
+assert_eq "bad-shape: an opener in Goal made no git call" "" "$(cat "$LOG")"
+nc; BODY="$(printf '%s\n\n### Goal\n\nx\n\n### Files touched\n\n- `f1`\n\n### Done when\n\nx\n\n### Tests\n\nx &#8203; y\n' "$(marker)")"; tojson; run
+expect "bad-shape: a numeric reference in Tests of a comment" "bad-shape"
+assert_eq "bad-shape: a numeric reference in Tests made no git call" "" "$(cat "$LOG")"
+nc; BODY="$(printf '%s\n\n### Goal\n\nx\n\n### Files touched\n\n- `f1`\n\n### Done when\n\nx%sy\n\n### Tests\n\nx\n' "$(marker)" "$(printf '\357\270\217')")"; tojson; run
+expect "bad-shape: a variation selector in Done when of a comment" "bad-shape"
+assert_eq "bad-shape: a variation selector in Done when made no git call" "" "$(cat "$LOG")"
 
 nc; BODY="$(printf '%s\n\n### Goal\n\nx\n\n### Done when\n\nx\n' "$(marker)")"; tojson; run
 expect "bad-shape: no Files touched section in a comment" "bad-shape"
