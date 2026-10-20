@@ -1675,7 +1675,9 @@ take effect. Full reasoning and the task breakdown that implements them:
     - **Session tokens (#636).** Session tokens are re-minted every 1500 seconds at most for
       the whole run, and all are revoked when the wait ends. That revocation is not yet
       verified for the stateless token format. A failed revocation, or a killed launcher,
-      leaves one live for the rest of its hour. A leaked one reaches the private contents,
+      leaves one live for the rest of its hour (for a killed launcher, the refresher can
+      finish a mint after the kill, and with a reused PID keeps minting; `wow-review`'s
+      Residuals header has the cases). A leaked one reaches the private contents,
       pull requests, issues, Actions logs and artifacts of the reviewed repo and of a
       same-owner backlog.
     - **Network.** The session reaches only the proxy (github.com and api.github.com, any
@@ -1690,7 +1692,9 @@ take effect. Full reasoning and the task breakdown that implements them:
       a confidentiality filter.
     - **The launcher's own residuals.** A misleading pass can post; the maintainer's
       code-owner approval is the backstop. The session can spend the Claude credential's
-      quota on any model for the whole timeout. Logs may hold secrets. The complete list is
+      quota on any model for the whole timeout, or, after a launcher killed outright, until
+      the session ends on its own or a later launcher's sweep removes it (nothing bounds it
+      if no later launcher reaches its sweep). Logs may hold secrets. The complete list is
       `wow-review`'s Residuals header.
     - **The host stop is skill text, not a boundary.** Until the cleanup and #400, any host
       process running as the maintainer can still mint a post-shaped reviewer token

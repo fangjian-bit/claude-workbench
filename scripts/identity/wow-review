@@ -74,16 +74,54 @@
 #    through the injector. Every session token is revoked when the wait ends, so one sent out is
 #    live only until then; that revocation is not yet verified for the stateless token format
 #    (the #636 live run measures it). A failed revocation, or a launcher killed outright, leaves
-#    a copy live for the rest of its hour. Signed URLs the session fetched with a token may
+#    a copy live for the rest of its hour (for a killed launcher, subject to the refresher
+#    exceptions in the killed-launcher bullet below). Signed URLs the session fetched with a token may
 #    outlive the revocation by minutes.
 #  - The secret rule is an accident guard: a session can encode a token past any filter.
-#  - Quota: the session can spend the Claude credential's quota on any model for the whole timeout.
+#  - Quota: the session can spend the Claude credential's quota on any model for the whole timeout,
+#    or, after a launcher killed outright, until the session ends on its own or a later launcher's
+#    sweep removes it; if no later launcher reaches its sweep, nothing bounds it.
 #  - Network reach: that the internal network reaches only the two sidecars rests on Docker's
 #    --internal and isolated-gateway behaviour (launch.sh measured it); this launcher checks the
 #    network's configuration and membership, not reachability.
 #  - Docker's own environment (DOCKER_HOST, the current context) is host configuration, used as found.
 #  - A killed launcher leaves review-host/<id>/ behind, its tokens unrevoked and live for the rest
-#    of their hour; only review-sessions/ is swept by the broker.
+#    of their hour (subject to the refresher exceptions in the next bullet); only review-sessions/
+#    is swept by the broker.
+#  - A launcher killed outright (its EXIT trap never runs) leaves its session, holder, proxy and
+#    injector containers running until a later launcher that reaches its sweep (past the lock and
+#    ledger checks) removes them once their deadline has passed: the time the launcher began creating
+#    its networks and sidecars, plus the timeout, plus 600 seconds. If no later launcher reaches its sweep, nothing
+#    removes them. Until then nothing bounds the session, since only the killed launcher's bounded
+#    wait did: it can keep running, and keep spending the Claude credential's quota through the
+#    injector (which holds that credential in memory), until it ends on its own (the review
+#    image's entrypoint execs `claude -p` with no timeout of its own) or the sweep removes it. It
+#    also keeps github.com and api.github.com reach through the proxy with its unrevoked session
+#    token. That reach ends when the last session token expires at the end of its hour only because
+#    the refresher stops at its next wake once `kill -0` on the launcher's PID fails. A mint already
+#    in flight at the kill can still finish, so that last token's hour can start after the kill.
+#    If the launcher's PID still answers `kill -0` at the refresher's next wake (a reused PID of the
+#    same user, any user's if the launcher runs as root, or the killed launcher left unreaped as a
+#    zombie), the refresher keeps re-minting the session token every REFRESH seconds, so the
+#    session keeps that reach until the sweep removes it, or until the last token minted before the
+#    refresher's first wake after that process exits or is reaped expires. The sweep removes
+#    containers only, so the refresher meanwhile keeps writing fresh session tokens into review-sessions/
+#    and a copy of each superseded one into review-host/ beyond the first tokens' hour, the session removed
+#    or not. The run's two networks and two volumes are also left, and no sweep removes them.
+#  - The 600-second margin is shared with the network and sidecar creation of section 7 and the docker
+#    and mint calls between taking the deadline and the start of the wait (each foreground docker
+#    call bounded at 120 seconds, not by the margin), so with
+#    docker slow the deadline can pass while the run is still going, and any later launcher that
+#    reaches its sweep (past the lock and ledger checks) can then remove the live run's containers,
+#    its sidecars included, before that run ends; its cap count then reads 0 and it runs too. This
+#    holds under the default WOW_REVIEW_MAX=1, since the sweeps run before the cap is counted and
+#    the live run releases the lock right after `dk start` and its inspect, before its bounded wait. Such a
+#    launcher is a maintainer running wow-review by hand (a --rerun of the same head, as the failure
+#    body invites, or a run for another PR); a wow-review-poll launch while a hand-started run is
+#    live, or a hand run while a poll's launch is live, since the poll lock serialises polls only;
+#    or a launcher on the same Docker daemon with a different WOW_HOME, since the launcher lock and
+#    the cap state live under $WOW_HOME/review-state while the sweep and the cap's `docker ps` see
+#    every container on the daemon, so such a launcher never waits on the live run's lock.
 #  - A checks-pending stop can be forced up to three times per head by a PR job that holds a
 #    required context unfinished. The cap is the bound.
 #  - Two launchers can race on a stale lock.
@@ -437,6 +475,7 @@ sweep() { # sweep <label>
 }
 sweep wow.review=1
 sweep wow.review.holder=1
+sweep wow.review.sidecar=1
 dk ps -q --filter label=wow.review=1 >"$STATE/.ps.$ID" || { rm -f "$STATE/.ps.$ID"; fail "docker ps failed; the cap cannot be counted"; }
 running=$(tr -d '\r' <"$STATE/.ps.$ID" | grep -c . || :)
 rm -f "$STATE/.ps.$ID"
@@ -469,15 +508,18 @@ CRED=$(head -n 1 "$CF" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:
 # compresses unless told not to, and refuses max-file=1 with compression on, at start, after create succeeded.
 # json-file accepts compress=false too.
 HARDEN="--read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit 512"
+DL=$(( $(date +%s) + TMO + 600 ))
 dk network create --internal -o com.docker.network.bridge.gateway_mode_ipv4=isolated "$NET" >/dev/null || fail "cannot create the internal network"
 dk network create "$EXT" >/dev/null || fail "cannot create the external network"
 # shellcheck disable=SC2086
 dkp run -d --name "$P" --network "$NET" $HARDEN --memory 256m --tmpfs /tmp:rw,nosuid,size=16m \
+  --label wow.review.sidecar=1 --label "wow.review.deadline=$DL" \
   --log-opt max-size=10m --log-opt max-file=1 --log-opt compress=false \
   -e "LOOP_ALLOW_HOSTS=github.com,api.github.com" --entrypoint python3 "$TAG" /opt/review/proxy.py >/dev/null || fail "cannot start the proxy"
 dk network connect "$EXT" "$P" >/dev/null || fail "cannot connect the proxy to the external network"
 # shellcheck disable=SC2086
 dkp create -i --name "$I" --network "$NET" $HARDEN --memory 256m --tmpfs /tmp:rw,nosuid,size=16m \
+  --label wow.review.sidecar=1 --label "wow.review.deadline=$DL" \
   --log-opt max-size=10m --log-opt max-file=1 --log-opt compress=false \
   -e "LOOP_CREDENTIAL_ENV=CLAUDE_CODE_OAUTH_TOKEN" --entrypoint python3 "$TAG" /opt/review/inject.py >/dev/null || fail "cannot create the injector"
 dk network connect "$EXT" "$I" >/dev/null || fail "cannot connect the injector to the external network"
@@ -495,7 +537,6 @@ done
 [ "$up" = 1 ] || fail "the injector did not report 'inject up'"
 
 # ---- 8. volumes and the holder ---------------------------------------------------------------
-DL=$(( $(date +%s) + TMO + 600 ))
 dk volume create --opt type=tmpfs --opt device=tmpfs --opt o=size=2g,uid=1000,gid=1000 "$WORK" >/dev/null || fail "cannot create the work volume"
 dk volume create --opt type=tmpfs --opt device=tmpfs --opt o=size=64m,uid=1000,gid=1000 "$OUTV" >/dev/null || fail "cannot create the outbox volume"
 dkp run -d --name "$H" --network none --read-only --cap-drop ALL --security-opt no-new-privileges \

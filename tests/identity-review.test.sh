@@ -280,7 +280,7 @@ case $cmd in
         [ -f "$f" ] || continue
         b=$(basename "$f" .args); lab=; dl=0; p=
         while IFS= read -r l; do
-          [ "$p" = --label ] && case $l in wow.review.deadline=*) dl=${l#*=} ;; wow.review=1|wow.review.holder=1) lab=$l ;; esac
+          [ "$p" = --label ] && case $l in wow.review.deadline=*) dl=${l#*=} ;; wow.review=1|wow.review.holder=1|wow.review.sidecar=1) lab=$l ;; esac
           p=$l
         done <"$f"
         [ -n "$lab" ] && echo "$b $lab $dl"
@@ -596,6 +596,18 @@ for pair in "proxy|$pr" "injector|$ij" "holder|$hold"; do
   assert_eq "golden: exactly three --log-opt arguments on the $who" 3 "$(printf '%s' "$call" | grep -o '\[--log-opt[]=]' | wc -l | tr -d ' ')"
   assert_eq "golden: no --log-driver argument on the $who" 0 "$(printf '%s' "$call" | grep -o '\[--log-driver[]=]' | wc -l | tr -d ' ')"
 done
+for pair in "proxy|$pr" "injector|$ij"; do
+  who=${pair%%|*}; call=${pair#*|}
+  case $call in *"[--label] [wow.review.sidecar=1]"*) ok "golden: the $who carries the sweep label" ;; *) bad "golden: the $who lacks the sweep label: $call" ;; esac
+  case $call in *"[--label] [wow.review.deadline="*) ok "golden: the $who carries a deadline label" ;; *) bad "golden: the $who lacks a deadline label: $call" ;; esac
+  case $call in *"[wow.review=1]"*) bad "golden: the $who carries the counted label" ;; *) ok "golden: the $who is not counted by the cap" ;; esac
+done
+dl_of() { printf '%s' "$1" | grep -o '\[wow.review.deadline=[0-9]*\]' | head -n 1; }
+sc=$(grep '^CALL \[create\].*wow-review-session' "$STUB/docker.calls")
+assert_eq "golden: the launcher takes its deadline in exactly one place" 1 "$(grep -c '^[[:space:]]*DL=' "$root_dir/scripts/identity/wow-review")"
+assert_eq "golden: the proxy and the holder carry one deadline" "$(dl_of "$hold")" "$(dl_of "$pr")"
+assert_eq "golden: the injector and the holder carry one deadline" "$(dl_of "$hold")" "$(dl_of "$ij")"
+assert_eq "golden: the session and the holder carry one deadline" "$(dl_of "$hold")" "$(dl_of "$sc")"
 check "golden: the internal isolated network" has "$STUB/net.create" "--internal -o com.docker.network.bridge.gateway_mode_ipv4=isolated wow-review-net-"
 assert_eq "golden: two volumes created, tmpfs-backed with the session's ownership" 2 "$(grep -c 'type=tmpfs --opt device=tmpfs --opt o=size=.*uid=1000,gid=1000' "$STUB/vol.create")"
 check "golden: the work volume is 2g and the outbox 64m" sh -c "grep -q 'size=2g' '$STUB/vol.create' && grep -q 'size=64m' '$STUB/vol.create'"
@@ -771,11 +783,12 @@ assert_eq "cap reached: no container created" 0 "$(ev_count 'docker-create')"
 check "cap reached: the lock is released" test ! -d "$home/review-state/.lock"
 
 new_case
-printf 'old1 wow.review=1 100\noldh wow.review.holder=1 100\nnodl wow.review=1\nfresh1 wow.review=1 9999999999\n' >"$STUB/preexisting"
+printf 'old1 wow.review=1 100\noldh wow.review.holder=1 100\nnodl wow.review=1\nfresh1 wow.review=1 9999999999\nsidep wow.review.sidecar=1 100\nsidei wow.review.sidecar=1 100\nsidend wow.review.sidecar=1\nsidefut wow.review.sidecar=1 9999999999\n' >"$STUB/preexisting"
 T_MAX=2; run o/r 7; unset T_MAX
 assert_eq "overdue sweep: the run proceeds under a cap of 2" 0 "$rc"
-for c in old1 oldh nodl; do check "overdue sweep: $c removed" has "$STUB/events" "docker-rm $c"; done
+for c in old1 oldh nodl sidep sidei sidend; do check "overdue sweep: $c removed" has "$STUB/events" "docker-rm $c"; done
 check "overdue sweep: a container with a future deadline is left running" test "$(grep -c 'docker-rm fresh1' "$STUB/events")" = 0
+check "overdue sweep: a sidecar with a future deadline is left running" test "$(grep -c 'docker-rm sidefut' "$STUB/events")" = 0
 
 # the ledger rule
 new_case
