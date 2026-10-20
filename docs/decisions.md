@@ -1853,7 +1853,10 @@ take effect. Full reasoning and the task breakdown that implements them:
       the review; a skill that posted and then asked for a reaction would turn that into a click.
     - **Planning time is too early.** A spec is checked against a tree, and the tree moves; the
       skill runs just in time, right before the task is next. *Reversed by `WB-D31`: the build
-      re-checks the paths the spec lists, so a spec may be drafted ahead.*
+      re-checks the paths the spec lists, so a spec may be drafted ahead.* *Amended by `#764`: the
+      reversal holds under an `identities` map only. On an `identities: null` repo `resume`'s and the
+      `coder`'s build does not re-check the paths a spec lists against the base (no
+      `spec-fresh.sh check`), so timing is still the guard there.*
   - **The rule.**
     - The skill reads `#N` only when its author is trusted, by the same
       `gh-identity.sh author` test `resume` uses, from the default branch's `identities`.
@@ -2220,7 +2223,12 @@ take effect. Full reasoning and the task breakdown that implements them:
       identity, so the label event shows a robot put it there, and it sits on the human `status/*`
       axis because it asks a human to act (`conventions.md`, `project-schema.md` § `repo`).
     - **Drafting ahead.** Because a stale spec can no longer be built from, a spec may be drafted
-      ahead for any task whose `depends_on` is met.
+      ahead for any task whose `depends_on` is met. *Amended by `#764`: this holds under an
+      `identities` map only. On an `identities: null` repo `resume`'s and the `coder`'s build prints
+      the anchored spec comment through `spec-comment.sh body` with no `spec-fresh.sh check` before it,
+      so it does not re-check the paths a spec lists against the base and drafting ahead has no such
+      backstop there (`scripts/lanes/lane.sh` refuses a non-map repo with `not-map`, so a lane never
+      reaches that legacy body read).*
   - **Why.** An approved spec is checked against the tree it was drafted on, and that tree moves.
     The old guard was timing: draft just in time, right before the task is next. That left a spec
     approved, then overtaken by a merge, then built. Checking the listed paths at the build makes

@@ -57,6 +57,7 @@ waits until `reviewer_app` and `loop_app` are present, each a null value or a ma
 
 - **`spawn-model.sh` reads `confirmed` again for a spawn on the expected model** (#749): it skips `api-request-blob` records, request-payload copies that carry no model, some with an assistant role. Tested by new fixtures in `tests/spawn-model.test.sh`.
 - **Resume's `bad-shape` waiting line names every cause** (#756): a refused hidden character, an HTML comment opener or a stray CR anywhere below the marker line, as well as a *Files touched* section the check cannot read, where it named only the section.
+- **Drafting a spec ahead is now stated for map repos only** (#764, `WB-D31`): `spec-task`'s description and body, `reference/workflow.md` and `docs/decisions.md` (`WB-D31`'s *Drafting ahead* bullet and the `WB-D26` reversal note) scope it to an `identities` map; on an `identities: null` repo no build re-checks the paths a spec lists against the base. Docs only, no behaviour change.
 
 ## [0.20.0] — 2026-10-18
 

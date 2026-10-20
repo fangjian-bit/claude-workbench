@@ -12,8 +12,9 @@ description: >-
   bin/spec-shape.sh and bin/spec-fresh.sh shape say ok, and only through bin/spec-post.sh; a declared maintainer then reacts
   on GitHub, and once they have, under a map, the readers find the comment. Never edits, deletes or reacts to
   a comment, never edits the issue, never builds. Run in a session on models.architect (or as an
-  architect subagent, its model confirmed or labelled). A spec may be drafted ahead for any task
+  architect subagent, its model confirmed or labelled). Under an identities map, a spec may be drafted ahead for any task
   whose depends_on is met: the build re-checks the paths it lists and refuses a stale one.
+  On an identities: null repo, no build re-checks the paths a spec lists against the base.
 argument-hint: "<issue number>"
 ---
 
@@ -49,10 +50,13 @@ confirm with `spawn-model.sh <agent-id> <alias>` (the id the Agent tool's own re
 Write tool: it only drafts and returns the text, and the parent session writes `draft.md`. A
 result other than `confirmed` is added by the parent under the title line as `Model provenance:
 <result> (unconfirmed)`, never dropped, so the line is part of what is posted. The parent then
-runs the shape checks and `spec-post.sh`. A spec may be drafted **ahead** for any task whose
+runs the shape checks and `spec-post.sh`. Under an `identities` map, a spec may be drafted **ahead** for any task whose
 `depends_on` is met (`WB-D31`): the base moves, but the build re-checks the paths the spec lists
 under *Files touched* against the commit in its marker (`bin/spec-fresh.sh`) and refuses a stale
-spec, so a draft that has aged is caught rather than built from.
+spec, so a draft whose listed paths changed on the base is caught rather than built from. On an
+`identities: null` repo, the build (`/way-of-working:resume` and the `coder`) does not re-check the
+paths a spec lists against the base (no `spec-fresh.sh check`), so drafting ahead has no such
+backstop there.
 
 **Draft only from the pinned tree and `#N`'s body**, never from memory, other issues or other
 session context: the comment is public.

@@ -350,9 +350,11 @@ description and cannot be mistaken for the human's approval.
   after the human confirms the diff. It stages the edit when the live write does not go
   through, and records the old and new order in a triage comment. Grounded triage, not
   design; any model.
-- **`/way-of-working:spec-task <N>`** — the spec-comment half of the Opus planning role. May
-  be run ahead for any task whose `depends_on` is met, since the build re-checks the paths the
-  spec lists and refuses a stale one (`WB-D31`): it reads the issue only when its author is
+- **`/way-of-working:spec-task <N>`** — the spec-comment half of the Opus planning role. Under
+  an `identities` map it may be run ahead for any task whose `depends_on` is met, since the build
+  re-checks the paths the spec lists and refuses a stale one (`WB-D31`); on an `identities: null`
+  repo no build re-checks the paths a spec lists against the base (no `spec-fresh.sh check`), so
+  drafting ahead has no such backstop there. It reads the issue only when its author is
   trusted (or, under a map, an App-filed issue a maintainer reacted to, `WB-D32`), drafts the spec comment in the fixed shape against the PR base's tree, then **posts it as the dev App or holds it for a human to post, and stops
   (`bin/spec-post.sh`)**. A declared maintainer reacts on GitHub, and once they have,
   under a map, the readers find it. Never edits, deletes or reacts (`WB-D29`). Runs on `models.architect`.
