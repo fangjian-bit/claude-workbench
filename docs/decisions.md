@@ -1623,7 +1623,7 @@ take effect. Full reasoning and the task breakdown that implements them:
        An App can edit comments but cannot react as another user. *Amended by `WB-D30`: the
        reaction is on the comment `spec-find.sh` selects, not on a comment the anchor names.*
     7. **App-mode review runs in a per-review container the host launches with `wow-review`
-       (#514, decided 2026-10-14; built in #634, #635 and #636, not yet live-verified).** The
+       (#514, decided 2026-10-14; built in #634, #635 and #636, live-verified 2026-10-20).** The
        reviewer must be a different identity from the PR's author, and a dev container that
        held a reviewer token would share the author session's home volume, Claude login and
        anything the authoring session planted, so "reviewer" would be a label. #509's request
@@ -1644,12 +1644,17 @@ take effect. Full reasoning and the task breakdown that implements them:
          the `inject.py` sidecar, which holds it; no `setup-token` is mounted.
        - **Replaces an open question.** "The host review session's read credential" is
          answered by the session token above. #400 (removing the host's admin `gh` logins)
-         still waits, now on the live run and on the later cleanup that deletes
+         still waits, now on the later cleanup that deletes
          `review-token.sh`, the broker's `review-tokens/` sweep and `wow-review-mint`'s
          post-shaped default path.
-       - **Status.** Built and not yet live-verified. Until the maintainer's live run
-         (`docs/identity/REVIEW-LIVE-RUN.md`) passes, this item describes a design, and #636
-         stays open for it.
+       - **Status.** Live-verified on 2026-10-20 against the scratch repository
+         (`docs/proposals/IDENTITY-SCRATCH-RESULTS.md`, sessions 8 and 9, run to
+         `docs/identity/REVIEW-LIVE-RUN.md`). The flow posted as the reviewer App with the gate
+         green, posted nothing on a moved head, and a revoked session token was
+         refused. Item 3 was answered in part, and items 4 to 7 went unanswered: the probe
+         `CLAUDE.md` was never acted on. The maintainer accepted those as unanswered on
+         2026-10-20 and declined the fallback probe session (#799). The managed-settings and
+         instruction-file residuals below say what that leaves.
   - **Rejected.**
     - **Keeping `--admin` for cursor-sync only.** It needs a bypass-capable login in the
       agent's shell, which is the exposure itself.
@@ -1673,8 +1678,9 @@ take effect. Full reasoning and the task breakdown that implements them:
     - The Claude login credential lives in each container's home volume.
     - Admin mode elevates the whole container.
     - **Session tokens (#636).** Session tokens are re-minted every 1500 seconds at most for
-      the whole run, and all are revoked when the wait ends. That revocation is not yet
-      verified for the stateless token format. A failed revocation, or a killed launcher,
+      the whole run, and all are revoked when the wait ends. The live run measured that
+      revocation for the stateless token format: a revoked copy was refused (401) one second
+      after the revoke. A failed revocation, or a killed launcher,
       leaves one live for the rest of its hour (for a killed launcher, the refresher can
       finish a mint after the kill, and with a reused PID keeps minting; `wow-review`'s
       Residuals header has the cases). A leaked one reaches the private contents,
@@ -1706,11 +1712,21 @@ take effect. Full reasoning and the task breakdown that implements them:
       --permission-mode bypassPermissions` (`--restricted` refuses `bypassPermissions`). The
       first flag keeps the PR's settings files out. It does not constrain the session.
     - **Instruction files.** The default branch's root and nested `CLAUDE.md`, and its
-      `.claude/rules/`, can load. Whether the root file does is a live-run item.
+      `.claude/rules/`, can load. The live run left open whether the root file does: the
+      session either did not load the probe file or did not follow it. So the root file is
+      still assumed to load.
       `strictPluginOnlyCustomization` does not cover them, and this rests on the default
       branch's code-owner rule, which neither the launcher nor the session checks. The skill
       refuses migration bases in the container (`base-override`) and never stays on one. A
       session working by hand can still check one out, the marker residual again.
+    - **Managed settings are not confirmed to load.** The live run did not show that the
+      review image's managed settings file loads under `--setting-sources user` (items 4 and
+      5 went unanswered, and the fallback, #799, was declined). Until a run shows it does,
+      `strictPluginOnlyCustomization` is treated as absent. The default branch's project
+      skills, agents, commands and output styles may then load into the session, which rests
+      on the same code-owner rule as the instruction files. All three sessions run with the
+      probes planted showed the default output style, not the one the probe selected. That is
+      explained by `--setting-sources user` alone, so it does not isolate the managed file.
     - **STALE-RED.** It reads as `already-reviewed`. The launcher exits 4 and posts nothing
       once the host confirms the existing reviewer-App review; otherwise it posts a failure
       review. Either way the stale gate run stays red until a human reruns it. Likewise, a

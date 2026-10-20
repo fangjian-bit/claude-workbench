@@ -3938,3 +3938,78 @@ best run after they land. #699 changes only the launcher's log.
   never printed, and revoked when done (HTTP 204, or `wow-admin --revoke`).
 - Host: tools installed into `~/.config/603id-identity/bin` from `ea6dbd8`; a Claude credential
   stored in `~/.config/603id-identity/claude-credential`. No App or org setting was changed.
+
+## Session 9 (#636): the App-mode review live run, second pass
+
+Run on 2026-10-20 against `603-Identity/identity-ruleset-scratch`, following
+[docs/identity/REVIEW-LIVE-RUN.md](../identity/REVIEW-LIVE-RUN.md) as of `9229287` (#803). The host tools were
+reinstalled into `~/.config/603id-identity` from `9229287` at 21:19:00 UTC, so the review image
+ran the session with `--output-format stream-json --verbose` and the managed-only
+`WOW_MANAGED_PROBE`. The reviewed repo pins way-of-working `v0.21.0` (scratch #29, after #28's `v0.20.0`), and
+both probes were planted on its default branch by #30, byte for byte from the sheet; after
+planting, `git grep -n WOW_MANAGED_PROBE` printed one line, probe (a)'s call 2. The PR under
+review is #31, opened after #30 merged: one file added under `s5/`, authored by `603id-dev[bot]`
+(id 340163647).
+
+Three `wow-review` runs, each on Claude Code 2.1.289 in the container:
+
+- **Run 1** (`1792531646-2327579`), head `858ddbd`, 21:27:26 to 21:30:00 UTC: `exit 0 (reviewed)`.
+- **Run 2** (`1792532031-2329134`), `--rerun` on `858ddbd`, 21:33:52 to 21:35:04: `exit 1
+  (head-moved)`. A helper watching the log pushed `f9c44e4` to #31, as `603id-dev[bot]`, at
+  21:34:43, 46 seconds after the pin line.
+- **Run 3** (`1792532180-2330041`), head `f9c44e4`, 21:36:20 to 21:38:46: `exit 0 (reviewed)`.
+
+Each log's token-shape count (the sheet's scan) was 0 before anything was read from it. The logs
+were read with the sheet's `awk` and `jq` recipes, named fields only. As the sheet's one limit
+says, every answer below is what the stream shows; a process in the session could have forged
+any of it.
+
+| Item | Result |
+|---|---|
+| 1. The skill loaded | **Pass.** In all three runs the session part's first event is `system/init`, and the first tool call is the skill's `review-outbox.sh where`, which printed `container`. In run 1 that same call printed the `WOW_REVIEW_*` variables, `WOW_REVIEW_PR=31` and `WOW_REVIEW_SHA` among them. |
+| 2. Plugin skills and agents load | **Pass.** `system/init` lists all twelve `way-of-working:` skills (29 skills in all) and the four `way-of-working:` agents (`architect`, `coder`, `docs-consistency`, `security-critic`) beside the built-ins. |
+| 3. `system/init` path | **Answered in part.** way-of-working's path is `/home/app/.claude/plugins/cache/claude-workbench/way-of-working/0.21.0`, version `0.21.0`, under the plugin cache the entrypoint requires. Probe (a)'s calls 3 and 4 never ran, and the entrypoint does not log the `installPath` it checked, so the equality the sheet asks for is not shown. Other plugins listed: three with path `builtin`, `cc-plugin-sec-default`, `cc-plugin-agents-md` and `cc-plugin-plugin-authoring`; what they load was not examined. |
+| 4. A managed `env` value reaches the session | **Unanswered.** Probe (a) never ran (see item 7). |
+| 5. Managed settings load under `--setting-sources user` | **Unanswered**, since item 4 is. `system/init` shows `analytics_disabled: true`, but the entrypoint sets `DISABLE_TELEMETRY` too, so that does not isolate the managed file. |
+| 6. A mid-session project settings file is not loaded | **Unanswered.** Probe (a)'s calls 5 to 9 never ran. |
+| 7. Root `CLAUDE.md` under `--setting-sources user` | **Unanswered: not loaded, or loaded and not followed.** None of the 13, 7 and 13 tool calls of the three runs is a probe call, and none names `CLAUDE.md`; no tool result holds the probe's first line. |
+| 8. Output styles | **Answered: not active under these flags.** `system/init`'s `output_style` is `default` in all three runs, and no final message starts with `WOWSTYLE` (each run has its `result` event). The selecting settings file is the project's, which `--setting-sources user` does not read, so this does not isolate `strictPluginOnlyCustomization`. |
+| 9. Tag rulesets on the marketplace repo | **Pass**, re-read on 2026-10-20 as an admin (Seuss27, `.permissions.admin` true), unchanged from session 8: `protected-release-tags` (20554576) `active`, target `tag`, include `refs/tags/v*`, rules `deletion`, `non_fast_forward`, `update`, `bypass_actors` empty; `release-tag-creation` (23936220) `active`, target `tag`, include `refs/tags/v*`, rule `creation`, one bypass actor, Integration 5051322, mode `always`. |
+| 10. One review through `wow-review` as the reviewer App | **Pass, twice.** Run 1: review 5591976826 by `603id-review[bot]` (id 340164886), `COMMENTED`, `commit_id` `858ddbd`, submitted 21:29:39. Run 3: review 5592085482, same author and state, `commit_id` `f9c44e4`, submitted 21:38:26. `architect-review` was `success` on each head afterwards. No findings were filed. Each run's gate poll logged `failure, not posted after the review` once, then `success`: #718's wait on the pre-review state, not a fault. |
+| 11. A moved head posts nothing | **Pass.** Run 2's session wrote `review-outbox.sh outcome stopped "$WOW_REVIEW_PR" "$WOW_REVIEW_SHA" head-moved`, carrying the pinned SHA. The launcher logged `the head moved (f9c44e4…); nothing posted, entry kept` and exited 1; #31 still had only run 1's review. Run 3 then reviewed the new head (item 10). |
+| 12. Session-token revocation | **Pass.** In run 3 the launcher logged `revoked a session token (…/copy-m0)` at 21:38:11. A helper in a second shell then called `repos/603-Identity/identity-ruleset-scratch` once with that copy, in place, at 21:38:12: `HTTP/2.0 401 Unauthorized`. The revoked token was refused at once, so it had no lifetime after the revoke to measure. Afterwards `review-host/` and `review-sessions/` were empty. |
+
+**Why probe (a) never ran.** It depends on the session acting on the root `CLAUDE.md`, and in
+three sessions it did not. The stream cannot tell "not loaded" from "loaded and not followed".
+The fallback that does not depend on `CLAUDE.md`, a scripted probe session (#799), was declined.
+
+## Status against the live-run sheet
+
+Items 1, 2 and 9 to 12 pass, item 8 is answered, item 3 is answered in part, and items 4 to 7
+are unanswered. On 2026-10-20 the maintainer accepted item 3's missing comparison and items 4 to
+7 as unanswered, and declined #799. The reasons:
+
+- **Item 6:** the session already runs with `bypassPermissions`, so a settings file it writes
+  gains it nothing (the entrypoint's `--setting-sources user` residual).
+- **Item 7:** the `WB-D24` instruction-file residual already assumes the root `CLAUDE.md` loads.
+- **Items 4 and 5:** if the managed file does not load, `strictPluginOnlyCustomization` is absent.
+  What that would let in sits on the same default branch, behind the same code-owner rule, as
+  `CLAUDE.md`. `WB-D24` now carries that as its own residual.
+
+`WB-D24` item 7 is marked live-verified, and #636 closes. The poller (#626) may be registered once
+the probe cleanup (scratch #32) merges.
+
+## Configuration changes made during session 9
+
+- `glunk-works/claude-workbench`: v0.21.0 released (#801) and pinned here (#802); #803 (#798)
+  merged.
+- `603-Identity/identity-ruleset-scratch`: #28 (pin `v0.20.0`), #29 (pin `v0.21.0`) and #30 (the
+  probes) merged, all by `603id-dev[bot]`. #31 (the reviewed PR) is open and not to be merged.
+  #32, which removes both probes and the `outputStyle` key, is open for the maintainer's approval.
+  The contents API's `DELETE` gave unverified commits for the App, unlike its `PUT`, so #32's
+  branch was remade as one `createCommitOnBranch` commit, which GitHub signed.
+- Tokens: six dev-App tokens (`contents`/`pull_requests` write, scoped to the scratch repo), for
+  #28, #29, #30, #31, the item 11 push and #32. Each was minted to a file, never printed, its
+  viewer checked as `603id-dev[bot]`, and revoked when done (HTTP 204).
+- Host: tools reinstalled into `~/.config/603id-identity/bin` from `9229287`. No App or org
+  setting was changed.

@@ -10,10 +10,10 @@
 # host-minted filing token. The session writes the outbox and its text is shaped by the PR it
 # reviews, so every label the launcher acts on is checked here on the host first.
 #
-# STATUS: built against stubs only, not yet live-verified. The session side is built (#636):
-# the review skill writes the outbox through bin/review-outbox.sh inside the container and posts
-# nothing. The live run, and its checklist (docs/identity/REVIEW-LIVE-RUN.md), are the
-# maintainer's.
+# STATUS: live-verified on 2026-10-20 (#636; docs/proposals/IDENTITY-SCRATCH-RESULTS.md,
+# session 9). The session side (#636): the review skill writes the outbox through
+# bin/review-outbox.sh inside the container and posts nothing. The live-run checklist is
+# docs/identity/REVIEW-LIVE-RUN.md.
 #
 # Runs from the installed copy in $WOW_HOME/bin, never from a checkout (install-host-tools.ps1),
 # beside wow-common.sh, wow-review-mint, token-check.sh, gh-identity.sh and review-gate-state.sh.
@@ -64,8 +64,8 @@
 # Docker's own cap on the session (`max-size=10m`, `max-file=1`) restarts the log when it fills,
 # so a long stream can lose its start, `system/init` included, before the launcher reads it.
 # The launcher tried to revoke every unexpired session token it still held before the log was
-# written; a `revocation FAILED` line means that token lives out its hour, and whether a
-# successful revocation takes effect is #636 item 12. The broker sweeps review-logs/ by age.
+# written; a `revocation FAILED` line means that token lives out its hour. The broker sweeps
+# review-logs/ by age.
 #
 # Residuals:
 #  - A misleading pass can post. The checks are mechanical, not a judgement of the review's
@@ -79,8 +79,8 @@
 #    api.github.com (private contents, issues, Actions logs and artifacts of the repo and a
 #    same-owner backlog). Its inference traffic goes to the maintainer's own Anthropic account
 #    through the injector. Every session token is revoked when the wait ends, so one sent out is
-#    live only until then; that revocation is not yet verified for the stateless token format
-#    (the #636 live run measures it). A failed revocation, or a launcher killed outright, leaves
+#    live only until then; the #636 live run measured that revocation for the stateless token
+#    format (a revoked copy was refused one second after the revoke). A failed revocation, or a launcher killed outright, leaves
 #    a copy live for the rest of its hour (for a killed launcher, subject to the refresher
 #    exceptions in the killed-launcher bullet below). A superseded token whose copy failed is never
 #    revoked, and no log line marks that. Signed URLs the session fetched with a token may
@@ -558,7 +558,7 @@ dkp run -d --name "$H" --network none --read-only --cap-drop ALL --security-opt 
 # ---- 9. create, preflight, re-mint, start, unlock --------------------------------------------
 # The home tmpfs takes `exec`: the plugin is installed under it and its scripts are run by name. /work already
 # allows execution, so noexec on the home tmpfs stopped the plugin's own scripts without stopping anything the
-# session could not already run (its SessionStart hook is switched off by the image's managed settings).
+# session could not already run.
 # nosuid stays, and so does Docker's default nodev.
 dkp create --name "$S" --label wow.review=1 --label "wow.review.deadline=$DL" --network "$NET" \
   --read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit 512 --memory 4g --cgroupns private --ipc private \

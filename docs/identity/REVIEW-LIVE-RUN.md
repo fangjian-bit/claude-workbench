@@ -1,9 +1,8 @@
 # App-mode review live run: `wow-review` and the review container
 
 For #636 (WB-D24 item 7). The launcher (`scripts/identity/wow-review`, #635), the review image
-(#634) and the skill's container mode (#636) are each tested against stubs only. No real session
-has written an outbox, and no review has been posted through this flow. This sheet is the
-maintainer's one-time run that closes that gap. A session cannot start itself in the container,
+(#634) and the skill's container mode (#636) were built against stubs. This sheet is the
+maintainer's one-time live run of them. A session cannot start itself in the container,
 so the maintainer launches it.
 
 Record results in `docs/proposals/IDENTITY-SCRATCH-RESULTS.md` as a new session, in the same
@@ -111,7 +110,7 @@ outside it.
   any event, `system/init` included. Each answer is recorded as what the stream shows, and the
   record says so once.
 - **Unanswered items** are recorded as unanswered, with what the stream showed. The fallback for
-  items 4, 6 and 7 is #799.
+  items 4, 6 and 7 was #799, which the maintainer declined on 2026-10-20 (`WB-D24` item 7).
 
 ## Items
 
@@ -192,8 +191,9 @@ scratch default branch.
 
 ## After the live run: the poller (#626)
 
-Once every item above has passed, and not before, register the poller that launches `wow-review`
-for open PR heads without a human. Create `$WOW_HOME/review-poll.json`, shaped
+Once every item above has passed or been accepted by the maintainer as unanswered (`WB-D24` item
+7), and the cleanup above has merged, and not before, register the poller that launches
+`wow-review` for open PR heads without a human. Create `$WOW_HOME/review-poll.json`, shaped
 `{"repos": ["owner/name"]}`, then run `scripts/identity/register-review-poll-task.ps1` from a
 PowerShell 7.2+ prompt (`-IntervalMinutes` 2 to 60, default 5; pass `-Sh` as Git for Windows' `bin\sh.exe`, never `usr\bin\sh.exe`). Its decisions are in
 `$WOW_HOME/review-poll.log`. To stop it, run the same script with `-Unregister`.
