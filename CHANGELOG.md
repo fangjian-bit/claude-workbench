@@ -55,6 +55,7 @@ waits until `reviewer_app` and `loop_app` are present, each a null value or a ma
 ### Fixed
 
 - **`spawn-model.sh` reads `confirmed` again for a spawn on the expected model** (#749): it skips `api-request-blob` records, request-payload copies that carry no model, some with an assistant role. Tested by new fixtures in `tests/spawn-model.test.sh`.
+- **Resume's `bad-shape` waiting line names every cause** (#756): a refused hidden character, an HTML comment opener or a stray CR anywhere below the marker line, as well as a *Files touched* section the check cannot read, where it named only the section.
 
 ## [0.20.0] — 2026-10-18
 

@@ -251,9 +251,10 @@ edited it. **Default to the full checklist whenever unsure.**
        - `bad-marker` or `bad-sha` — `Spec approval: waiting — spec comment <CID>'s marker does
          not match #N or its commit is not on <base>; draft a new one with
          /way-of-working:spec-task <N> and remove the reaction from <CID>.`
-       - `bad-shape` — ``Spec approval: waiting — spec comment <CID>'s Files touched section
-         cannot be checked (one "- `path`" bullet per file, no hidden text); draft a new one with
-         /way-of-working:spec-task <N> and remove the reaction from <CID>.``
+       - `bad-shape` — ``Spec approval: waiting — spec comment <CID> cannot be checked (a
+         refused hidden character, an HTML comment opener or a stray CR anywhere below the marker
+         line, or a Files touched section the check cannot read: one "- `path`" bullet per file);
+         draft a new one with /way-of-working:spec-task <N> and remove the reaction from <CID>.``
        - `unreadable` — `Spec approval: waiting — the freshness check could not run; resume
          again.`
 
