@@ -19,7 +19,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 `v0.5.0` are summarized from their tags; the full record is `docs/decisions.md` (`WB-D*`) and
 the GitHub release notes.
 
-## [Unreleased]
+## [0.21.0] — 2026-10-20
 
 **⚠️ Migration** — on a map repo a build now refuses, as `bad-shape`, an approved spec whose body
 carries a zero-width, bidi, soft hyphen or Unicode tag character anywhere, not only in *Files touched*
@@ -59,7 +59,10 @@ refuses a draft without a critic line, so re-posting a body drafted before this 
   writes them to the cursor's new `lanes` field and `/way-of-working:resume` prints a `Lanes:` line
   and compares it with the record. The new key `lanes` (`null` or `{ dir }`) is optional and never
   asked (`reference/project-schema.md` § `lanes`). No consuming repo needs a migration: a repo opts in
-  by adding `lanes` to its project file.
+  to the lane state by adding `lanes` to its project file.
+  **Behaviour change:** the compaction hooks are not gated on `lanes`. In every consuming repo, a
+  session in the main worktree of a checkout with `.ai/project.yml` now gets the hooks' compaction
+  instructions and a "run `/way-of-working:handoff`" line after an automatic compaction.
 
 ### Changed
 
@@ -67,7 +70,8 @@ refuses a draft without a critic line, so re-posting a body drafted before this 
   rule, unattended, under the same cap; a converged draft is posted with a critic line, a draft that hits the cap
   or stops converging is posted through `spec-post.sh escalate` with its open findings. `spec-post.sh` stops
   `no-critic-line` on a draft without a well-formed critic line for its mode. Nothing writes to Slack.
-- `spec-post.sh escalate` posts a draft under the `spec-task-escalated:` marker and adds `status/needs-human`; `spec-find.sh find` prints `escalated <ids>` and `pending` counts a newer escalated comment. `spec-task` calls the mode as of #629, in the same release as this finder.
+- `spec-post.sh escalate` posts a draft under the `spec-task-escalated:` marker and adds `status/needs-human` when the repository has that label (otherwise it reports `label-absent` and writes no label); `spec-find.sh find` prints `escalated <ids>` and `pending` counts a newer escalated comment (#746). `spec-task` calls the mode as of #629, in the same release as this finder.
+  **Behaviour change:** `reference/conventions.md` names `status/needs-human` as an un-namespaced label a machine writes, the declared dev App under its own identity, so an adopter's automation keyed to that label (an `issues: labeled` workflow, for example) now also fires on the dev App's write.
 - **`spec-task` refuses a declared App id on the maintainer list** (#759): `spec-issue.sh` and `spec-post.sh` stop `unreadable` under a map, for a maintainer or App author, when any declared App's id is on `identities.maintainer` or an App entry is neither null nor well formed or its id is not canonical decimal, or, for a maintainer's issue too, `identities.maintainer` carries an entry that is not well formed, which passed before, all before the issue's reactions are read; `WB-D30` residual 7 is amended.
 - **No declared App is a spec approver** (#708): `spec-find.sh`, `spec-comment.sh` and
   `scripts/loop/preflight.sh github-dispatch` refuse a config that lists the id of the dev, reviewer or
@@ -75,7 +79,7 @@ refuses a draft without a critic line, so re-posting a body drafted before this 
   resume passes; `WB-D30` residual 7 is amended.
 - **`spec-fresh.sh` refuses a hidden character anywhere in a spec comment** (#709, `WB-D31`): `check` and
   `shape` print `bad-shape` for a `HID` character on any line of the body, `HID` gains the soft hyphen
-  (U+00AD) and the Unicode tag block (U+E0000 to U+E007F) in all three copies, and the `hidden` screen of
+  (U+00AD) and the Unicode tag block (U+E0000 to U+E007F, widened to U+E0000 to U+E0FFF by #757 below) in all three copies, and the `hidden` screen of
   `spec-issue.sh` and `spec-post.sh` for App-filed issues is wider by the same two ranges.
   **Behaviour change, `identities: null` repos:** `spec-task`'s `spec-fresh.sh shape` gate has no map
   condition, so a draft carrying such a character is refused on every repo.
@@ -89,7 +93,7 @@ refuses a draft without a critic line, so re-posting a body drafted before this 
 ### Fixed
 
 - **`spawn-model.sh` reads `confirmed` again for a spawn on the expected model** (#749): it skips `api-request-blob` records, request-payload copies that carry no model, some with an assistant role. Tested by new fixtures in `tests/spawn-model.test.sh`.
-- **Resume's `bad-shape` waiting line names every cause** (#756): a refused hidden character, an HTML comment opener or a stray CR anywhere below the marker line, as well as a *Files touched* section the check cannot read, where it named only the section.
+- **Resume's `bad-shape` waiting line names every cause** (#756): a refused hidden character, a markup opener (after #757: `<!` or `<?`, a bogus closing tag, a link reference definition, or a numeric or named invisible reference) or a stray CR anywhere below the marker line, as well as a *Files touched* section the check cannot read, where it named only the section.
 - **Drafting a spec ahead is now stated for map repos only** (#764, `WB-D31`): `spec-task`'s description and body, `reference/workflow.md` and `docs/decisions.md` (`WB-D31`'s *Drafting ahead* bullet and the `WB-D26` reversal note) scope it to an `identities` map; on an `identities: null` repo no build re-checks the paths a spec lists against the base. Docs only, no behaviour change.
 
 ## [0.20.0] — 2026-10-18
