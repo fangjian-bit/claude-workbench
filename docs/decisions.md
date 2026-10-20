@@ -2186,7 +2186,12 @@ take effect. Full reasoning and the task breakdown that implements them:
   `#661`. Reverses `WB-D26`'s "just in time" and "`resume` never invokes `spec-task`" rules, and
   amends `WB-D30` residual 10: the marker is now also read by `spec-fresh.sh`, after
   `spec-comment.sh check`. Built as `bin/spec-fresh.sh`, `bin/draft-identity.sh` and
-  `spec-find.sh pending`. Both behaviours apply under an `identities` map only.
+  `spec-find.sh pending`. Both behaviours apply under an `identities` map only. *Amended by `#744`:
+  the two behaviours are the freshness check and `resume`'s drafting branch (its stale-branch
+  redraft included), and drafting ahead has a backstop (the freshness check) under a map only.
+  The `spec-fresh.sh shape` gate `spec-task` runs on its own draft is not one of them: it applies
+  on every repo, `identities: null` included, and on an `identities: null` repo it checks the
+  draft's shape only, since no build there re-checks freshness.*
   - **The decision.**
     - **Freshness.** Before a build uses a found spec, the paths its *Files touched* section lists
       are compared between the commit in its `spec-task:` marker (`sha=`) and the current tip of
