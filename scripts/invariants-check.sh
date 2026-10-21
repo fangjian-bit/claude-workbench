@@ -1270,7 +1270,7 @@ done
 if [ -n "$ta_hits" ]; then
   report "a task-issue author reader is on the old verb, or a reader is missing (#664)" \
     "$ta_hits" \
-    "Judge the task issue's author with gh-identity.sh task-author (trusted or agent passes under a map); author is for comment and PR authors (and plan-sprint's display)."
+    "Judge the task issue's author with gh-identity.sh task-author (trusted or agent passes under a map); author is for comment and PR authors."
 fi
 fi
 
