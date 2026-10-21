@@ -392,12 +392,13 @@ $ATTTXT
 Reviewed against head $SHA
 
 Looks fine."
-  rm -f "$STUB/outbox/findings.json"
+  rm -f "$STUB/outbox/findings.json" "$STUB/outbox/verdict"
 }
 
 set_outcome() { printf '%s\n' "$1" >"$STUB/outbox/outcome"; }
 set_body() { printf '%s\n' "$1" >"$STUB/outbox/review.md"; }
 set_findings() { printf '%s\n' "$1" >"$STUB/outbox/findings.json"; }
+set_verdict() { printf '%s\n' "$1" >"$STUB/outbox/verdict"; }
 set_compare() { # set_compare <status> <ahead_by> <files json or 'none'>
   if [ "$3" = none ]; then
     printf '{"status":"%s","ahead_by":%s}\n' "$1" "$2" >"$STUB/gh/repos_o_r_compare_${TIP}...${SHA}"
@@ -976,6 +977,41 @@ printf '[%s]\n' "$(review_doc 4242 "$SHA" COMMENTED '"2026-10-15T10:00:00Z"' 'wr
 run o/r 7
 expect_failure_post "already-reviewed (the review's header differs)" bad-outcome
 
+vbody() { printf '%s\n\n%s\n\nReview verdict: %s\n\nrest' "$HDRTXT" "$ATTTXT" "$1"; }
+for vc in \
+  "latest pass|4|pass:2026-10-15T10:00:00Z" \
+  "latest old form|4|old:2026-10-15T10:00:00Z" \
+  "latest changes-needed|F|changes-needed:2026-10-15T10:00:00Z" \
+  "changes-needed after an earlier pass|F|pass:2026-10-15T10:00:00Z changes-needed:2026-10-15T11:00:00Z" \
+  "pass after an earlier changes-needed|4|changes-needed:2026-10-15T10:00:00Z pass:2026-10-15T11:00:00Z" \
+  "equal times, the later in list order decides (pass)|4|changes-needed:2026-10-15T10:00:00Z pass:2026-10-15T10:00:00Z" \
+  "equal times, the later in list order decides (changes-needed)|F|pass:2026-10-15T10:00:00Z changes-needed:2026-10-15T10:00:00Z" \
+  "a malformed verdict line|F|bogus:2026-10-15T10:00:00Z"; do
+  vlabel=${vc%%|*}; vrest=${vc#*|}; vexp=${vrest%%|*}; vlist=${vrest#*|}
+  new_case; set_outcome "already-reviewed 7 $SHA"
+  vdocs=
+  for item in $vlist; do
+    vw=${item%%:*}; vt=${item#*:}
+    case $vw in
+      old) vb="$HDRTXT
+
+$ATTTXT
+
+other text" ;;
+      bogus) vb=$(vbody 'maybe') ;;
+      *) vb=$(vbody "$vw") ;;
+    esac
+    vdocs="${vdocs:+$vdocs,}$(review_doc 4242 "$SHA" COMMENTED "\"$vt\"" "$vb")"
+  done
+  printf '[%s]\n' "$vdocs" >"$STUB/gh/repos_o_r_pulls_7_reviews"
+  run o/r 7
+  if [ "$vexp" = 4 ]; then
+    assert_eq "already-reviewed ($vlabel): exit 4" 4 "$rc"; no_post "already-reviewed ($vlabel)"
+  else
+    expect_failure_post "already-reviewed ($vlabel)" bad-outcome
+  fi
+done
+
 new_case; set_outcome "exempt 7 $SHA"
 run o/r 7
 assert_eq "exempt (only non-trigger paths): exit 4" 4 "$rc"; no_post "exempt"
@@ -1012,6 +1048,50 @@ new_case; set_outcome "exempt 7 $SHA"
 printf '{"check_runs":[{"name":"gate","status":"completed","conclusion":"skipped"}]}\n' >"$STUB/gh/repos_o_r_commits_${SHA}_check-runs"
 run o/r 7
 assert_eq "exempt: a gate check reading skipped changes nothing (still exempt)" 4 "$rc"
+
+# =========================================================================================
+# --- the verdict line: host-inserted at zero-based line 4, or a bad-verdict failure ---------
+# =========================================================================================
+for w in pass changes-needed; do
+  new_case; set_verdict "$w"
+  run o/r 7
+  assert_eq "verdict $w: exit 0" 0 "$rc"
+  assert_eq "verdict $w: one review POST" 1 "$(n_posts)"
+  assert_eq "verdict $w: the body, the verdict line after the attestation, then the rest" \
+    "$HDRTXT
+
+$ATTTXT
+
+Review verdict: $w
+
+
+Reviewed against head $SHA
+
+Looks fine.
+
+Host: no findings to file" "$(post_body)"
+  assert_eq "verdict $w: line 4 is the verdict line" "Review verdict: $w" "$(post_body | sed -n 5p)"
+  assert_eq "verdict $w: lines 0 and 2 are the header and attestation" "$HDRTXT|$ATTTXT" "$(post_body | sed -n 1p)|$(post_body | sed -n 3p)"
+done
+new_case
+run o/r 7
+assert_eq "no verdict file: the body has no verdict line" 0 "$(post_body | grep -c '^Review verdict:' || true)"
+for bv in maybe 'Pass' 'pass changes-needed' ''; do
+  new_case; set_verdict "$bv"
+  run o/r 7
+  expect_failure_post "a malformed verdict [$bv]" bad-verdict
+done
+new_case; printf 'pass\nchanges-needed\n' >"$STUB/outbox/verdict"
+run o/r 7
+expect_failure_post "a two-line verdict" bad-verdict
+new_case; set_verdict pass; mkdir -p "$STUB/outbox/verdict.d"; rm -f "$STUB/outbox/verdict"; mkdir "$STUB/outbox/verdict"
+run o/r 7
+expect_failure_post "a verdict that is a directory" bad-verdict
+rm -rf "$STUB/outbox/verdict" "$STUB/outbox/verdict.d"
+new_case; set_verdict pass; set_findings '[{"title":"T","body":"b","type":"bug"}]'
+run o/r 7
+assert_eq "verdict with findings: the footer follows the body" "Host: 1 findings will be filed in o/r" "$(post_body | tail -1)"
+assert_eq "verdict with findings: line 4 is the verdict line" "Review verdict: pass" "$(post_body | sed -n 5p)"
 
 # =========================================================================================
 # --- outcomes: review and the failure reviews -----------------------------------------------

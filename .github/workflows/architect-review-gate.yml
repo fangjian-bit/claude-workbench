@@ -5,7 +5,9 @@ name: architect-review-gate
 # touches nothing under the gate's triggers, or whose head carries a fresh-session review by the
 # declared reviewer App; `failure` when that is not so. A config or API error posts nothing and fails the job. The config checks, the exemption and the review
 # match are copies of the gate-relevant parts of scripts/identity/wow-review (its config checks
-# through reviewer_app.id, `decide_exempt` and `decide_already`); change them together.
+# through reviewer_app.id, `decide_exempt` and `decide_already`); change them together. The review
+# match reads the latest matching review's `Review verdict:` line (WB-D38): `changes-needed` posts
+# `failure`. It is still a copy of `decide_already`'s; tests/review-verdict.test.sh holds the two equal.
 
 on:
   pull_request:
@@ -104,12 +106,27 @@ jobs:
             gh api --paginate "repos/$REPO/pulls/$PR/reviews" \
               --jq '.[] | {uid: .user.id, commit_id: .commit_id, state: .state, submitted_at: .submitted_at, body: .body}' >"$REV" \
               || fail "cannot read the PR's reviews"
-            if jq -e -s --argjson rid "$RID" --arg sha "$SHA" --arg h "$HDR" --arg a "$ATT" '
-                any(.[]; .uid == $rid and .commit_id == $sha and .state == "COMMENTED" and .submitted_at != null
-                         and (((.body // "") | split("\n")) as $l | ($l[0] == $h and $l[2] == $a)))' <"$REV" >/dev/null; then
-              STATE=success
-              DESC="Fresh-session review posted on this head"
-            fi
+            VWORD=$(jq -r -s --argjson rid "$RID" --arg sha "$SHA" --arg h "$HDR" --arg a "$ATT" '
+                [.[] | select(.uid == $rid and .commit_id == $sha and .state == "COMMENTED" and .submitted_at != null
+                              and (((.body // "") | split("\n")) as $l | ($l[0] == $h and $l[2] == $a)))
+                     | {t: .submitted_at, v: (((.body // "") | split("\n"))[4] // "")}]
+                | if length == 0 then "none"
+                  else (to_entries | max_by([.value.t, .key]) | .value.v) as $v
+                       | if $v == "Review verdict: pass" then "success"
+                         elif ($v | startswith("Review verdict:")) then "blocking"
+                         else "success" end
+                  end
+                ' <"$REV") || fail "the review match failed"
+            case $VWORD in
+              success)
+                STATE=success
+                DESC="Fresh-session review posted on this head" ;;
+              blocking)
+                STATE=failure
+                DESC="Review on this head found blocking issues" ;;
+              none) ;;
+              *) fail "the review match printed an unexpected word" ;;
+            esac
           else
             DESC="Could not verify the changed files"
           fi

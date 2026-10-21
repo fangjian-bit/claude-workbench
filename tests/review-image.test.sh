@@ -81,7 +81,8 @@ clear_obx
 printf 'stopped 12 %s entry-env\n' "$(printf 'a%.0s' $(seq 1 40))" >"$obx/outcome"
 printf '# Review\n\tindented h\303\251llo \342\200\256 lone \233 byte\n' >"$obx/review.md"
 printf '{"findings": []}\n' >"$obx/findings.json"
-for pair in outcome:outcome body:review.md findings:findings.json; do
+printf 'changes-needed\n' >"$obx/verdict"
+for pair in outcome:outcome body:review.md findings:findings.json verdict:verdict; do
   sub=${pair%%:*}; file=${pair#*:}
   orun "$sub"
   assert_eq "outbox-read: $sub prints its file: exit 0" 0 "$orc"
@@ -91,7 +92,7 @@ done
 ok "outbox-read: the stated residuals pass (U+202E and a lone 0x9b byte are in review.md above)"
 
 clear_obx
-for sub in outcome body findings; do
+for sub in outcome body findings verdict; do
   orun "$sub"
   assert_eq "outbox-read: a missing $sub exits 3" 3 "$orc"
   assert_eq "outbox-read: a missing $sub prints nothing" "" "$oout"
@@ -112,6 +113,19 @@ clear_obx; printf 'no final newline' >"$obx/outcome"; refused "an outcome with n
 clear_obx; printf 'bad \303\251 byte\n' >"$obx/outcome"; refused "an outcome with a byte above 0x7e" outcome
 clear_obx; printf 'bad\ttab\n' >"$obx/outcome"; refused "an outcome with a tab" outcome
 clear_obx; printf '' >"$obx/outcome"; refused "an empty outcome" outcome
+clear_obx; printf 'pass\n' >"$obx/verdict"
+orun verdict; assert_eq "outbox-read: a one-line verdict exits 0" 0 "$orc"
+assert_eq "outbox-read: a one-line verdict prints the word" pass "$oout"
+clear_obx; printf 'pass\nchanges-needed\n' >"$obx/verdict"; refused "a two-line verdict" verdict
+assert_eq "outbox-read: a two-line verdict names its own word" bad-verdict "$oerr"
+clear_obx; { head -c 64 /dev/zero | tr '\000' 'a'; echo; } >"$obx/verdict"; refused "an over-cap verdict" verdict
+clear_obx; printf 'pass\033\n' >"$obx/verdict"; refused "a verdict with an ESC byte" verdict
+assert_eq "outbox-read: a verdict with an ESC byte names bad-verdict" bad-verdict "$oerr"
+clear_obx; printf 'pa\000ss\n' >"$obx/verdict"; refused "a verdict with a NUL byte" verdict
+clear_obx; printf 'pass' >"$obx/verdict"; refused "a verdict with no final newline" verdict
+clear_obx; printf '' >"$obx/verdict"; refused "an empty verdict" verdict
+clear_obx; printf 'pass \303\251\n' >"$obx/verdict"; refused "a verdict with a byte above 0x7e" verdict
+clear_obx; mkdir "$obx/verdict"; refused "a directory (verdict)" verdict
 clear_obx; printf 'a\033[31mred\n' >"$obx/review.md"; refused "a body with an ESC byte" body
 clear_obx; printf 'a\rb\n' >"$obx/review.md"; refused "a body with a carriage return" body
 clear_obx; printf 'a\302\233b\n' >"$obx/review.md"; refused "a body with the bytes 0xc2 0x9b" body

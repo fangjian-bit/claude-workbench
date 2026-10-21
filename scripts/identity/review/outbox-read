@@ -8,16 +8,17 @@
 #   outbox-read outcome    prints /review-out/outcome        (cap 512 bytes)
 #   outbox-read body       prints /review-out/review.md      (cap 65536 bytes)
 #   outbox-read findings   prints /review-out/findings.json  (cap 32768 bytes)
+#   outbox-read verdict    prints /review-out/verdict        (cap 64 bytes)
 #
 # Exit 0: printed. Exit 3: the file is absent (nothing printed). Exit 2: bad usage. Exit 1: a
 # refusal -- nothing on stdout, one fixed reason word on stderr: symlink, not-regular, too-big,
-# nul, bad-outcome or control.
+# nul, bad-outcome, bad-verdict or control.
 #
 # One read: after the regular-file, not-a-symlink check the file is copied once, at most cap+1
 # bytes, with `timeout 10 head -c`, into a mktemp file; every later check runs on that copy and
 # only the copy is printed, so the bytes printed are the bytes checked.
 #
-# outcome must be exactly one newline-terminated line of printable ASCII (0x20 to 0x7e). body and
+# outcome and verdict must each be exactly one newline-terminated line of printable ASCII (0x20 to 0x7e). body and
 # findings refuse any C0 control byte except tab and newline (0x01 to 0x08, 0x0b to 0x1f), 0x7f,
 # and the UTF-8 encodings of C1 controls (0xc2 0x80 to 0xc2 0x9f); that refuses escape sequences
 # and carriage returns. Two things still pass: bidirectional-override characters such as U+202E,
@@ -30,13 +31,14 @@ outbox='/review-out'
 
 die() { printf '%s\n' "$1" >&2; exit 1; }
 
-usage() { echo "usage: outbox-read outcome|body|findings" >&2; exit 2; }
+usage() { echo "usage: outbox-read outcome|body|findings|verdict" >&2; exit 2; }
 
 [ "$#" -eq 1 ] || usage
 case $1 in
   outcome)  f=$outbox/outcome;        cap=512 ;;
   body)     f=$outbox/review.md;      cap=65536 ;;
   findings) f=$outbox/findings.json;  cap=32768 ;;
+  verdict)  f=$outbox/verdict;        cap=64 ;;
   *) usage ;;
 esac
 kind=$1
@@ -56,12 +58,13 @@ size=$(wc -c <"$tmp" | tr -d ' ')
 # left is a refusal.
 [ "$(LC_ALL=C tr -d '\001-\377' <"$tmp" | wc -c | tr -d ' ')" -eq 0 ] || die nul
 
-if [ "$kind" = outcome ]; then
+if [ "$kind" = outcome ] || [ "$kind" = verdict ]; then
   # Exactly one line: one newline, and it is the last byte; every byte printable ASCII.
-  [ "$size" -ge 1 ] || die bad-outcome
-  [ "$(LC_ALL=C tr -cd '\n' <"$tmp" | wc -c | tr -d ' ')" -eq 1 ] || die bad-outcome
-  [ "$(LC_ALL=C tail -c 1 "$tmp" | od -An -tx1 | tr -d ' ')" = 0a ] || die bad-outcome
-  [ "$(LC_ALL=C tr -d '\040-\176\n' <"$tmp" | wc -c | tr -d ' ')" -eq 0 ] || die bad-outcome
+  bad=bad-$kind
+  [ "$size" -ge 1 ] || die "$bad"
+  [ "$(LC_ALL=C tr -cd '\n' <"$tmp" | wc -c | tr -d ' ')" -eq 1 ] || die "$bad"
+  [ "$(LC_ALL=C tail -c 1 "$tmp" | od -An -tx1 | tr -d ' ')" = 0a ] || die "$bad"
+  [ "$(LC_ALL=C tr -d '\040-\176\n' <"$tmp" | wc -c | tr -d ' ')" -eq 0 ] || die "$bad"
 else
   [ "$(LC_ALL=C tr -d '\011\012\040-\176\200-\377' <"$tmp" | wc -c | tr -d ' ')" -eq 0 ] || die control
   # C1 controls as UTF-8: 0xc2 followed by 0x80 to 0x9f.

@@ -138,6 +138,8 @@ jobs:
         run: sh tests/devcontainer-image.test.sh
       - name: wow-review launcher fixtures
         run: sh tests/identity-review.test.sh
+      - name: review-verdict fixtures
+        run: sh tests/review-verdict.test.sh
       - name: host driver launcher fixtures
         run: sh tests/identity-launchers.test.sh
       - name: blocking-criteria.sh fixtures

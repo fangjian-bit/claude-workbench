@@ -21,6 +21,14 @@ the GitHub release notes.
 
 ## [Unreleased]
 
+### Added
+
+- **`review-outbox.sh verdict` and the architect-review container-mode verdict step (`#851`).** The
+  review session writes `pass` or `changes-needed` to the outbox before the findings, and the
+  `architect-review` gate fails a head whose latest review reads `changes-needed`. The verdict reaches
+  a posted review only through a host launcher installed at or after this change; `review.ci_gate.header`
+  drops the word HITL (`#852`). `WB-D38`.
+
 ### Fixed
 
 - **`park-sprint` no longer publishes the derived `lanes` array (`#797`).** Park writes the

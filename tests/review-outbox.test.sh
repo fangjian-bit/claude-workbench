@@ -11,8 +11,8 @@
 #
 # Agreement with the launcher: the mention, secret and forged-footer pattern literals, the five
 # session stop reasons and the marker line are pinned equal to scripts/identity/wow-review and
-# review-sandbox.sh, and scripts/identity/review/outbox-read accepts what `outcome`, `body` and
-# `findings` wrote.
+# review-sandbox.sh, the two verdict words are pinned equal to wow-review's, and
+# scripts/identity/review/outbox-read accepts what `outcome`, `body`, `findings` and `verdict` wrote.
 #
 # Permitted toolset: POSIX sh and its standard utilities, git, jq and yq (skipped, loudly, if jq or
 # yq is absent).
@@ -111,7 +111,7 @@ assert_eq "where: an argument is usage" 2 "$rc"
 # --- every write refuses on the host and on usage errors --------------------------------------
 printf 'x\n' >"$tmp/any"
 host
-for cmdline in "outcome review 12 $SHA" "body $tmp/any $SHA main" "findings $tmp/any"; do
+for cmdline in "outcome review 12 $SHA" "body $tmp/any $SHA main" "findings $tmp/any" "verdict pass $SHA"; do
   # shellcheck disable=SC2086
   run $cmdline
   assert_eq "host refuses [$cmdline]: exit 2" 2 "$rc"
@@ -126,7 +126,8 @@ for cmdline in "outcome" "outcome review" "outcome review 12" "outcome bogus 12 
   "outcome stopped 12 $SHA" "outcome stopped 12 $SHA bogus" "outcome stopped 12 $SHA entry-env" "outcome review 012 $SHA" \
   "outcome review 0 $SHA" "outcome review 12 abc" "outcome review 12 ${SHA}0" "outcome review 12 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" \
   "body" "body $tmp/any" "body $tmp/any $SHA" "body $tmp/any abc main" "body $tmp/any $SHA -x" "body $tmp/any $SHA a/../b" "body $tmp/any $SHA main extra" \
-  "findings" "findings a b"; do
+  "findings" "findings a b" "verdict" "verdict pass" "verdict maybe $SHA" "verdict Pass $SHA" "verdict pass abc $SHA" "verdict pass $SHA extra" \
+  "verdict pass abc" "verdict pass ${SHA}0" "verdict pass AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" "verdict '' $SHA"; do
   # shellcheck disable=SC2086
   run $cmdline
   assert_eq "usage [$cmdline]: exit 2" 2 "$rc"
@@ -139,6 +140,8 @@ for v in "" "WOW_REVIEW_PR=12" "WOW_REVIEW_SHA=$SHA" "WOW_REVIEW_PR= WOW_REVIEW_
   assert_eq "outcome with the environment [$v]: exit 2" 2 "$rc"
   run body "$tmp/any" "$SHA" main
   assert_eq "body with the environment [$v]: exit 2" 2 "$rc"
+  run verdict pass "$SHA"
+  assert_eq "verdict with the environment [$v]: exit 2" 2 "$rc"
 done
 ENVA="WOW_REVIEW_PR=12 WOW_REVIEW_SHA=$SHA"
 check "...and nothing was written" outbox_empty
@@ -353,6 +356,33 @@ if [ "$have_links" = 1 ]; then
   check "...nothing was written through it" test ! -e "$tmp/elsewhere"
 fi
 
+# --- verdict --------------------------------------------------------------------------------
+for w in pass changes-needed; do
+  container
+  run verdict "$w" "$SHA"
+  assert_eq "verdict $w: exit 0" 0 "$rc"
+  assert_eq "verdict $w: exactly the word and a newline" "$w" "$(cat "$ob/verdict")"
+  assert_eq "verdict $w: one newline-terminated line" 1 "$(wc -l <"$ob/verdict" | tr -d ' ')"
+  assert_eq "verdict $w: nothing else in the outbox" verdict "$(ls -A "$ob")"
+done
+container
+run verdict changes-needed "$OTHER"
+assert_eq "verdict with another <sha>: exit 1" 1 "$rc"; assert_eq "...reason" mismatch "$out"; check "...nothing written" outbox_empty
+run verdict pass "$SHA"
+run verdict changes-needed "$SHA"
+assert_eq "a second verdict before the outcome: exit 0" 0 "$rc"
+assert_eq "...replaces the first" changes-needed "$(cat "$ob/verdict")"
+run outcome review 12 "$SHA"
+run verdict pass "$SHA"
+assert_eq "a verdict after the outcome: exit 1" 1 "$rc"; assert_eq "...reason" outcome-exists "$out"
+assert_eq "...the earlier verdict stands" changes-needed "$(cat "$ob/verdict")"
+if [ "$have_links" = 1 ]; then
+  container; ln -s "$tmp/elsewhere" "$ob/verdict"
+  run verdict pass "$SHA"
+  assert_eq "verdict: a link destination: exit 1" 1 "$rc"; assert_eq "...reason" dest "$out"
+  check "...nothing was written through it" test ! -e "$tmp/elsewhere"
+fi
+
 # --- agreement with the launcher and the outbox reader ------------------------------------------
 cat >"$tmp/literals" <<'LITERALS'
 LC_ALL=C grep -Eq '(^|[^A-Za-z0-9_])@[A-Za-z0-9]' "$1" && return 0
@@ -388,6 +418,10 @@ theirs=$(sed -n 's/^ *entry-env|entry-token|entry-clone|entry-identity|entry-plu
 assert_eq "the five session reasons equal decide_stopped's" "$theirs" "$mine"
 assert_eq "...and there are five" 5 "$(printf '%s' "$mine" | tr '|' '\n' | grep -c . )"
 
+check "the verdict words appear in review-outbox.sh" grep -qF -- 'pass|changes-needed) ;;' "$script"
+check "the verdict words appear in wow-review" grep -qF -- 'pass|changes-needed) ;;' "$launcher"
+check "the verdict line text appears in wow-review" grep -qF -- 'Review verdict: %s' "$launcher"
+
 assert_eq "the marker line equals review-sandbox.sh's" \
   "$(grep -x 'REVIEW_CONTAINER_MARKER=.*' "$sandbox_script")" "$(grep -x 'REVIEW_CONTAINER_MARKER=.*' "$script")"
 
@@ -399,8 +433,9 @@ container
 good_body "$tmp/b" 'h'$(printf '\303\251')'llo'
 run body "$tmp/b" "$SHA" main
 printf '[%s]\n' "$F1" >"$tmp/f.json"; run findings "$tmp/f.json"
+run verdict pass "$SHA"
 run outcome review 12 "$SHA"
-for pair in outcome:outcome body:review.md findings:findings.json; do
+for pair in outcome:outcome body:review.md findings:findings.json verdict:verdict; do
   sub=${pair%%:*}; f=${pair#*:}
   rrc=0
   TMPDIR="$tmp" sh "$R" "$sub" >"$tmp/rd.out" 2>"$tmp/rd.err" </dev/null || rrc=$?

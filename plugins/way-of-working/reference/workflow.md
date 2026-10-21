@@ -201,16 +201,16 @@ when their own definition says they apply.
 > - **HITL Gate** — the human's approval. In practice: **the code-owner approval** (the human's merge where the base requires none). *Only the owner does this one.*
 >
 > An Architect Review going green does **not** pass the HITL Gate; it only unblocks it. The
-> older term "HITL review" meant the first of these and is retired — but note it survives,
-> deliberately and permanently, inside the frozen header string
-> (`reference/project-schema.md` § `review.ci_gate`).
+> older term "HITL review" meant the first of these and is retired.
 
 **Where `review.ci_gate` is configured, it is a CI gate**: any PR touching `code_paths`
 (or the gate's own `triggers_on`) fails the `review.ci_gate.check` check until a review
 carrying the configured header + attestation is posted **against that PR's current head
 commit**. Docs / sprint-plan / `.ai/`-cursor PRs are exempt (no runtime behavior to get
 wrong). A review of an *earlier* commit does not count — push first, then review the final
-diff.
+diff. Under an identities map, a host launcher at or after `WB-D38` can carry a
+`Review verdict:` line on the review it posts, and a gate that reads it (`WB-D38`) fails on
+`changes-needed`.
 
 This is a check rather than a convention because the convention failed once, in the repo
 this plugin was extracted from: a fully

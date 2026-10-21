@@ -2607,9 +2607,29 @@ take effect. Full reasoning and the task breakdown that implements them:
     still needs `architect-review` added as a required check by the maintainer, pinned to GitHub Actions (`integration_id` 15368) like the other three; unpinned, any token with `statuses:write` could satisfy it.
   - **Residuals.** `pull_request` and `pull_request_review` runs use the PR's own copy of the workflow, so a pusher with the Workflows
     permission could add or edit any workflow that posts the status; `pull_request_target` is not used. A PR changing only `.ai/project.yml` is
-    exempt and held by code-owner approval. The gate checks that a review exists on the head, not its verdict. A PR touching only `tests/`, `.devcontainer/`,
+    exempt and held by code-owner approval. The gate checks that a review exists on the head; `WB-D38` adds its verdict. A PR touching only `tests/`, `.devcontainer/`,
     `.claude/` or `.github/` files outside `.github/workflows/` is outside `code_paths`, so it is not gated.
     The shared `bin/` script for the copied checks and `wow-review-poll` registration are not done here.
+
+- **WB-D38 (`#851`, folds in `#852`) — the `architect-review` gate reads the review's verdict.** Builds on `WB-D37`.
+  - **The decision.** The review session writes `pass` or `changes-needed` (`changes-needed` when at least one finding is blocking) to the
+    outbox through `review-outbox.sh verdict`. `wow-review` validates it (`outbox-read verdict`, one printable line, 64 bytes) and inserts one fixed
+    line, `Review verdict: pass` or `Review verdict: changes-needed`, as zero-based line 4 of the posted body, after the header, a blank line,
+    the attestation and a blank line; a malformed verdict posts the failure review with code `bad-verdict`. The gate workflow and
+    `decide_already` run the same review-match program: among the reviewer App's `COMMENTED`, submitted reviews on the head that carry the header
+    and attestation, the latest (a tie going to the later one in list order) decides. `pass` posts `success`; `changes-needed` posts `failure`
+    ("Review on this head found blocking issues"). The review stays `event=COMMENT`. `tests/review-verdict.test.sh` pins the two copies equal.
+  - **The header (`#852`).** `review.ci_gate.header` drops the word HITL: `**Opus/Architect review (automated)**`. The review's fixed lines change once, with one rollout.
+  - **The transition.** The review container runs the plugin at the pinned tag, which has no verdict writer, and a `pull_request` gate run uses the PR's own workflow, so a
+    gate refusing every review without a verdict would fail this PR's review and the next release PR's. Until a follow-up, a matching review whose line 4 does not begin
+    `Review verdict:` reads `success`, and `wow-review` posts no verdict line when the outbox holds no verdict file. The follow-up drops that acceptance after the release carrying the writer is pinned.
+  - **Rollout order.** Merge when no other gated PR is open, since a review posted before the merge lacks the new header (re-reviewing an already-reviewed open PR does not work directly:
+    its session reads the green gate as already-reviewed and the host then finds no new-header review). Then the maintainer reinstalls the host tools from the merged default branch in every
+    home (`install-host-tools.ps1`; the review image rebuilds for the new installed commit), before the pin bump, since an old launcher ignores the verdict file and posts the old form; release; bump the pin; then the follow-up drops the old form.
+  - **Residuals.** The verdict is the session's own judgement and a PR can steer it to `pass` (the existing misleading-pass residual; the code-owner approval remains the stop).
+    During the transition a session can omit the verdict and the old form reads `success`, and a no-verdict review's line 4 is the session's own text. A same-head `--rerun` reading `pass`
+    overrides an earlier `changes-needed`, and a rerun ending in a failure review leaves the earlier matching review deciding. A home whose host tools were not reinstalled posts the old form,
+    so a `changes-needed` from it reads `success`. The gate reads a review's current body, and an edit to it is not detected.
 
 ## Status
 

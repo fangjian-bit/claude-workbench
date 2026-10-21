@@ -43,7 +43,7 @@
 # The session's outcome line, and the failure codes. The launcher posts a failure review whose
 # body is the fixed template with one code:
 #   timed-out, no-outbox, bad-outcome, retry-limit, stopped-<reason>, stopped-other,
-#   no-body, bad-body, header-mismatch, no-head-line, mention, secret, oversize.
+#   no-body, bad-body, header-mismatch, no-head-line, mention, secret, bad-verdict, oversize.
 # Stop reasons (the outcome line `stopped <N> <sha> <reason>`):
 #   entrypoint's:  entry-env, entry-token, entry-clone, entry-identity, entry-plugin
 #   the session's: head-moved, checks-pending, checks-red, base-override, needs-human
@@ -734,8 +734,8 @@ mint_read >/dev/null || fail "the fresh read-token mint failed; nothing was deci
 tc file "$HDIR/read-token" >/dev/null || fail "the read token failed token-check.sh file"
 
 # ---- 11. read the outbox ---------------------------------------------------------------------
-OBRC_outcome=3 OBRC_body=3 OBRC_findings=3
-read_outbox() { # read_outbox <outcome|body|findings>: the file lands in $HDIR/ob-<kind>, the result in OBRC_<kind>
+OBRC_outcome=3 OBRC_body=3 OBRC_findings=3 OBRC_verdict=3
+read_outbox() { # read_outbox <outcome|body|findings|verdict>: the file lands in $HDIR/ob-<kind>, the result in OBRC_<kind>
   rc=0
   dkp run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges --tmpfs /tmp:rw,nosuid,size=1m \
     --mount "type=volume,source=$OUTV,target=/review-out,readonly,volume-nocopy=true" \
@@ -795,13 +795,23 @@ decide_already() {
   gh_api --paginate "repos/$repo/pulls/$num/reviews" \
     --jq '.[] | {uid: .user.id, commit_id: .commit_id, state: .state, submitted_at: .submitted_at, body: .body}' >"$HDIR/reviews.json" \
     || fail "cannot read the PR's reviews"
-  if jq -e -s --argjson rid "$RID" --arg sha "$pin" --arg h "$HDR" --arg a "$ATT" '
-      any(.[]; .uid == $rid and .commit_id == $sha and .state == "COMMENTED" and .submitted_at != null
-               and (((.body // "") | split("\n")) as $l | ($l[0] == $h and $l[2] == $a)))' <"$HDIR/reviews.json" >/dev/null 2>&1; then
+  # The review match: a copy of the gate workflow's (it also reads the Review verdict line); change them together.
+  vword=$(jq -r -s --argjson rid "$RID" --arg sha "$pin" --arg h "$HDR" --arg a "$ATT" '
+      [.[] | select(.uid == $rid and .commit_id == $sha and .state == "COMMENTED" and .submitted_at != null
+                    and (((.body // "") | split("\n")) as $l | ($l[0] == $h and $l[2] == $a)))
+           | {t: .submitted_at, v: (((.body // "") | split("\n"))[4] // "")}]
+      | if length == 0 then "none"
+        else (to_entries | max_by([.value.t, .key]) | .value.v) as $v
+             | if $v == "Review verdict: pass" then "success"
+               elif ($v | startswith("Review verdict:")) then "blocking"
+               else "success" end
+        end
+      ' <"$HDIR/reviews.json" 2>/dev/null | tr -d '\r') || vword=
+  if [ "$vword" = success ]; then
     fin 4 already-reviewed
   fi
   ACTION=failure CODE=bad-outcome
-  logl "already-reviewed: no matching review"
+  logl "already-reviewed: no passing review ($vword)"
 }
 
 decide_stopped() {
@@ -899,10 +909,19 @@ decide_review() {
   if ! LC_ALL=C grep -qxF "Reviewed against head $pin" "$B"; then CODE=no-head-line; return; fi
   if has_mention "$B"; then CODE=mention; return; fi
   if has_secret "$B"; then CODE=secret; return; fi
+  # The verdict (absent is the transition form: no verdict line); anything but one of the two words is a failure.
+  read_outbox verdict
+  vline=
+  case $OBRC_verdict in
+    0) vline=$(tr -d '\n' <"$HDIR/ob-verdict")
+       case $vline in pass|changes-needed) ;; *) CODE=bad-verdict; return ;; esac ;;
+    3) ;;
+    *) CODE=bad-verdict; return ;;
+  esac
   read_outbox findings
   validate_findings
-  # The final body: the checked body, one blank line, the footer.
-  { cat "$B"; if [ "$(tail -c 1 "$B" | od -An -tx1 | tr -d ' \n')" = 0a ]; then printf '\n'; else printf '\n\n'; fi; printf '%s' "$FOOT"; } >"$HDIR/final-body"
+  # The final body: the checked body (with the verdict line after its first three lines, when there is a verdict), one blank line, the footer.
+  { if [ -n "$vline" ]; then sed -n 1,3p "$B"; printf '\nReview verdict: %s\n\n' "$vline"; sed -n '4,$p' "$B"; else cat "$B"; fi; if [ "$(tail -c 1 "$B" | od -An -tx1 | tr -d ' \n')" = 0a ]; then printf '\n'; else printf '\n\n'; fi; printf '%s' "$FOOT"; } >"$HDIR/final-body"
   if [ "$(wc -c <"$HDIR/final-body" | tr -d ' ')" -gt 65536 ]; then CODE=oversize; return; fi
   ACTION=review
 }

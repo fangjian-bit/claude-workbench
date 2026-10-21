@@ -34,6 +34,7 @@
 #     tests/statusline-context.test.sh needs `jq`; tests/compact-handoff.test.sh needs `git`
 #     (and `jq` for its registration cases).
 #   - tests/review-image.test.sh needs `jq` and `yq`.
+#   - tests/review-verdict.test.sh needs `jq`.
 #   - tests/identity-launchers.test.sh needs `pwsh`, `git`, `yq` and `jq`;
 #     tests/identity-broker.test.sh needs `pwsh`.
 #   - tests/invariants-files-filter.test.sh needs `jq` (the checker's check 20 does).

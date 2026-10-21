@@ -584,7 +584,7 @@ When a repo does have one:
 review:
   ci_gate:
     check: architect-review
-    header: "**Opus/Architect HITL review (automated)**"
+    header: "**Opus/Architect review (automated)**"
     attestation: "*Fresh-session review: this session did not author the diff.*"
     triggers_on: [src/]        # null means code_paths; required (may be null) whenever
                                # ci_gate is a map — absent then prompts.
@@ -992,7 +992,7 @@ ruleset:                          # the alias skills read today; keep it in step
 review:
   ci_gate:
     check: architect-review
-    header: "**Opus/Architect HITL review (automated)**"
+    header: "**Opus/Architect review (automated)**"
     attestation: "*Fresh-session review: this session did not author the diff.*"
     triggers_on: null
 

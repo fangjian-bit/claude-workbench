@@ -579,17 +579,22 @@ header, a blank line, the attestation), then:
      at most twice, then `stopped needs-human`. A refusal that rewriting cannot fix
      (`mismatch`, `schema`, `dest`) is the same stop at once; `outcome-exists` means an outcome
      is already written, so end without another call.
-  2. The top five non-blocking findings, written with `review-outbox.sh findings <file>`
+  2. The verdict: `review-outbox.sh verdict <word> "$WOW_REVIEW_SHA"`, `changes-needed` when at
+     least one finding is blocking (one the review would not merge with, and the body names each),
+     else `pass`; every other finding is non-blocking, as in the next step. Any non-zero exit other than
+     `outcome-exists` is `stopped needs-human` at once; `outcome-exists` ends the session as for
+     the other writes.
+  3. The top five non-blocking findings, written with `review-outbox.sh findings <file>`
      whatever `{backlog.kind}` is: a JSON array of up to five objects with the keys `title`
      (1 to 120 characters, no control character), `body` (at most 4000 bytes) and `type`
      (`bug`, `feature`, `chore` or `docs`), and optionally `area` (`area/` and lowercase
      letters, digits or hyphens), none holding a mention or a token-shaped string. On a
      refusal retry once, then write none. Every finding stays in the body as well, since
      filing can be refused.
-  3. The head re-read: `gh pr view <N> --repo {repo} --json headRefOid -q .headRefOid` must
+  4. The head re-read: `gh pr view <N> --repo {repo} --json headRefOid -q .headRefOid` must
      equal `$WOW_REVIEW_SHA`, else `stopped head-moved` and no review outcome.
-  4. `review-outbox.sh outcome review "$WOW_REVIEW_PR" "$WOW_REVIEW_SHA"`, last.
-  `outcome review` is never written without a successful `body` write.
+  5. `review-outbox.sh outcome review "$WOW_REVIEW_PR" "$WOW_REVIEW_SHA"`, last.
+  `outcome review` is never written without a successful `body` write and a successful `verdict` write.
 
 **In container mode, never:** a reviewer token, a post, a *Verify the post took* poll,
 `gh issue create`, an edit of `{backlog.path}`, a cursor-vote rewrite, or anything printed

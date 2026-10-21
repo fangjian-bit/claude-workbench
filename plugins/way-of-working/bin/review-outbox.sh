@@ -19,6 +19,7 @@
 #   review-outbox.sh outcome <kind> <N> <sha> [<reason>]
 #   review-outbox.sh body <file> <sha> <default>
 #   review-outbox.sh findings <file>
+#   review-outbox.sh verdict <pass|changes-needed> <sha>
 #
 # where     prints `container` when the marker exists or is a link of any kind, else `host`.
 #           Exit 0, no other output. Needs only sh.
@@ -42,12 +43,17 @@
 # findings  copies <file> to findings.json only if it passes the launcher's findings rules plus
 #           the outbox reader's file cap. A refusal prints one reason word: not-regular, too-big,
 #           control, unreadable, shape, count, title, body, type, area, mention or secret. Needs jq.
+# verdict   writes the word and a newline to the outbox file `verdict`: `pass`, or `changes-needed`
+#           when the review has at least one blocking finding. Any other word, or a malformed <sha>, is
+#           exit 2. <sha> gets the same environment-equality guard as outcome (a wrong one refuses
+#           mismatch). The host launcher validates the file again and carries the word on the
+#           posted review as one fixed line; a second call before the outcome replaces the file.
 #
 # Every write subcommand checks in this order: usage, then the host (exit 2), then an existing
 # outcome file (exit 1), then content (exit 1). Besides the words above, a refusal may print
 # outcome-exists, mismatch (the argument differs from the environment), schema (the gate strings
 # are unreadable, empty or span lines) or dest (the destination is a link or not a regular file, or a write to the outbox or a scratch directory failed);
-# none of those is fixed by rewriting the text. body and findings are written through a temp file
+# none of those is fixed by rewriting the text. body, findings and verdict are written through a temp file
 # in the outbox, then `mv`, from a copy that was itself the thing checked.
 #
 # Exit codes: 0 written, 1 refused (with one reason word, except on an unguarded I/O failure), 2 usage or not in a review
@@ -62,7 +68,7 @@ REVIEW_OUTBOX=/review-out
 die() { printf 'review-outbox.sh: %s\n' "$1" >&2; exit "${2:-2}"; }
 refuse() { printf '%s\n' "$1"; exit 1; }
 
-usage() { die "usage: review-outbox.sh where | outcome <kind> <N> <sha> [<reason>] | body <file> <sha> <default> | findings <file> ($1)"; }
+usage() { die "usage: review-outbox.sh where | outcome <kind> <N> <sha> [<reason>] | body <file> <sha> <default> | findings <file> | verdict <pass|changes-needed> <sha> ($1)"; }
 
 in_container() { [ -e "$REVIEW_CONTAINER_MARKER" ] || [ -L "$REVIEW_CONTAINER_MARKER" ]; }
 
@@ -210,6 +216,21 @@ case $cmd in
     if LC_ALL=C grep -q '^Host: ' "$B" || LC_ALL=C grep -Eq "^([[:space:]*_>#\`~|-]|${zw1}[${zwlo}-${zwhi}]|${bom})*Host: (no findings to file|findings not filed|[0-9]+ findings will be filed)" "$B"; then refuse host-line; fi
 
     publish "$B" review.md
+    exit 0 ;;
+
+  verdict)
+    [ "$#" -eq 2 ] || usage "verdict takes <pass|changes-needed> <sha>"
+    word=$1 sha=$2
+    case $word in pass|changes-needed) ;; *) usage "the verdict is pass or changes-needed" ;; esac
+    is_sha "$sha" || usage "<sha> must be 40 lowercase hex"
+    need_env
+    need_container
+    need_no_outcome
+    [ "$sha" = "$WOW_REVIEW_SHA" ] || refuse mismatch
+
+    SCRATCH=$(mktemp -d) || { echo "review-outbox.sh: cannot make a scratch directory" >&2; refuse dest; }
+    printf '%s\n' "$word" >"$SCRATCH/verdict"
+    publish "$SCRATCH/verdict" verdict
     exit 0 ;;
 
   findings)
