@@ -66,11 +66,11 @@ re-verifies it before `/way-of-working:resume` may run it unattended.
    It sets `pointers.review_pr` to `null` on the restored cursor, whatever the snapshot held
    (`WB-D22`): a review pinned at park time named a head that has since moved or merged, and
    a stale vote for a review step must not survive the restore.
+   That is safe only because this skill never leaves `hitl_gate` reading `NONE OPEN` (the
+   *Re-point and gate* step) — the human re-verifies before anything auto-starts against it.
    It also sets `"lanes": null` on the restored cursor, whatever the snapshot held (`#797`): a
    snapshot written before this fix may carry a stale array, and the next handoff derives the
    live one.
-   That is safe only because this skill never leaves `hitl_gate` reading `NONE OPEN` (the
-   *Re-point and gate* step) — the human re-verifies before anything auto-starts against it.
 2. **Re-point and gate.** Set `last_commit` to `git rev-parse --short HEAD`.
 
    Before overwriting `hitl_gate`, read the snapshot's own open gate (the *Carry* paragraph
