@@ -410,7 +410,7 @@ If that check fails, stop and report.
 ## Order of work
 
 1. Build the task per `coder.md`.
-2. Run every `gates.green` entry in `.ai/project.yml`, then the local green gate suites listed in `CLAUDE.md`.
+2. Run every `gates.green` entry in `.ai/project.yml`, then `bash scripts/test-all.sh` in its own Bash call with the tool's maximum timeout (600000 ms); if that call times out, stop and report.
 3. Run `/way-of-working:critic-gate` as written and let its own proposal stand. The driver expects the critics `architect,security-critic`. If critic-gate's proposal differs, show both lists to the human in the pick-list. That list is not the explicit-names shortcut, which only names the human types count for.
 4. Commit and open the PR with `/way-of-working:ship`. This is the explicit instruction to commit and push that `coder.md` asks for.
 
