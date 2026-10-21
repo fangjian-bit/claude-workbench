@@ -36,7 +36,7 @@ agent_in() { ls "$1"/plugins/*/agents/architect.md; }
 # Every case but the control runs just check 11; the control runs them all.
 sel="--only 11"
 
-run() { ( cd "$1" && bash "$script" $sel 2>&1 >/dev/null ) || true; }
+run() { ( cd "$1" || exit 1; rc=0; bash "$script" $sel 2>&1 >/dev/null || rc=$?; [ "$rc" -ne 2 ] || : >"$tmp/usage-exit" ) || true; }
 
 assert_fires() { # <desc> <dir>
   if run "$2" | grep -qF -- "$MSG"; then echo "ok - $1"
@@ -291,5 +291,7 @@ assert_silent "|| is not a pipe" "$d"
 d="$(tree unrelated)"
 append "$(skill_in "$d")" 'gh api repos/x | jq -r .y'
 assert_silent "gh piped into a non-bin command" "$d"
+
+[ ! -e "$tmp/usage-exit" ] || { echo "FAIL - the checker exited 2 (usage) in at least one case" >&2; fail=1; }
 
 exit "$fail"

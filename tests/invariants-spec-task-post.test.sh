@@ -34,7 +34,7 @@ tree() {
 
 sel="--only 18"
 
-run() { ( cd "$1" && bash "$script" $sel 2>&1 >/dev/null ) || true; }
+run() { ( cd "$1" || exit 1; rc=0; bash "$script" $sel 2>&1 >/dev/null || rc=$?; [ "$rc" -ne 2 ] || : >"$tmp/usage-exit" ) || true; }
 
 assert_fires() { # <desc> <dir> [message]
   if run "$2" | grep -qF -- "${3:-$MSG}"; then
@@ -265,5 +265,7 @@ assert_silent "a plain commented-out write line is ignored" "$d" "$MSG_ODD"
 d="$(tree contline)"
 printf '%s\n' 'x=a\' '# ; gh api --method POST repos/o/r/issues/1/comments -f body=x' >>"$(spost "$d")"
 assert_fires "a #-leading line joined by a continuation is not a comment" "$d" "$MSG_ODD"
+
+[ ! -e "$tmp/usage-exit" ] || { echo "FAIL - the checker exited 2 (usage) in at least one case" >&2; fail=1; }
 
 [ "$fail" -eq 0 ]

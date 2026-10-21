@@ -29,7 +29,7 @@ tree() {
 
 sel="--only 15"
 
-run() { ( cd "$1" && bash "$script" $sel 2>&1 >/dev/null ) || true; }
+run() { ( cd "$1" || exit 1; rc=0; bash "$script" $sel 2>&1 >/dev/null || rc=$?; [ "$rc" -ne 2 ] || : >"$tmp/usage-exit" ) || true; }
 
 assert_fires() { # <desc> <dir>
   if run "$2" | grep -qF -- "$MSG"; then
@@ -82,5 +82,7 @@ assert_fires "a missing architect-review skill fires" "$d"
 d="$(tree noschema)"
 rm -f "$d"/plugins/*/reference/project-schema.md
 assert_fires "a missing schema doc fires" "$d"
+
+[ ! -e "$tmp/usage-exit" ] || { echo "FAIL - the checker exited 2 (usage) in at least one case" >&2; fail=1; }
 
 [ "$fail" -eq 0 ]

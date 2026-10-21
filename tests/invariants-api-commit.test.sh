@@ -36,7 +36,7 @@ agent_in() { ls "$1"/plugins/*/agents/coder.md; }
 
 sel="--only 22"
 
-run() { ( cd "$1" && bash "$script" $sel 2>&1 >/dev/null ) || true; }
+run() { ( cd "$1" || exit 1; rc=0; bash "$script" $sel 2>&1 >/dev/null || rc=$?; [ "$rc" -ne 2 ] || : >"$tmp/usage-exit" ) || true; }
 
 assert_fires() { # <desc> <dir>
   if run "$2" | grep -qF -- "$MSG"; then echo "ok - $1"
@@ -102,5 +102,7 @@ assert_silent "a file that does not name git/commits" "$d"
 d="$(tree prose)"
 append "$(bin_in "$d")" 'echo "no author or committer is set on git/commits"'
 assert_silent "prose that names the fields without a key or a field flag" "$d"
+
+[ ! -e "$tmp/usage-exit" ] || { echo "FAIL - the checker exited 2 (usage) in at least one case" >&2; fail=1; }
 
 exit "$fail"

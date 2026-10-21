@@ -46,8 +46,8 @@ resume_in() { ls "$1"/plugins/*/skills/resume/SKILL.md; }
 # Every case but the control runs just check 3; the control runs them all.
 sel="--only 3"
 
-run() { # run <dir> -> stderr on stdout
-  ( cd "$1" && bash "$script" $sel 2>&1 >/dev/null ) || true
+run() { # run <dir> -> stderr on stdout; a usage exit (2) leaves a marker
+  ( cd "$1" || exit 1; rc=0; bash "$script" $sel 2>&1 >/dev/null || rc=$?; [ "$rc" -ne 2 ] || : >"$tmp/usage-exit" ) || true
 }
 
 assert_fires() { # assert_fires <desc> <dir> <message>
@@ -126,5 +126,7 @@ assert_fires "a reworded ruleset call is reported, not silently passed" "$d" "$M
 d="$(tree not_a_call)"
 subst "$d" 'echo repos/{repo}/rules/branches'
 assert_fires "a non-call line naming the path is not mistaken for the call" "$d" "$MISSING_MSG"
+
+[ ! -e "$tmp/usage-exit" ] || { echo "FAIL - the checker exited 2 (usage) in at least one case" >&2; fail=1; }
 
 exit "$fail"

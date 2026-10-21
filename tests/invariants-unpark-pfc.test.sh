@@ -29,7 +29,7 @@ tree() {
 
 sel="--only 13"
 
-run() { ( cd "$1" && bash "$script" $sel 2>&1 >/dev/null ) || true; }
+run() { ( cd "$1" || exit 1; rc=0; bash "$script" $sel 2>&1 >/dev/null || rc=$?; [ "$rc" -ne 2 ] || : >"$tmp/usage-exit" ) || true; }
 
 assert_fires() { # <desc> <dir>
   if run "$2" | grep -qF -- "$MSG"; then
@@ -77,5 +77,7 @@ assert_fires "a guard with no jq read of the field fires" "$d"
 d="$(tree nofile)"
 rm -rf "$d"/plugins/*/skills/unpark-sprint
 assert_fires "a missing unpark-sprint skill fires" "$d"
+
+[ ! -e "$tmp/usage-exit" ] || { echo "FAIL - the checker exited 2 (usage) in at least one case" >&2; fail=1; }
 
 [ "$fail" -eq 0 ]

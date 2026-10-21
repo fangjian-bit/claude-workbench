@@ -30,7 +30,7 @@ tree() {
 
 sel="--only 19"
 
-run() { ( cd "$1" && bash "$script" $sel 2>&1 >/dev/null ) || true; }
+run() { ( cd "$1" || exit 1; rc=0; bash "$script" $sel 2>&1 >/dev/null || rc=$?; [ "$rc" -ne 2 ] || : >"$tmp/usage-exit" ) || true; }
 
 assert_fires() { # <desc> <dir> [<substring>]
   out="$(run "$2")"
@@ -149,5 +149,7 @@ d="$(tree plansprint)"
 f="$(skill "$d" plan-sprint)"
 printf '\n    gh api repos/{backlog.repo}/milestones/7\n' >>"$f"
 assert_silent "plan-sprint reads descriptions in full by design and is exempt" "$d"
+
+[ ! -e "$tmp/usage-exit" ] || { echo "FAIL - the checker exited 2 (usage) in at least one case" >&2; fail=1; }
 
 [ "$fail" -eq 0 ]

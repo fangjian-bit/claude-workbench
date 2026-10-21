@@ -32,7 +32,7 @@ tree() {
 
 sel="--only 21"
 
-run() { ( cd "$1" && bash "$script" $sel 2>&1 >/dev/null ) || true; }
+run() { ( cd "$1" || exit 1; rc=0; bash "$script" $sel 2>&1 >/dev/null || rc=$?; [ "$rc" -ne 2 ] || : >"$tmp/usage-exit" ) || true; }
 
 assert_fires() { # <desc> <dir>
   if run "$2" | grep -qF -- "$MSG"; then
@@ -86,5 +86,7 @@ done
 d="$(tree wordok)"
 printf '%s\n' 'See gh-identity.sh task-author, and gh-identity.sh author-ish words are not the verb.' >>"$d/$resume"
 assert_silent "task-author and an author-prefixed word are silent" "$d"
+
+[ ! -e "$tmp/usage-exit" ] || { echo "FAIL - the checker exited 2 (usage) in at least one case" >&2; fail=1; }
 
 [ "$fail" -eq 0 ]

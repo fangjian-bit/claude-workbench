@@ -34,7 +34,7 @@ tree() {
 
 sel="--only 20"
 
-run() { ( cd "$1" && bash "$script" $sel 2>&1 >/dev/null ) || true; }
+run() { ( cd "$1" || exit 1; rc=0; bash "$script" $sel 2>&1 >/dev/null || rc=$?; [ "$rc" -ne 2 ] || : >"$tmp/usage-exit" ) || true; }
 
 assert_fires() { # <desc> <dir> [<reason substring>]
   out="$(run "$2")"
@@ -144,5 +144,7 @@ assert_fires "a filter naming a refused builtin fires" "$d" "names a jq builtin"
 d="$(tree noclose2)"
 swap "$d" "'.[] | {f: .filename" "'$GOOD'"
 assert_fires "an unclosed single quote is reported for that reason" "$d" "no closing single quote"
+
+[ ! -e "$tmp/usage-exit" ] || { echo "FAIL - the checker exited 2 (usage) in at least one case" >&2; fail=1; }
 
 exit "$fail"
