@@ -9,9 +9,6 @@
 #
 # Adding a check: it must correspond to a defect that actually shipped. Speculative
 # invariants belong in the skill's own prose, not in a gate.
-#
-# `--only <id>[,<id>...]` runs just the named checks. It is for the tests/invariants-*.test.sh
-# fixtures; it is an argument, never an environment variable, and the gate never passes it.
 set -euo pipefail
 
 fail=0

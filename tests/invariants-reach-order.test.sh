@@ -43,7 +43,6 @@ tree() {
 
 resume_in() { ls "$1"/plugins/*/skills/resume/SKILL.md; }
 
-# Every case but the control runs just check 3; the control runs them all.
 sel="--only 3"
 
 run() { # run <dir> -> stderr on stdout; a usage exit (2) leaves a marker

@@ -33,7 +33,6 @@ tree() {
 skill_in() { ls "$1"/plugins/*/skills/pr-checks/SKILL.md; }
 agent_in() { ls "$1"/plugins/*/agents/architect.md; }
 
-# Every case but the control runs just check 11; the control runs them all.
 sel="--only 11"
 
 run() { ( cd "$1" || exit 1; rc=0; bash "$script" $sel 2>&1 >/dev/null || rc=$?; [ "$rc" -ne 2 ] || : >"$tmp/usage-exit" ) || true; }
