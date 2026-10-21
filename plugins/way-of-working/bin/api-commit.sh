@@ -28,16 +28,24 @@
 #     fetched default branch's `.ai/project.yml`;
 #   - a remote branch that is not an ancestor of the local one (existing branch), or an empty
 #     range on a new branch;
-#   - a commit in the range with other than one parent, any path under `.github/workflows/` (the
-#     dev App holds no `workflows` permission, #588 test 5), a mode 120000 or 160000 entry, a
-#     path with a newline or invalid UTF-8, or a message with an `encoding` header or invalid
-#     UTF-8 (JSON cannot carry those byte for byte).
+#   - a commit in the range with no parent or more than two, a two-parent commit whose second
+#     parent is on no base-set branch (a merge of the base into the branch is the one merge
+#     accepted, #811), an existing branch's first range commit whose first parent is not the
+#     remote tip (its first-parent chain must pass through the tip), any path under
+#     `.github/workflows/` (the dev App holds no `workflows` permission, #588 test 5; a merge is
+#     checked on its diff from its first parent), a mode 120000 or 160000 entry, a path with a
+#     newline or invalid UTF-8, or a message with an `encoding` header or invalid UTF-8 (JSON
+#     cannot carry those byte for byte).
+#
+# The range is the first-parent chain of the local branch, so a merge is one commit of it and the
+# base commits it brought in are not.
 #
 # Publishing, per commit, oldest first: a blob for each added or changed path (content from
 # the local commit through `git cat-file`, never the working tree), a tree on `base_tree` (the
 # remote parent's tree; modes from the local tree, `sha: null` for a deletion), then a commit
-# with the local message, that tree and the remote parent, and no `author` or `committer`
-# (setting either makes the commit unsigned, #588 test 1). The response's tree must equal the
+# with the local message, that tree and the remote parent (a merge is sent with both parents:
+# the remote parent standing in for its first, then its local second parent, which is already
+# on GitHub), and no `author` or `committer` (setting either makes the commit unsigned, #588 test 1). The response's tree must equal the
 # local commit's tree (#588 test 7), else exit 1 naming the local commit, no ref moved. Then
 # the ref moves once: POST git/refs for a new branch, PATCH with force:false for an existing
 # one.
@@ -53,6 +61,8 @@
 set -eu
 
 unset GH_HOST GH_ENTERPRISE_TOKEN
+# A local replace ref must not change what the parent and ancestry checks below see.
+export GIT_NO_REPLACE_OBJECTS=1
 
 refuse() {
   echo "api-commit.sh: $1" >&2
@@ -175,10 +185,10 @@ fi
 # --- the range, oldest first ------------------------------------------------------------
 if [ -n "$existing" ]; then
   # shellcheck disable=SC2086
-  git rev-list --topo-order --reverse "refs/heads/$branch" --not "$tip" >"$T/range"
+  git rev-list --first-parent --topo-order --reverse "refs/heads/$branch" --not "$tip" >"$T/range"
 else
   # shellcheck disable=SC2086
-  git rev-list --topo-order --reverse "refs/heads/$branch" --not $notrefs >"$T/range"
+  git rev-list --first-parent --topo-order --reverse "refs/heads/$branch" --not $notrefs >"$T/range"
 fi
 if [ ! -s "$T/range" ]; then
   [ -z "$existing" ] || exit 0
@@ -191,8 +201,19 @@ while read -r c; do
   parents=$(git rev-list --parents -n 1 "$c")
   # shellcheck disable=SC2086
   set -- $parents
-  [ "$#" -eq 2 ] || refuse "commit $(git rev-parse --short "$c") does not have exactly one parent"
-  [ -z "$prev" ] || [ "$2" = "$prev" ] || refuse "commit $(git rev-parse --short "$c") does not follow the one before it"
+  [ "$#" -eq 2 ] || [ "$#" -eq 3 ] || refuse "commit $(git rev-parse --short "$c") has no parent or more than two"
+  if [ "$#" -eq 3 ]; then
+    onbase=
+    for r in $notrefs; do
+      if git merge-base --is-ancestor "$3" "$r" 2>/dev/null; then onbase=1; break; fi
+    done
+    [ -n "$onbase" ] || refuse "commit $(git rev-parse --short "$c") is a merge whose second parent is on no base-set branch"
+  fi
+  if [ -n "$prev" ]; then
+    [ "$2" = "$prev" ] || refuse "commit $(git rev-parse --short "$c") does not follow the one before it"
+  elif [ -n "$existing" ]; then
+    [ "$2" = "$tip" ] || refuse "commit $(git rev-parse --short "$c") does not follow the remote tip of '$branch'"
+  fi
   prev="$c"
   git diff-tree -r -z --no-renames "$2" "$c" >"$T/diff.z"
   [ "$(tr -cd '\n' <"$T/diff.z" | wc -c | tr -d ' ')" -eq 0 ] || refuse "commit $(git rev-parse --short "$c") changes a path with a newline"
@@ -251,7 +272,10 @@ while read -r c; do
   git cat-file commit "$c" >"$T/raw"
   hdr=$(sed -n '/^$/{=;q;}' "$T/raw")
   if [ -n "$hdr" ]; then tail -n "+$((hdr + 1))" "$T/raw" >"$T/msg"; else : >"$T/msg"; fi
-  jq -n --rawfile m "$T/msg" --arg t "$tree" --arg p "$remote_parent" '{message: $m, tree: $t, parents: [$p]}' >"$T/commit.json"
+  # shellcheck disable=SC2046
+  set -- $(git rev-list --parents -n 1 "$c")
+  second=${3:-}
+  jq -n --rawfile m "$T/msg" --arg t "$tree" --arg p "$remote_parent" --arg q "$second" '{message: $m, tree: $t, parents: ([$p] + (if $q == "" then [] else [$q] end))}' >"$T/commit.json"
   ghapi -X POST "repos/$slug/git/commits" --input "$T/commit.json" >"$T/commit.resp" || fail "cannot post commit $short"
   csha=$(jq -r .sha "$T/commit.resp")
   ctree=$(jq -r .tree.sha "$T/commit.resp")

@@ -208,18 +208,19 @@ section, `bin/app-push.sh` and `bin/api-commit.sh`.
 **The `api` route** (`WB-D36`, `#601`). On a repo whose default branch requires signed commits,
 a PR whose branch commits are unsigned reads `BLOCKED` and neither the merge box nor an armed
 auto-merge merges it (`WB-D25`), and dev-container commits are unsigned by rule. `bin/api-commit.sh
-<remote> <branch>` publishes the branch's local commits not on the remote (or, for a new branch,
-not on the base set) through the REST git data API as the dev App, oldest first: blobs for the
+<remote> <branch>` publishes the commits on the branch's first-parent chain not on the remote branch (or, for a new
+branch, not on the base set) through the REST git data API as the dev App, oldest first: blobs for the
 added or changed paths, a tree on the remote parent's tree with the local modes, and a commit
 with the local message and no `author` or `committer`, which GitHub signs. It checks each
 response's tree against the local commit's, moves the branch's ref once (`POST` for a new
 branch, `PATCH` with `force: false` for an existing one), then fetches the branch and resets
 the local branch onto the commits GitHub made, so the cursor and prune scripts work unchanged.
 It refuses (exit 2, no write sent) a remote that is not `https://github.com/<owner>/<repo>`, a
-branch that is a base branch or not checked out, a merge or root commit, a symlink or
-submodule, a message or path JSON cannot carry byte for byte, and any path under
+branch that is a base branch or not checked out, a root commit or any merge other than a two-parent
+one whose second parent is on a base-set branch, a symlink or submodule, a message or path JSON cannot carry byte for byte, and any path under
 `.github/workflows/`: the dev App holds no `workflows` permission, so a workflow edit stays
-host-side. The commits carry the dev App's `[bot]` authorship, not the human's.
+host-side. A merge of a base-set branch into the branch is published with both parents (`#811`). The
+commits carry the dev App's `[bot]` authorship, not the human's.
 
 **Which route a push site runs.** An App-mode push site reads `identities.dev_app.commit_route`
 from the default branch's committed `.ai/project.yml`, never the working tree's. An undeclared key,

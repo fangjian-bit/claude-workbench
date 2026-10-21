@@ -21,6 +21,9 @@ the GitHub release notes.
 
 ## [Unreleased]
 
+- **`bin/api-commit.sh` publishes a merge of a base-set branch into the branch with both parents
+  (`#811`).** Every other merge is still refused, as is a rebase of an already-published branch.
+
 - **`bin/api-commit.sh`, a second App-mode publishing route (`WB-D36`, `#601`).** It replays a
   branch's local commits through the REST git data API as the dev App, with no `author` or
   `committer`, so GitHub signs them and a PR from a repo that requires signed commits reads `CLEAN`,

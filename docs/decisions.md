@@ -2569,10 +2569,12 @@ take effect. Full reasoning and the task breakdown that implements them:
     the message's trailers are unchanged (here they name only Claude). An API commit also carries a
     Verified signature for whatever identity `gh`'s token holds. A squash merge still signs what
     lands on the base.
-  - **What it refuses.** Before any write: a remote that is not `https://github.com/<owner>/<repo>`,
+  - **What it refuses.** *Amended (2026-10-21, #811): a base-set merge is accepted.* Before any write: a remote that is not `https://github.com/<owner>/<repo>`,
     a branch in the base set (the default branch, `pr_base`, a non-null `migration_base`) or not
-    checked out, a merge or root commit, a symlink or submodule, a path or message JSON cannot carry
-    byte for byte, and any path under `.github/workflows/`, since the dev App holds no `workflows`
+    checked out, a root commit or any merge other than a two-parent one whose second parent is on a
+    base-set branch (`#811`: that merge is published with both parents, and an existing branch's
+    first-parent chain must pass through the remote tip), a symlink or submodule, a path or message
+    JSON cannot carry byte for byte, and any path under `.github/workflows/`, since the dev App holds no `workflows`
     permission. A workflow edit stays host-side.
   - **Check 22.** `scripts/invariants-check.sh` fails a skill, agent or bin script that names the
     `git/commits` endpoint and sends it an `author` or `committer`, since either field makes the

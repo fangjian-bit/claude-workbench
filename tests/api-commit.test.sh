@@ -58,7 +58,7 @@ chmod +x "$work/bin/git"
 
 # A stub gh. Logs "METHOD endpoint bodyfile" per call (bodyfile is - when there is none) and
 # builds real objects in the bare repository: blobs, trees (on base_tree), commits (from the
-# message, byte for byte) and refs. STUB_TREE_WRONG answers a commit with the empty tree;
+# message, byte for byte, with every parent sent) and refs. STUB_TREE_WRONG answers a commit with the empty tree;
 # STUB_SWAP builds the commit on the empty tree but answers with the requested one.
 cat >"$work/bin/gh" <<'EOF'
 #!/bin/sh
@@ -110,7 +110,9 @@ case "$method $endpoint" in
     built="$want"
     [ -z "${STUB_SWAP:-}" ] || built="$empty"
     [ -z "${STUB_TREE_WRONG:-}" ] || { built="$empty"; want="$empty"; }
-    sha=$(GIT_AUTHOR_NAME=bot GIT_COMMITTER_NAME=bot git commit-tree "$built" -p "$(jq -r '.parents[0]' "$saved")" -F "$saved.msg")
+    set -- "$built"
+    for p in $(jq -r '.parents[]' "$saved"); do set -- "$@" -p "$p"; done
+    sha=$(GIT_AUTHOR_NAME=bot GIT_COMMITTER_NAME=bot git commit-tree "$@" -F "$saved.msg")
     printf '{"sha":"%s","tree":{"sha":"%s"}}\n' "$sha" "$want" ;;
   "POST repos/o/r/git/refs")
     git update-ref "$(jq -r .ref "$saved")" "$(jq -r .sha "$saved")"; echo '{}' ;;
@@ -246,6 +248,7 @@ fresh
   "$real_git" merge -q --no-ff -m merge side
 )
 refused "a merge commit" origin feat/merge
+assert_eq "the merge-commit refusal names the second parent" "yes" "$(grep -q 'on no base-set branch' "$work/out" && echo yes || echo no)"
 fresh
 (cd "$repo" && "$real_git" checkout -q -b feat/wf && mkdir -p .github/workflows && commit_file .github/workflows/ci.yml x wf)
 refused "a workflow path" origin feat/wf
@@ -359,6 +362,95 @@ assert_eq "writes: one commit's blob, tree, commit, then a PATCH" "POST blobs,PO
 assert_eq "the existing branch's ref is moved with force false" "false" "$(jq -r .force "$(grep '^PATCH ' "$log" | awk '{print $3}')")"
 assert_eq "the remote parent of the first replayed commit is the remote tip" "$("$real_git" --git-dir="$bare" rev-parse feat/y^)" "$(jq -r '.parents[0]' "$(grep '^POST repos/o/r/git/commits' "$log" | awk '{print $3}')")"
 assert_eq "the existing branch is reconciled" "$("$real_git" --git-dir="$bare" rev-parse feat/y)" "$("$real_git" -C "$repo" rev-parse feat/y)"
+
+# --- a merge of the base into the branch (#811) ----------------------------------------
+# merge_fixture <branch> <published>: a branch with one commit (pushed to the bare repository
+# when <published> is yes), the base advanced and pushed there, then the base merged in.
+merge_fixture() {
+  fresh
+  (
+    cd "$repo"
+    "$real_git" checkout -q -b "$1" && commit_file a.txt a one
+    [ "$2" != yes ] || "$real_git" push -q "$bare" "$1"
+    "$real_git" checkout -q main && commit_file b.txt b advance
+    "$real_git" push -q "$bare" main
+    "$real_git" checkout -q "$1"
+    "$real_git" merge -q --no-ff -m 'merge main' main
+  )
+}
+merge_fixture feat/m no
+base_tip=$("$real_git" -C "$repo" rev-parse main)
+assert_eq "a new branch with a merge of the base publishes" "0" "$(run origin feat/m)"
+assert_eq "writes: the feature commit, then the merge, then one ref write" \
+  "POST blobs,POST trees,POST commits,POST blobs,POST trees,POST commits,POST refs," "$(writes)"
+mcommits=$(grep '^POST repos/o/r/git/commits' "$log" | awk '{print $3}')
+m1=$(printf '%s\n' "$mcommits" | sed -n 1p)
+m2=$(printf '%s\n' "$mcommits" | sed -n 2p)
+assert_eq "the feature commit is sent with one parent" "1" "$(jq '.parents | length' "$m1")"
+assert_eq "the merge is sent with two parents" "2" "$(jq '.parents | length' "$m2")"
+assert_eq "the merge's second parent is the base tip" "$base_tip" "$(jq -r '.parents[1]' "$m2")"
+assert_eq "the merge's first parent is the API commit the first request made" "one" "$("$real_git" --git-dir="$bare" log -1 --format=%s "$(jq -r '.parents[0]' "$m2")")"
+assert_eq "that API commit sits on the original base" "$("$real_git" -C "$repo" rev-parse main^)" "$("$real_git" --git-dir="$bare" rev-parse "$(jq -r '.parents[0]' "$m2")^")"
+assert_eq "no merge-fixture commit request carries author or committer" "false" "$(jq -r 'has("author") or has("committer")' "$m1" "$m2" | sort -u)"
+assert_eq "the remote tip has both parents" "$("$real_git" --git-dir="$bare" rev-parse feat/m^1) $base_tip" "$("$real_git" --git-dir="$bare" rev-parse feat/m^1 feat/m^2 | tr '\n' ' ' | sed 's/ $//')"
+assert_eq "the remote tip's tree equals the local tip's" "$("$real_git" --git-dir="$bare" rev-parse 'feat/m^{tree}')" "$("$real_git" -C "$repo" rev-parse 'feat/m^{tree}')"
+assert_eq "the merge reconcile put the local branch on the remote tip" "$("$real_git" --git-dir="$bare" rev-parse feat/m)" "$("$real_git" -C "$repo" rev-parse feat/m)"
+assert_eq "the merge reconcile set the upstream" "origin/feat/m" "$("$real_git" -C "$repo" rev-parse --abbrev-ref feat/m@{upstream})"
+merge_fixture feat/me yes
+remote_tip=$("$real_git" --git-dir="$bare" rev-parse feat/me)
+assert_eq "an existing branch with a merge of the base publishes" "0" "$(run origin feat/me)"
+assert_eq "writes: one commit for the merge, then a PATCH" "POST blobs,POST trees,POST commits,PATCH refs," "$(writes)"
+mc=$(grep '^POST repos/o/r/git/commits' "$log" | awk '{print $3}')
+assert_eq "exactly one commit request" "1" "$(grep -c '^POST repos/o/r/git/commits' "$log")"
+assert_eq "its first parent is the remote tip" "$remote_tip" "$(jq -r '.parents[0]' "$mc")"
+assert_eq "its second parent is the base tip" "$("$real_git" -C "$repo" rev-parse main)" "$(jq -r '.parents[1]' "$mc")"
+assert_eq "the merge's ref is moved with force false" "false" "$(jq -r .force "$(grep '^PATCH ' "$log" | awk '{print $3}')")"
+assert_eq "the merge reconciled onto an existing branch" "$("$real_git" --git-dir="$bare" rev-parse feat/me)" "$("$real_git" -C "$repo" rev-parse feat/me)"
+fresh
+(
+  cd "$repo"
+  "$real_git" checkout -q -b feat/o && commit_file a.txt a one
+  "$real_git" checkout -q main && commit_file b.txt b advance
+  "$real_git" push -q "$bare" main
+  "$real_git" checkout -q feat/o
+  "$real_git" reset -q --hard "$("$real_git" commit-tree -p HEAD -p main -p main^ -m octopus 'HEAD^{tree}')"
+)
+refused "an octopus merge" origin feat/o
+assert_eq "the octopus refusal names the parent count" "yes" "$(grep -q 'no parent or more than two' "$work/out" && echo yes || echo no)"
+fresh
+(
+  cd "$repo"
+  "$real_git" checkout -q -b feat/w && commit_file a.txt a one
+  "$real_git" checkout -q main && mkdir -p .github/workflows && commit_file .github/workflows/ci.yml x wf
+  "$real_git" push -q "$bare" main
+  "$real_git" checkout -q feat/w
+  "$real_git" merge -q --no-ff -m 'merge main' main
+)
+refused "a merge that brings in a workflow file" origin feat/w
+assert_eq "the workflow refusal names .github/workflows/" "yes" "$(grep -q '\.github/workflows/' "$work/out" && echo yes || echo no)"
+fresh
+(
+  cd "$repo"
+  "$real_git" checkout -q -b feat/rev && commit_file a.txt a one
+  "$real_git" push -q "$bare" feat/rev
+  "$real_git" checkout -q main && commit_file b.txt b other
+  "$real_git" merge -q --no-ff -m 'merge PR' feat/rev
+  "$real_git" push -q "$bare" main
+  "$real_git" checkout -q -B feat/rev main && commit_file c.txt c later
+)
+refused "an existing branch whose first-parent chain skips the remote tip" origin feat/rev
+assert_eq "the skipped-tip refusal names the remote tip" "yes" "$(grep -q 'does not follow the remote tip' "$work/out" && echo yes || echo no)"
+
+fresh
+(
+  cd "$repo"
+  "$real_git" checkout -q -b side && commit_file s.txt s side
+  "$real_git" checkout -q main && "$real_git" checkout -q -b feat/g && commit_file m.txt m main-side
+  "$real_git" merge -q --no-ff -m merge side
+  "$real_git" replace --graft HEAD HEAD^1 main
+)
+refused "a merge whose second parent a replace ref makes look like the base" origin feat/g
+assert_eq "the replace-ref refusal names the second parent" "yes" "$(grep -q 'on no base-set branch' "$work/out" && echo yes || echo no)"
 
 # --- tree equality: a mismatch moves no ref and leaves the branch alone -------------------
 fresh
