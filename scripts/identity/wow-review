@@ -20,9 +20,13 @@
 # Needs docker, gh, jq, yq (mikefarah v4) and timeout on PATH, else exit 1. POSIX sh, run under
 # `set -f`, stdin closed, never prompts. Layout and toolset: wow-common.sh.
 #
-# Tunables (environment, validated before any call): WOW_REVIEW_MAX (1 to 9, default 1, reviews
-# running at once), WOW_REVIEW_TIMEOUT (seconds, 1 to 6000, default 5400), WOW_REVIEW_REFRESH
-# (seconds, 1 to 1500, default 1500, the session-token refresh interval).
+# Tunables (environment, validated before any call): WOW_REVIEW_MAX (1 to 9, default 1, this home's
+# reviews running at once), WOW_REVIEW_TIMEOUT (seconds, 1 to 6000, default 5400), WOW_REVIEW_REFRESH
+# (seconds, 1 to 1500, default 1500, the session-token refresh interval). The cap counts, and the
+# overdue sweep removes, only this home's own containers: those labelled wow.review.home with this home's
+# key (the .home-key file in its review-state directory), or carrying no home label (made by a launcher
+# from before the label). The cap is per home and there is no cross-home cap; each home's launcher applies
+# WOW_REVIEW_MAX from its own environment to its own containers.
 #
 # Exit codes (the interface wow-review-poll builds on):
 #    0  a review was posted and confirmed
@@ -90,7 +94,8 @@
 #  - The secret rule is an accident guard: a session can encode a token past any filter.
 #  - Quota: the session can spend the Claude credential's quota on any model for the whole timeout,
 #    or, after a launcher killed outright, until the session ends on its own or a later launcher's
-#    sweep removes it; if no later launcher reaches its sweep, nothing bounds it.
+#    sweep removes it; if no later launcher of the same home, or of another home while either home's
+#    installed copy predates the home label, reaches its sweep, nothing bounds it.
 #  - Network reach: that the internal network reaches only the two sidecars rests on Docker's
 #    --internal and isolated-gateway behaviour (launch.sh measured it); this launcher checks the
 #    network's configuration and membership, not reachability.
@@ -99,9 +104,10 @@
 #    of their hour (subject to the refresher exceptions in the next bullet); only review-sessions/
 #    is swept by the broker.
 #  - A launcher killed outright (its EXIT trap never runs) leaves its session, holder, proxy and
-#    injector containers running until a later launcher that reaches its sweep (past the lock and
+#    injector containers running until a later launcher of the same home, or of another home while either home's installed copy
+#    predates the home label, that reaches its sweep (past the lock and
 #    ledger checks) removes them once their deadline has passed: the time the launcher began creating
-#    its networks and sidecars, plus the timeout, plus 600 seconds. If no later launcher reaches its sweep, nothing
+#    its networks and sidecars, plus the timeout, plus 600 seconds. If no such later launcher reaches its sweep, nothing
 #    removes them. Until then nothing bounds the session, since only the killed launcher's bounded
 #    wait did: it can keep running, and keep spending the Claude credential's quota through the
 #    injector (which holds that credential in memory), until it ends on its own (the review
@@ -121,20 +127,22 @@
 #  - The 600-second margin is shared with the network and sidecar creation of section 7 and the docker
 #    and mint calls between taking the deadline and the start of the wait (each foreground docker
 #    call bounded at 120 seconds, not by the margin), so with
-#    docker slow the deadline can pass while the run is still going, and any later launcher that
-#    reaches its sweep (past the lock and ledger checks) can then remove the live run's containers,
+#    docker slow the deadline can pass while the run is still going, and any later launcher of the same home, or of another home while either home's installed copy
+#    predates the home label, that reaches its sweep (past the lock and ledger checks) can then remove the live run's containers,
 #    its sidecars included, before that run ends; its cap count then reads 0 and it runs too. This
 #    holds under the default WOW_REVIEW_MAX=1, since the sweeps run before the cap is counted and
 #    the live run releases the lock right after `dk start` and its inspect, before its bounded wait. Such a
 #    launcher is a maintainer running wow-review by hand (a --rerun of the same head, as the failure
 #    body invites, or a run for another PR); a wow-review-poll launch while a hand-started run is
 #    live, or a hand run while a poll's launch is live, since the poll lock serialises polls only;
-#    or a launcher on the same Docker daemon with a different WOW_HOME, since the launcher lock and
-#    the cap state live under $WOW_HOME/review-state while the sweep and the cap's `docker ps` see
-#    every container on the daemon, so such a launcher never waits on the live run's lock.
+#    or a launcher of another home on the same Docker daemon while either home's installed copy predates the
+#    home label.
 #  - A checks-pending stop can be forced up to three times per head by a PR job that holds a
 #    required context unfinished. The cap is the bound.
 #  - Two launchers can race on a stale lock.
+#  - Removing the .home-key file or the review-state directory gives the home a new key; its earlier labelled
+#    containers then count as another home's (never counted, never swept) and are removed by hand. A stale-lock
+#    race on a home's first run can leave one run labelled with a key the file no longer holds.
 #  - The forged-footer guard is a denylist: it refuses a line that reads as one of the three host footers behind
 #    spaces, markup or zero-width characters, but markup it does not list (an HTML comment, an entity, a
 #    homoglyph) can still render a forged footer. Nothing parses the footer by machine; it can mislead a reader.
@@ -459,6 +467,21 @@ if ! take_lock; then
   fi
 fi
 
+# The home key (#815): one value per review-state directory, so one home gets one key however its path is
+# spelled. Created under the lock, by rename, from this run's own ID; every container, network and volume
+# this launch creates carries it as wow.review.home, and the cap and the sweep act on containers that
+# carry it or carry no home label. Nothing has called docker yet.
+HKF="$STATE/.home-key"
+if [ ! -e "$HKF" ]; then
+  printf '%s\n' "$ID" >"$HKF.$ID" && mv -f -- "$HKF.$ID" "$HKF" || { rm -f -- "$HKF.$ID"; fail "cannot create the home key $HKF"; }
+fi
+HK=$(tr -d '\r' <"$HKF") || fail "cannot read the home key $HKF"
+case $HK in
+  ''|*[!0-9-]*|-*|*-|*-*-*) fail "the home key in $HKF is malformed" ;;
+  *-*) ;;
+  *) fail "the home key in $HKF is malformed" ;;
+esac
+
 ENTRY_PARENT="$STATE/$owner/$name/$num"
 ENTRY="$ENTRY_PARENT/$pin"
 mkdir -p -- "$ENTRY_PARENT"
@@ -473,9 +496,13 @@ fi
 
 DOCKER_USED=1
 now=$(date +%s)
+# A container is this home's own when its wow.review.home label equals the key or is empty (absent, or
+# made by a launcher from before the label). The label is the last field of a "|"-separated format line,
+# so an empty one does not shift the others.
 sweep() { # sweep <label>
-  dk ps -a --filter "label=$1" --format '{{.ID}} {{.Label "wow.review.deadline"}}' 2>/dev/null | tr -d '\r' | while IFS=' ' read -r cid dl; do
+  dk ps -a --filter "label=$1" --format '{{.ID}}|{{.Label "wow.review.deadline"}}|{{.Label "wow.review.home"}}' 2>/dev/null | tr -d '\r' | while IFS='|' read -r cid dl hl; do
     [ -n "$cid" ] || continue
+    [ -z "$hl" ] || [ "$hl" = "$HK" ] || continue
     case $dl in ''|*[!0-9]*) dl=0 ;; esac
     if [ "$dl" -le "$now" ]; then
       if dk rm -f "$cid" >/dev/null 2>&1; then logl "removed an overdue container $cid"; fi
@@ -486,8 +513,11 @@ sweep() { # sweep <label>
 sweep wow.review=1
 sweep wow.review.holder=1
 sweep wow.review.sidecar=1
-dk ps -q --filter label=wow.review=1 >"$STATE/.ps.$ID" || { rm -f "$STATE/.ps.$ID"; fail "docker ps failed; the cap cannot be counted"; }
-running=$(tr -d '\r' <"$STATE/.ps.$ID" | grep -c . || :)
+dk ps --filter label=wow.review=1 --format '{{.ID}}|{{.Label "wow.review.home"}}' >"$STATE/.ps.$ID" || { rm -f "$STATE/.ps.$ID"; fail "docker ps failed; the cap cannot be counted"; }
+running=$(tr -d '\r' <"$STATE/.ps.$ID" | while IFS='|' read -r cid hl; do
+  [ -n "$cid" ] || continue
+  if [ -z "$hl" ] || [ "$hl" = "$HK" ]; then echo own; fi
+done | grep -c . || :)
 rm -f "$STATE/.ps.$ID"
 if [ "$running" -ge "$MAXN" ]; then
   ENTRY=
@@ -519,16 +549,16 @@ CRED=$(head -n 1 "$CF" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:
 # json-file accepts compress=false too.
 HARDEN="--read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit 512"
 DL=$(( $(date +%s) + TMO + 600 ))
-dk network create --internal -o com.docker.network.bridge.gateway_mode_ipv4=isolated "$NET" >/dev/null || fail "cannot create the internal network"
-dk network create "$EXT" >/dev/null || fail "cannot create the external network"
+dk network create --label "wow.review.home=$HK" --internal -o com.docker.network.bridge.gateway_mode_ipv4=isolated "$NET" >/dev/null || fail "cannot create the internal network"
+dk network create --label "wow.review.home=$HK" "$EXT" >/dev/null || fail "cannot create the external network"
 # shellcheck disable=SC2086
-dkp run -d --name "$P" --network "$NET" $HARDEN --memory 256m --tmpfs /tmp:rw,nosuid,size=16m \
+dkp run --label "wow.review.home=$HK" -d --name "$P" --network "$NET" $HARDEN --memory 256m --tmpfs /tmp:rw,nosuid,size=16m \
   --label wow.review.sidecar=1 --label "wow.review.deadline=$DL" \
   --log-opt max-size=10m --log-opt max-file=1 --log-opt compress=false \
   -e "LOOP_ALLOW_HOSTS=github.com,api.github.com" --entrypoint python3 "$TAG" /opt/review/proxy.py >/dev/null || fail "cannot start the proxy"
 dk network connect "$EXT" "$P" >/dev/null || fail "cannot connect the proxy to the external network"
 # shellcheck disable=SC2086
-dkp create -i --name "$I" --network "$NET" $HARDEN --memory 256m --tmpfs /tmp:rw,nosuid,size=16m \
+dkp create --label "wow.review.home=$HK" -i --name "$I" --network "$NET" $HARDEN --memory 256m --tmpfs /tmp:rw,nosuid,size=16m \
   --label wow.review.sidecar=1 --label "wow.review.deadline=$DL" \
   --log-opt max-size=10m --log-opt max-file=1 --log-opt compress=false \
   -e "LOOP_CREDENTIAL_ENV=CLAUDE_CODE_OAUTH_TOKEN" --entrypoint python3 "$TAG" /opt/review/inject.py >/dev/null || fail "cannot create the injector"
@@ -547,9 +577,9 @@ done
 [ "$up" = 1 ] || fail "the injector did not report 'inject up'"
 
 # ---- 8. volumes and the holder ---------------------------------------------------------------
-dk volume create --opt type=tmpfs --opt device=tmpfs --opt o=size=2g,uid=1000,gid=1000 "$WORK" >/dev/null || fail "cannot create the work volume"
-dk volume create --opt type=tmpfs --opt device=tmpfs --opt o=size=64m,uid=1000,gid=1000 "$OUTV" >/dev/null || fail "cannot create the outbox volume"
-dkp run -d --name "$H" --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+dk volume create --label "wow.review.home=$HK" --opt type=tmpfs --opt device=tmpfs --opt o=size=2g,uid=1000,gid=1000 "$WORK" >/dev/null || fail "cannot create the work volume"
+dk volume create --label "wow.review.home=$HK" --opt type=tmpfs --opt device=tmpfs --opt o=size=64m,uid=1000,gid=1000 "$OUTV" >/dev/null || fail "cannot create the outbox volume"
+dkp run --label "wow.review.home=$HK" -d --name "$H" --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
   --label wow.review.holder=1 --label "wow.review.deadline=$DL" \
   --log-opt max-size=10m --log-opt max-file=1 --log-opt compress=false \
   --mount "type=volume,source=$OUTV,target=/review-out,readonly,volume-nocopy=true" \
@@ -560,7 +590,7 @@ dkp run -d --name "$H" --network none --read-only --cap-drop ALL --security-opt 
 # allows execution, so noexec on the home tmpfs stopped the plugin's own scripts without stopping anything the
 # session could not already run.
 # nosuid stays, and so does Docker's default nodev.
-dkp create --name "$S" --label wow.review=1 --label "wow.review.deadline=$DL" --network "$NET" \
+dkp create --label "wow.review.home=$HK" --name "$S" --label wow.review=1 --label "wow.review.deadline=$DL" --network "$NET" \
   --read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit 512 --memory 4g --cgroupns private --ipc private \
   --log-opt max-size=10m --log-opt max-file=1 --log-opt compress=false \
   --tmpfs /tmp:rw,nosuid,size=512m --tmpfs /home/app:rw,exec,nosuid,uid=1000,gid=1000,mode=0700,size=1g \

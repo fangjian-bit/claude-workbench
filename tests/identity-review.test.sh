@@ -270,26 +270,35 @@ case $cmd in
     if [ "$(kind_of "$name")" = session ]; then cat "$S/session-log" 2>/dev/null; else cat "$S/logs/$name" 2>/dev/null; fi
     exit 0 ;;
   ps)
-    flt= q=0
+    flt= q=0 fmt=
     while [ $# -gt 0 ]; do
-      case $1 in --filter) flt=${2#label=}; shift ;; -q) q=1 ;; esac
+      case $1 in --filter) flt=${2#label=}; shift ;; --format) fmt=$2; shift ;; -q) q=1 ;; esac
       shift
     done
+    # A preexisting record is "<id> <role label> [<deadline>] [home=<key>]": the home= field cannot be read as a deadline.
     {
       [ -f "$S/preexisting" ] && cat "$S/preexisting"
       for f in "$S"/ct/*.args; do
         [ -f "$f" ] || continue
-        b=$(basename "$f" .args); lab=; dl=0; p=
+        b=$(basename "$f" .args); lab=; dl=0; hm=; p=
         while IFS= read -r l; do
-          [ "$p" = --label ] && case $l in wow.review.deadline=*) dl=${l#*=} ;; wow.review=1|wow.review.holder=1|wow.review.sidecar=1) lab=$l ;; esac
+          [ "$p" = --label ] && case $l in wow.review.deadline=*) dl=${l#*=} ;; wow.review.home=*) hm=home=${l#*=} ;; wow.review=1|wow.review.holder=1|wow.review.sidecar=1) lab=$l ;; esac
           p=$l
         done <"$f"
-        [ -n "$lab" ] && echo "$b $lab $dl"
+        [ -n "$lab" ] && echo "$b $lab $dl $hm"
       done
-    } | while read -r id lab dl; do
+    } | while read -r id lab r1 r2; do
       [ "$lab" = "$flt" ] || continue
       grep -qxF "$id" "$S/removed" 2>/dev/null && continue
-      if [ "$q" = 1 ]; then echo "$id"; else echo "$id $dl"; fi
+      dl= hm=
+      for r in $r1 $r2; do case $r in home=*) hm=${r#home=} ;; *) dl=$r ;; esac; done
+      if [ "$q" = 1 ]; then echo "$id"
+      else
+        case $fmt in
+          *wow.review.deadline*) echo "$id|$dl|$hm" ;;
+          *) echo "$id|$hm" ;;
+        esac
+      fi
     done
     exit 0 ;;
 esac
@@ -610,6 +619,19 @@ assert_eq "golden: the proxy and the holder carry one deadline" "$(dl_of "$hold"
 assert_eq "golden: the injector and the holder carry one deadline" "$(dl_of "$hold")" "$(dl_of "$ij")"
 assert_eq "golden: the session and the holder carry one deadline" "$(dl_of "$hold")" "$(dl_of "$sc")"
 check "golden: the internal isolated network" has "$STUB/net.create" "--internal -o com.docker.network.bridge.gateway_mode_ipv4=isolated wow-review-net-"
+# the home key (#815): created from the run's own id, and the label of every container, network and volume
+hk=$(cat "$home/review-state/.home-key" 2>/dev/null)
+case $hk in [0-9]*-[0-9]*) ok "golden: the home key file was created, epoch-pid" ;; *) bad "golden: the home key is '$hk'" ;; esac
+for who_call in "session|$cs" "proxy|$pr" "injector|$ij" "holder|$hold"; do
+  who=${who_call%%|*}; call=${who_call#*|}
+  case $call in *"[--label] [wow.review.home=$hk]"*) ok "golden: the $who carries the home label" ;; *) bad "golden: the $who lacks the home label: $call" ;; esac
+done
+assert_eq "golden: the proxy and the holder carry the home label right after run" 2 "$(grep -c "^CALL \[run\] \[--label\] \[wow.review.home=$hk\]" "$STUB/docker.calls")"
+assert_eq "golden: the injector and the session carry the home label right after create" 2 "$(grep -c "^CALL \[create\] \[--label\] \[wow.review.home=$hk\]" "$STUB/docker.calls")"
+check "golden: the sweep lists id, deadline and home, pipe-separated" has "$STUB/docker.calls" '[--format] [{{.ID}}|{{.Label "wow.review.deadline"}}|{{.Label "wow.review.home"}}]'
+check "golden: the cap lists id and home, pipe-separated" has "$STUB/docker.calls" '[--format] [{{.ID}}|{{.Label "wow.review.home"}}]'
+assert_eq "golden: both network create calls carry the home label" 2 "$(grep -c -- "^--label wow.review.home=$hk " "$STUB/net.create")"
+assert_eq "golden: both volume create calls carry the home label" 2 "$(grep -c -- "^--label wow.review.home=$hk " "$STUB/vol.create")"
 assert_eq "golden: two volumes created, tmpfs-backed with the session's ownership" 2 "$(grep -c 'type=tmpfs --opt device=tmpfs --opt o=size=.*uid=1000,gid=1000' "$STUB/vol.create")"
 check "golden: the work volume is 2g and the outbox 64m" sh -c "grep -q 'size=2g' '$STUB/vol.create' && grep -q 'size=64m' '$STUB/vol.create'"
 # order and cleanup
@@ -790,6 +812,79 @@ assert_eq "overdue sweep: the run proceeds under a cap of 2" 0 "$rc"
 for c in old1 oldh nodl sidep sidei sidend; do check "overdue sweep: $c removed" has "$STUB/events" "docker-rm $c"; done
 check "overdue sweep: a container with a future deadline is left running" test "$(grep -c 'docker-rm fresh1' "$STUB/events")" = 0
 check "overdue sweep: a sidecar with a future deadline is left running" test "$(grep -c 'docker-rm sidefut' "$STUB/events")" = 0
+
+# the home key and the per-home cap and sweep (#815)
+key_case() { # key_case <label> <file content, printf format>: a run with a key file already there
+  new_case
+  mkdir -p "$home/review-state"; printf -- "$2" >"$home/review-state/.home-key"
+}
+new_case
+run o/r 7
+assert_eq "home key absent: the run proceeds" 0 "$rc"
+check "home key absent: the session carries the file's value" has "$STUB/docker.calls" "[wow.review.home=$(cat "$home/review-state/.home-key")]"
+check "home key absent: the key has the epoch-pid form" sh -c "grep -Eqx '[0-9]+-[0-9]+' '$home/review-state/.home-key'"
+check "home key absent: no temporary file is left" test -z "$(ls -A "$home/review-state" | grep '^\.home-key\.')"
+key_case x '4-2\n'
+run o/r 7
+assert_eq "home key present: the run proceeds" 0 "$rc"
+assert_eq "home key present: the file is unchanged" 4-2 "$(cat "$home/review-state/.home-key")"
+check "home key present: the session carries it" has "$STUB/docker.calls" "[wow.review.home=4-2]"
+key_case x '4-2\r\n'
+run o/r 7
+assert_eq "home key with a carriage return: the run proceeds" 0 "$rc"
+check "home key with a carriage return: the label is the bare key" has "$STUB/docker.calls" "[wow.review.home=4-2]"
+for bad_key in "empty|" "three parts|1-2-3\n" "second line|1-2\n3-4\n" "no hyphen|12\n" "letters|a-b\n" "trailing hyphen|1-\n" "leading hyphen|-1\n"; do
+  bk_label=${bad_key%%|*}; bk=${bad_key#*|}
+  key_case x "$bk"
+  run o/r 7
+  assert_eq "malformed home key ($bk_label): exit 1" 1 "$rc"
+  assert_eq "malformed home key ($bk_label): no container, network or volume created" 0 "$(ev_count 'docker-create\|docker-run\|docker-net-create\|docker-vol-create')"
+  assert_eq "malformed home key ($bk_label): no docker call at all" 0 "$(n_dockers)"
+  check "malformed home key ($bk_label): the lock is released" test ! -d "$home/review-state/.lock"
+done
+
+new_case
+mkdir -p "$home/review-state/.lock"; echo other-run >"$home/review-state/.lock/id"
+run o/r 7
+assert_eq "home key: a held lock exits 75" 75 "$rc"
+check "home key: a held lock leaves no key file" test ! -e "$home/review-state/.home-key"
+key_case x '7-7\n'; rm -f "$home/review-state/.home-key"; mkdir "$home/review-state/.home-key"
+run o/r 7
+assert_eq "home key: an unreadable key (a directory) exits 1" 1 "$rc"
+assert_eq "home key: an unreadable key makes no docker call" 0 "$(n_dockers)"
+key_case x '7-7\n'
+printf 'own1 wow.review=1 9999999999 home=7-7\nother1 wow.review=1 9999999999 home=8-8\n' >"$STUB/preexisting"
+T_MAX=2; run o/r 7; unset T_MAX
+assert_eq "cap: one own and one other-home live session under a cap of 2 proceeds" 0 "$rc"
+key_case x '7-7\n'
+printf 'own1 wow.review=1 9999999999 home=7-7\nold1 wow.review=1 9999999999\n' >"$STUB/preexisting"
+T_MAX=2; run o/r 7; unset T_MAX
+assert_eq "cap: one own and one unlabelled live session under a cap of 2 is busy" 75 "$rc"
+
+key_case x '7-7\n'
+printf 'other1 wow.review=1 9999999999 home=8-8\n' >"$STUB/preexisting"
+run o/r 7
+assert_eq "cap: another home's live session does not make the run busy" 0 "$rc"
+key_case x '7-7\n'
+printf 'own1 wow.review=1 9999999999 home=7-7\n' >"$STUB/preexisting"
+run o/r 7
+assert_eq "cap: this home's live session makes the run busy" 75 "$rc"
+assert_eq "cap: busy, no container created" 0 "$(ev_count 'docker-create')"
+key_case x '7-7\n'
+printf 'old1 wow.review=1 9999999999\n' >"$STUB/preexisting"
+run o/r 7
+assert_eq "cap: an unlabelled live session still counts" 75 "$rc"
+
+key_case x '7-7\n'
+printf 'xs wow.review=1 100 home=8-8\nxh wow.review.holder=1 100 home=8-8\nxc wow.review.sidecar=1 100 home=8-8\nxn wow.review=1 home=8-8\n' >"$STUB/preexisting"
+run o/r 7
+assert_eq "sweep: another home's overdue containers do not stop the run" 0 "$rc"
+for c in xs xh xc xn; do check "sweep: another home's $c is left" test "$(grep -c "docker-rm $c\$" "$STUB/events")" = 0; done
+key_case x '7-7\n'
+printf 'os wow.review=1 100 home=7-7\noh wow.review.holder=1 100 home=7-7\noc wow.review.sidecar=1 100 home=7-7\n' >"$STUB/preexisting"
+run o/r 7
+assert_eq "sweep: this home's overdue containers are removed and the run proceeds" 0 "$rc"
+for c in os oh oc; do check "sweep: this home's $c is removed" has "$STUB/events" "docker-rm $c"; done
 
 # the ledger rule
 new_case

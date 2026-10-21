@@ -28,6 +28,7 @@
 #   driver/<leaf>.json     wow-driver.ps1's record of the container it started for the clone <leaf>: {id, commit,
 #                          clone}. Never mounted.
 #   review-state/          wow-review's lock and its dedupe ledger (<owner>/<name>/<N>/<sha>/).
+#   review-state/.home-key  the home's container-label key (wow.review.home), never to be removed while that home has containers, networks or volumes.
 #   review-poll.json       {"repos": ["owner/name", ...]}, the repos wow-review-poll polls (the maintainer writes it).
 #   review-poll.log        wow-review-poll's decision log, rotated to review-poll.log.1 past 1 MiB.
 #   review-state/.poll-lock  wow-review-poll's own lock directory, separate from wow-review's .lock.

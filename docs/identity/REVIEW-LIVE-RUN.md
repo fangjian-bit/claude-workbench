@@ -197,3 +197,25 @@ Once every item above has passed or been accepted by the maintainer as unanswere
 `{"repos": ["owner/name"]}`, then run `scripts/identity/register-review-poll-task.ps1` from a
 PowerShell 7.2+ prompt (`-IntervalMinutes` 2 to 60, default 5; pass `-Sh` as Git for Windows' `bin\sh.exe`, never `usr\bin\sh.exe`). Its decisions are in
 `$WOW_HOME/review-poll.log`. To stop it, run the same script with `-Unregister`.
+
+### A second home's poller (#815)
+
+Several identity homes can run `wow-review` against one Docker daemon. Give each its own
+`WOW_HOME`, with its own Apps, credential and `review-poll.json`, and its own installed `bin`
+(`register-review-poll-task.ps1` installs it); never make a home by copying another home's
+`review-state`, which holds that home's key. Register the second home's poller with
+`register-review-poll-task.ps1 -WowHome <that home> -TaskName <a name other than the default
+glunk-wow-review-poll>`; registering under the same task name replaces the first home's task.
+A hand run against that home sets `WOW_HOME` to it and runs that home's installed `wow-review`.
+
+Each home's launcher applies `WOW_REVIEW_MAX` (from its own environment) to its own containers, and its sweep removes only its own
+containers: those labelled `wow.review.home` with the key in `$WOW_HOME/review-state/.home-key`, or
+carrying no home label. There is no cap across homes. The homes stop counting and sweeping each
+other's runs only once every home on the daemon has this change installed; a home still on an
+earlier copy keeps the daemon-wide behaviour.
+
+To stop a second home's poller, run the same script with `-Unregister` and that same `-TaskName`.
+Stopping the task can kill a live launch outright, and no other home sweeps its containers, so
+once no launch of that home is running, list the containers, networks and volumes labelled
+`wow.review.home=<the key in its .home-key>` (for example `docker ps -a --filter
+label=wow.review.home=<key>`) and remove them by hand.
