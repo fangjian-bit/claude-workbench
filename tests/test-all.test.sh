@@ -6,7 +6,10 @@
 # passes; fail.test.sh prints a sentinel and exits 1; skipa.test.sh prints `SKIP - stub` on
 # stderr and exits 0; skipb.test.sh prints `skip - stub` on stdout and exits 0; and
 # identity-review.test.sh fails unless every other stub present has finished (each other stub
-# writes a marker file, sleeps briefly, removes it and writes a done file).
+# writes a marker file, sleeps briefly, removes it and writes a done file). The held-out case
+# adds ai-cursor-banner.test.sh and loop-critic.test.sh stubs that fail if any other stub's
+# marker exists when they start or just before they end, and an identity-review stub that fails
+# unless both have finished. The TERM case's slow stub traps TERM, writes a marker and exits.
 # Needs bash (the runner is a bash script). Permitted toolset: POSIX sh, plus bash, grep, sed
 # and sleep.
 set -eu
@@ -138,15 +141,52 @@ assert_eq "runner temp directory removed" "" "$(ls -A "$t4/tmpd")"
 t5="$tmp/t5"
 mkdir -p "$t5/scripts" "$t5/tests" "$t5/tmpd"
 cp "$runner" "$t5/scripts/test-all.sh"
-printf 'sleep 5\n' >"$t5/tests/slow.test.sh"
+{
+  echo "trap 'touch \"$t5/termed\"; kill \$c 2>/dev/null; exit 0' TERM"
+  echo "sleep 5 &"
+  echo "c=\$!"
+  echo "touch \"$t5/ready\""
+  echo "wait \$c"
+} >"$t5/tests/slow.test.sh"
 (cd "$t5" && TMPDIR="$t5/tmpd" exec bash scripts/test-all.sh) >"$t5/out" 2>"$t5/err" &
 pid=$!
-sleep 1
+n=0
+while [ ! -f "$t5/ready" ] && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
 kill -TERM "$pid"
 rc=0
 wait "$pid" || rc=$?
 assert_eq "TERM exits 143" 143 "$rc"
 assert_eq "TERM leaves no runner temp directory" "" "$(ls -A "$t5/tmpd")"
 assert_eq "TERM prints nothing" "" "$(cat "$t5/out")"
+assert_eq "TERM reached the running suite" 1 "$([ -f "$t5/termed" ] && echo 1 || echo 0)"
+
+# --- held-out suites run alone, after the pool, in list order ---
+t6="$tmp/t6"
+mkdir -p "$t6/scripts" "$t6/tests" "$t6/state"
+cp "$runner" "$t6/scripts/test-all.sh"
+for n in pass skipa; do
+  echo "touch \"$t6/state/$n.marker\"; sleep 1; rm -f \"$t6/state/$n.marker\"; touch \"$t6/state/$n.done\"" \
+    >"$t6/tests/$n.test.sh"
+done
+for n in ai-cursor-banner loop-critic; do
+  {
+    echo "ls \"$t6/state\" | grep -q marker && { echo marker at start; exit 1; }"
+    echo "touch \"$t6/state/$n.marker\"; sleep 1"
+    echo "ls \"$t6/state\" | grep -v '^$n.marker\$' | grep -q marker && { echo marker at end; exit 1; }"
+    echo "rm -f \"$t6/state/$n.marker\"; touch \"$t6/state/$n.done\""
+  } >"$t6/tests/$n.test.sh"
+done
+{
+  echo "for n in pass skipa ai-cursor-banner loop-critic; do"
+  echo "  [ -f \"$t6/state/\$n.done\" ] || { echo \"\$n not done\"; exit 1; }"
+  echo "done"
+  echo "exit 0"
+} >"$t6/tests/identity-review.test.sh"
+run "$t6"
+assert_eq "held-out tree exits 0" 0 "$rc"
+assert_eq "held-out verdicts end in list order" \
+  "tests/ai-cursor-banner.test.sh tests/loop-critic.test.sh tests/identity-review.test.sh" \
+  "$(grep -E '^(pass|fail|skip) ' "$t6/out" | tail -n 3 | sed 's/^[a-z]* //' | tr '\n' ' ' | sed 's/ $//')"
+assert_has "held-out: summary" "$t6/out" "test-all: 5 pass, 0 fail, 0 skip"
 
 exit "$fail"

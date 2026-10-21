@@ -10,9 +10,12 @@
 # The files are found by a glob (sorted), so a new tests/X.test.sh is picked up with no list to
 # edit; every matching file runs, tracked or not. Each runs as `sh tests/NAME` from the repo
 # root with stdout and stderr together in one log under a mktemp -d directory.
-# tests/identity-review.test.sh is held out of the pool and started last, with nothing else
-# running (its own header's Runtime note: about 88 s alone in the dev container), so a whole run
-# needs more than a two-minute tool timeout. No glob match prints `no tests found` and exits 1.
+# Three suites are held out of the pool and started one at a time after it has drained, in this
+# order, each with nothing else running: tests/ai-cursor-banner.test.sh and
+# tests/loop-critic.test.sh assert wall-clock upper bounds that a loaded pool can trip, and
+# tests/identity-review.test.sh runs last (its own header's Runtime note: about 88 s alone in the
+# dev container), so a whole run needs more than a two-minute tool timeout. A held-out file the
+# glob does not find is skipped. No glob match prints `no tests found` and exits 1.
 #
 # Verdicts: a non-zero exit is `fail`; exit 0 with a log line beginning `SKIP - ` or `skip - `
 # is `skip`; any other exit 0 is `pass`. A skip never fails the run. Output, once every file has
@@ -30,6 +33,10 @@
 #   - `yq` also: tests/review-base-anchor.test.sh, tests/schema-complete.test.sh,
 #     tests/milestone-desc.test.sh, tests/spec-issue.test.sh, tests/spec-post.test.sh,
 #     tests/spec-fresh.test.sh (which also needs `git`) and tests/draft-identity.test.sh.
+#   - `yq` also, for part of a suite: tests/token-check.test.sh (its actor cases),
+#     tests/gh-identity.test.sh (its classify cases) and tests/app-push.test.sh (its commit_route
+#     reader cases) skip those cases without it; tests/spec-comment.test.sh and
+#     tests/review-sandbox.test.sh skip the whole suite.
 #   - tests/lane.test.sh and tests/lane-state.test.sh need `git`, `yq` and `jq`;
 #     tests/statusline-context.test.sh needs `jq`; tests/compact-handoff.test.sh needs `git`
 #     (and `jq` for its registration cases).
@@ -94,18 +101,20 @@ fi
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root_dir"
 
-last="identity-review.test.sh"
+held=(ai-cursor-banner.test.sh loop-critic.test.sh identity-review.test.sh)
 names=()
-have_last=0
 for f in tests/*.test.sh; do
   [ -f "$f" ] || continue
-  if [ "${f#tests/}" = "$last" ]; then
-    have_last=1
-  else
-    names+=("${f#tests/}")
-  fi
+  is_held=0
+  for h in "${held[@]}"; do
+    [ "${f#tests/}" = "$h" ] && is_held=1
+  done
+  [ "$is_held" -eq 1 ] || names+=("${f#tests/}")
 done
-[ "$have_last" -eq 1 ] && names+=("$last")
+pool_end="${#names[@]}"
+for h in "${held[@]}"; do
+  [ -f "tests/$h" ] && names+=("$h")
+done
 if [ "${#names[@]}" -eq 0 ]; then
   echo "no tests found" >&2
   exit 1
@@ -119,8 +128,11 @@ rcs=()
 
 cleanup() {
   trap '' INT TERM
+  local live=" $(jobs -rp | tr '\n' ' ') "
   for i in $running; do
-    kill -TERM "${pids[$i]}" 2>/dev/null || true
+    case "$live" in
+      *" ${pids[$i]} "*) kill -TERM "${pids[$i]}" 2>/dev/null || true ;;
+    esac
   done
   for i in $running; do
     wait "${pids[$i]}" 2>/dev/null || true
@@ -138,15 +150,19 @@ start() { # <index>
 }
 
 reap() { # reap every finished suite
-  local keep="" i rc
+  local keep="" i rc live
+  live=" $(jobs -rp | tr '\n' ' ') "   # bash's own job table: a reused PID cannot pass for a suite
   for i in $running; do
-    if kill -0 "${pids[$i]}" 2>/dev/null; then
-      keep="$keep $i"
-    else
-      rc=0
-      wait "${pids[$i]}" || rc=$?
-      rcs[$i]=$rc
-    fi
+    case "$live" in
+      *" ${pids[$i]} "*)
+        keep="$keep $i"
+        ;;
+      *)
+        rc=0
+        wait "${pids[$i]}" || rc=$?
+        rcs[$i]=$rc
+        ;;
+    esac
   done
   running="$keep"
 }
@@ -156,9 +172,6 @@ count() { # number of running suites
   for i in $running; do n=$((n + 1)); done
   echo "$n"
 }
-
-pool_end="$total"
-[ "$have_last" -eq 1 ] && pool_end=$((total - 1))
 
 next=0
 while [ "$next" -lt "$pool_end" ]; do
@@ -175,13 +188,14 @@ while [ -n "$running" ]; do
   [ -z "$running" ] || sleep 0.1
 done
 
-if [ "$have_last" -eq 1 ]; then
-  start "$pool_end"
+while [ "$next" -lt "$total" ]; do
+  start "$next"
+  next=$((next + 1))
   while [ -n "$running" ]; do
     reap
     [ -z "$running" ] || sleep 0.1
   done
-fi
+done
 
 pass=0
 fail=0
