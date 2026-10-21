@@ -2588,6 +2588,27 @@ take effect. Full reasoning and the task breakdown that implements them:
     the dev App holds no `workflows: write`: whether that limit is acceptable on infra repos is the
     maintainer's decision before cutover.
 
+- **WB-D37 (`#458`) — claude-workbench adopts `review.ci_gate` at its `WB-D24` cutover.** Builds on `WB-D24` item 7.
+  - **The decision.** `.ai/project.yml` sets `review.ci_gate` to a map (`check: architect-review`, the schema's
+    frozen `header` and `attestation`, `triggers_on: null`, so `code_paths`) and `architect-review` joins
+    `required_checks`. `.github/workflows/architect-review-gate.yml` posts that name as a commit status on the PR
+    head: `success` when no changed file is under a trigger, or when the declared reviewer App has a `COMMENTED`
+    review on that head with the header and attestation; `failure` when the changed files cannot be verified or no such
+    review exists. A config or API error posts nothing and fails the job, so a fork PR's status stays absent and the merge blocked. Only the reviewer App's review counts.
+  - **Reuse.** The workflow carries a copy of the gate-relevant parts of `scripts/identity/wow-review`'s config checks, `decide_exempt` and
+    `decide_already`, and reads config from the default branch, never the PR's copy. Changing one means changing both.
+  - **Rollout order.** Merge first, then pin the check live, then trigger a fresh gate run (a push, a close and reopen, or an edit of the title or body) on each open PR that has no `architect-review` status. Before the merge the
+    default branch still has `ci_gate: null`, so this PR's own gate run fails and no status can ever post on it; adding the
+    check to the live ruleset earlier would deadlock it. Between the merge and the pin, `required_checks` names a check the
+    live ruleset does not yet require.
+  - **Consequences.** Dependabot PRs touching `.github/workflows/` or `scripts/` are now gated. The live ruleset
+    still needs `architect-review` added as a required check by the maintainer, pinned to GitHub Actions (`integration_id` 15368) like the other three; unpinned, any token with `statuses:write` could satisfy it.
+  - **Residuals.** `pull_request` and `pull_request_review` runs use the PR's own copy of the workflow, so a pusher with the Workflows
+    permission could add or edit any workflow that posts the status; `pull_request_target` is not used. A PR changing only `.ai/project.yml` is
+    exempt and held by code-owner approval. The gate checks that a review exists on the head, not its verdict. A PR touching only `tests/`, `.devcontainer/`,
+    `.claude/` or `.github/` files outside `.github/workflows/` is outside `code_paths`, so it is not gated.
+    The shared `bin/` script for the copied checks and `wow-review-poll` registration are not done here.
+
 ## Status
 
 All four of `WB-D1..D4` are implemented by this repo's existence and structure as of

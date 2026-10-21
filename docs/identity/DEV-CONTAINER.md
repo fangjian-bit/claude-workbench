@@ -476,5 +476,6 @@ removes it. The login lives on the volume; the binary does not.
 
 The template's `.github/workflows` (`devcontainer-image.yml`, `architect-review-gate.yml`,
 `secret-scan.yml`) are not copied: adding required checks is a ruleset decision for the
-maintainer. The Dockerfile header lists what `verify / verify` would enforce, and the
+maintainer. This repo has its own gate workflow of the name `architect-review-gate.yml` (#458,
+`WB-D37`), not the template's copy. The Dockerfile header lists what `verify / verify` would enforce, and the
 attestation command to check the pinned digest by hand.

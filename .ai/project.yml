@@ -57,18 +57,22 @@ rulesets:
   - name: main-required-checks
     source: repo
     rule_types: [required_status_checks]
-    required_checks: [lint, coupling, invariants]
+    required_checks: [lint, coupling, invariants, architect-review]
   - name: protected-integration-branches
     source: repo
     rule_types: [deletion, non_fast_forward, pull_request]
 ruleset:
   name: main-required-checks
   rule_types: [required_status_checks]
-  required_checks: [lint, coupling, invariants]
+  required_checks: [lint, coupling, invariants, architect-review]
 
 # ── the fresh-session review gate ────────────────────────────────────────────
 review:
-  ci_gate: null   # no hitl-review.yml in this repo — not adopted here (yet).
+  ci_gate:
+    check: architect-review
+    header: "**Opus/Architect HITL review (automated)**"
+    attestation: "*Fresh-session review: this session did not author the diff.*"
+    triggers_on: null   # null means code_paths; a PR touching nothing under code_paths is not gated.
 
 # ── agents ───────────────────────────────────────────────────────────────────
 agents:

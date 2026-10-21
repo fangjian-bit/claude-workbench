@@ -12,6 +12,9 @@ No sprint cadence — small, single-task PRs via `/way-of-working:ship`, each cl
 declining) one backlog issue. `/way-of-working:resume` at session start,
 `/way-of-working:handoff` before switching model/session, `/way-of-working:critic-gate`
 after the green gate and before handoff on any diff touching `code_paths`.
+On a PR touching `code_paths`, after `/way-of-working:ship`, the maintainer runs `wow-review`
+on the host; the reviewer App's posted review turns the `architect-review` status green
+(`.github/workflows/architect-review-gate.yml`, `WB-D37`). A PR touching nothing under `code_paths` is not gated.
 
 ## The one rule that matters most here
 
