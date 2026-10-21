@@ -19,10 +19,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 `v0.5.0` are summarized from their tags; the full record is `docs/decisions.md` (`WB-D*`) and
 the GitHub release notes.
 
-## [Unreleased]
+## [0.22.0] — 2026-10-21
 
-- **`bin/api-commit.sh` publishes a merge of a base-set branch into the branch with both parents
-  (`#811`).** Every other merge is still refused, as is a rebase of an already-published branch.
+### Added
 
 - **`bin/api-commit.sh`, a second App-mode publishing route (`WB-D36`, `#601`).** It replays a
   branch's local commits through the REST git data API as the dev App, with no `author` or
@@ -31,9 +30,12 @@ the GitHub release notes.
   sub-key `identities.dev_app.commit_route` (`git` or `api`); an undeclared one selects `git`, so no
   existing `.ai/project.yml` needs a change. `ship`, `handoff`, `archive-sprint` and `resume`'s schema
   interview read the key in App mode. `schema-complete.sh` rejects a present value other than `git`
-  and `api`. A new invariants check fails a `git/commits` request that sets an `author` or
-  `committer`. Workflow edits stay host-side: the route refuses a commit that touches
-  `.github/workflows/`.
+  and `api`. A new invariants check fails a skill, agent or bin script that sends `git/commits` an
+  `author` or `committer`. Workflow edits stay host-side: the route refuses a commit that touches
+  `.github/workflows/`, and a merge is checked on its diff from its first parent. A merge of a
+  base-set branch into the branch is published with both parents (`#811`) unless it brings in a
+  `.github/workflows/` change; every other merge is refused, as is a rebase of an
+  already-published branch.
 
 ## [0.21.0] — 2026-10-20
 
