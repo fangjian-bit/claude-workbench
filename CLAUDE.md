@@ -54,6 +54,7 @@ sh tests/plan-depends.test.sh   # plan-sprint's depends_on marker read-back, plu
 sh tests/invariants-reach-order.test.sh  # invariants-check.sh check 3 (reach precedes ruleset) fixtures (not yet required)
 sh tests/invariants-null-repo.test.sh  # invariants-check.sh check 12 (null backlog.repo means {repo}) fixtures (not yet required)
 sh tests/invariants-unpark-pfc.test.sh  # invariants-check.sh check 13 (unpark-sprint validates parked_from_commit) fixtures (not yet required)
+sh tests/invariants-park-lanes.test.sh  # invariants-check.sh check 23 (park and unpark write "lanes": null) fixtures (not yet required)
 sh tests/invariants-gate-reader.test.sh  # invariants-check.sh check 14 (three hitl_gate readers call the shared predicate) fixtures (not yet required)
 sh tests/invariants-spec-body.test.sh  # invariants-check.sh check 15 (architect-review loads no issue body under an identities map) fixtures (not yet required)
 sh tests/spec-reaction.test.sh  # spec-reaction.sh approved/unreacted/bad-argument fixtures (not yet required)

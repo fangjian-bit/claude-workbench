@@ -19,6 +19,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 `v0.5.0` are summarized from their tags; the full record is `docs/decisions.md` (`WB-D*`) and
 the GitHub release notes.
 
+## [Unreleased]
+
+### Fixed
+
+- **`park-sprint` no longer publishes the derived `lanes` array (`#797`).** Park writes the
+  tracked snapshot with `"lanes": null`, and `unpark-sprint` restores the cursor with
+  `"lanes": null` whatever the snapshot holds; the next handoff derives the live array. A new
+  invariants check (23) fails a tree where either skill drops the literal.
+
 ## [0.22.0] — 2026-10-21
 
 ### Added

@@ -9,7 +9,7 @@ inheriting a bloated context window.
 
 - **`.ai/`** — *this* dev-workflow's state (how Claude Code sessions hand off).
   - `.ai/next-steps.md` (git-tracked) — the human-readable cursor: current phase/sprint, status, next action, which model to use, HITL Gate state. A **thin pointer** into the roadmap + the active sprint plan (a file, or — under `planning.kind: github_milestones` — a GitHub milestone); not a second copy of them.
-  - `.ai/state.json` (git-ignored) — the machine cursor (`current_phase`, `current_sprint_id`, `sprint_status`, `assigned_model`, `assigned_persona`, `last_commit`, `next_action`, `hitl_gate`, `pointers`, `lanes`). `lanes` is the live-lane array handoff derives with `lane-state.sh` (`null` when the repo declares none, or when the lane state could not be read); resume compares it with the live state and never acts on it.
+  - `.ai/state.json` (git-ignored) — the machine cursor (`current_phase`, `current_sprint_id`, `sprint_status`, `assigned_model`, `assigned_persona`, `last_commit`, `next_action`, `hitl_gate`, `pointers`, `lanes`). `lanes` is the live-lane array handoff derives with `lane-state.sh` (`null` when the repo declares none, when the lane state could not be read, or on a cursor an unpark just restored, until the next handoff); resume compares it with the live state and never acts on it.
   - `.ai/context/` (git-tracked) — heavy reference loaded on demand, where a repo keeps any.
   - `.ai/archive/` (git-ignored) — retired sprint snapshots. Disposable: a retired sprint's
     durable record is in `{roadmap}` and the merged PRs.

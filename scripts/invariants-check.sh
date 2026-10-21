@@ -33,7 +33,7 @@ report() {
 # the tests/invariants-*.test.sh fixtures, which copy the tree and look for one check's message.
 # It is an argument on purpose, never an environment variable, so nothing ambient can narrow a
 # gate run; the gate (CI, release, gates.green) never passes it.
-ALL_IDS=(1 2 2b 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22)
+ALL_IDS=(1 2 2b 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23)
 only=
 only_set=0
 usage() {
@@ -1301,6 +1301,32 @@ if [ -n "$ac_hits" ]; then
   report "a git/commits request sets an author or committer (#601)" \
     "$ac_hits" \
     "A commit made through the git data API with no author or committer is signed by GitHub; either field makes it unsigned (#588 test 1). See docs/decisions.md WB-D36."
+fi
+fi
+
+# --- 23. park and unpark write `"lanes": null`, never the derived array (#797, WB-D34) -----
+if want 23; then
+#
+# Since #794 handoff writes a `lanes` array into .ai/state.json, derived from the live worktrees.
+# park-sprint copied the live cursor into the tracked .ai/parked/ snapshot as it was, so a park
+# published that array, and an unpark restored lanes that no longer exist. Both skills now write
+# `"lanes": null`. The check tests only that the literal is in each file, not which step holds
+# it or what the sentence says. A tree with no park-sprint or no unpark-sprint skill fails: a
+# check that cannot look must not pass (#243's stance, as check 13).
+parklanes_hits=""
+for k in park-sprint unpark-sprint; do
+  parklanes_seen=0
+  for f in plugins/*/skills/"$k"/SKILL.md; do
+    [ -f "$f" ] || continue
+    parklanes_seen=1
+    grep -Fq '"lanes": null' "$f" || parklanes_hits+="$f"$'\n'
+  done
+  [ "$parklanes_seen" -eq 1 ] || parklanes_hits+="(no plugins/*/skills/$k/SKILL.md found)"$'\n'
+done
+if [ -n "$parklanes_hits" ]; then
+  report "park-sprint or unpark-sprint no longer writes \"lanes\": null into the snapshot or the restored cursor (#797)" \
+    "$parklanes_hits" \
+    "Keep the literal \"lanes\": null in park-sprint's Snapshot step and unpark-sprint's Restore step; the derived array is not tracked state."
 fi
 fi
 

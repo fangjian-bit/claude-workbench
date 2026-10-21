@@ -31,7 +31,9 @@ under `github_milestones` — `{backlog.repo}` (`null` means `{repo}`).
 ## Steps
 
 1. **Snapshot, on the branch you stand on.** `mkdir -p .ai/parked`. Copy `.ai/state.json`
-   to `.ai/parked/<id>-state.json`, adding `parked_at` (ISO date) and `parked_reason` (one
+   to `.ai/parked/<id>-state.json`, writing `"lanes": null` in place of whatever the live
+   cursor holds (the array is derived live-session data, `WB-D34`, `#797`, and the snapshot
+   is tracked), and adding `parked_at` (ISO date) and `parked_reason` (one
    line — ask the human; never invent it). Copy `.ai/next-steps.md` to
    `.ai/parked/<id>-next-steps.md` **unchanged**.
 2. **Stand on a current `{pr_base}`**: `git fetch origin {pr_base} && git checkout
