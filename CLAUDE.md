@@ -13,7 +13,7 @@ declining) one backlog issue. `/way-of-working:resume` at session start,
 `/way-of-working:handoff` before switching model/session, `/way-of-working:critic-gate`
 after the green gate and before handoff on any diff touching `code_paths`.
 On a PR touching `code_paths`, after `/way-of-working:ship`, the maintainer runs `wow-review`
-on the host; a passing review from the reviewer App (until the follow-up, one with no verdict line) turns the `architect-review` status green
+on the host; a passing review from the reviewer App turns the `architect-review` status green, and until the follow-up so does one with no verdict line
 (`.github/workflows/architect-review-gate.yml`, `WB-D37`). A PR touching nothing under `code_paths` is not gated.
 
 ## The one rule that matters most here

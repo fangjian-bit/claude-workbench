@@ -1012,6 +1012,12 @@ other text" ;;
   fi
 done
 
+new_case; set_outcome "already-reviewed 7 $SHA"
+printf '[{"user":{"id":4242},"commit_id":"%s","state":"COMMENTED","submitted_at":"2026-10-15T10:00:00Z","body":7}]\n' "$SHA" >"$STUB/gh/repos_o_r_pulls_7_reviews"
+run o/r 7
+expect_failure_post "already-reviewed (the match program errors)" bad-outcome
+cat "$home"/review-logs/*.log >"$tmp/arlog"; has "$tmp/arlog" "already-reviewed: no passing review (unreadable)" && ok "already-reviewed (the match program errors): logged unreadable" || bad "already-reviewed (the match program errors): not logged unreadable"
+
 new_case; set_outcome "exempt 7 $SHA"
 run o/r 7
 assert_eq "exempt (only non-trigger paths): exit 4" 4 "$rc"; no_post "exempt"
@@ -1064,7 +1070,6 @@ $ATTTXT
 
 Review verdict: $w
 
-
 Reviewed against head $SHA
 
 Looks fine.
@@ -1073,6 +1078,16 @@ Host: no findings to file" "$(post_body)"
   assert_eq "verdict $w: line 4 is the verdict line" "Review verdict: $w" "$(post_body | sed -n 5p)"
   assert_eq "verdict $w: lines 0 and 2 are the header and attestation" "$HDRTXT|$ATTTXT" "$(post_body | sed -n 1p)|$(post_body | sed -n 3p)"
 done
+new_case; set_verdict pass
+set_body "$HDRTXT
+
+$ATTTXT
+Reviewed against head $SHA
+Looks fine."
+run o/r 7
+assert_eq "verdict with a non-empty line 4: exit 0" 0 "$rc"
+assert_eq "verdict with a non-empty line 4: the verdict line, one blank line, then every session line" \
+  "Review verdict: pass||Reviewed against head $SHA|Looks fine." "$(post_body | sed -n 5,8p | tr '\n' '|' | sed 's/|$//')"
 new_case
 run o/r 7
 assert_eq "no verdict file: the body has no verdict line" 0 "$(post_body | grep -c '^Review verdict:' || true)"

@@ -806,7 +806,8 @@ decide_already() {
                elif ($v | startswith("Review verdict:")) then "blocking"
                else "success" end
         end
-      ' <"$HDIR/reviews.json" 2>/dev/null | tr -d '\r') || vword=
+      ' <"$HDIR/reviews.json" 2>/dev/null) || vword=unreadable
+  vword=$(printf '%s' "$vword" | tr -d '\r')
   if [ "$vword" = success ]; then
     fin 4 already-reviewed
   fi
@@ -920,8 +921,8 @@ decide_review() {
   esac
   read_outbox findings
   validate_findings
-  # The final body: the checked body (with the verdict line after its first three lines, when there is a verdict), one blank line, the footer.
-  { if [ -n "$vline" ]; then sed -n 1,3p "$B"; printf '\nReview verdict: %s\n\n' "$vline"; sed -n '4,$p' "$B"; else cat "$B"; fi; if [ "$(tail -c 1 "$B" | od -An -tx1 | tr -d ' \n')" = 0a ]; then printf '\n'; else printf '\n\n'; fi; printf '%s' "$FOOT"; } >"$HDIR/final-body"
+  # The final body: the checked body (with the verdict line after its first three lines, when there is a verdict; the body's own blank line 4 is dropped so one blank line follows it), one blank line, the footer.
+  { if [ -n "$vline" ]; then sed -n 1,3p "$B"; printf '\nReview verdict: %s\n\n' "$vline"; if [ -z "$(sed -n 4p "$B")" ]; then sed -n '5,$p' "$B"; else sed -n '4,$p' "$B"; fi; else cat "$B"; fi; if [ "$(tail -c 1 "$B" | od -An -tx1 | tr -d ' \n')" = 0a ]; then printf '\n'; else printf '\n\n'; fi; printf '%s' "$FOOT"; } >"$HDIR/final-body"
   if [ "$(wc -c <"$HDIR/final-body" | tr -d ' ')" -gt 65536 ]; then CODE=oversize; return; fi
   ACTION=review
 }
