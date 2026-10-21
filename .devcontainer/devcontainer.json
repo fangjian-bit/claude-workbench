@@ -82,6 +82,13 @@
     // dev-token from here on every call (see Dockerfile).
     "source=${localEnv:USERPROFILE}/.config/glunk-identity/tokens/claude-workbench,target=/run/glunk-identity/dev,type=bind,readonly",
 
+    // claude-workbench: the same token directory again, at /run/wow (#814). The plugin's
+    // SessionStart banner reads the admin token at /run/wow/admin-token whatever the environment
+    // says; this mount puts the directory wow-admin writes at that path. The dev token file is
+    // visible there too, which exposes nothing new to this container. A directory, not the
+    // single file, for the reason given above.
+    "source=${localEnv:USERPROFILE}/.config/glunk-identity/tokens/claude-workbench,target=/run/wow,type=bind,readonly",
+
     // PER-REPO home directory: everything user-scoped lives on this ONE volume. That is
     // Claude Code's login (run `claude /login` once in the container; the login lives on this
     // volume, the binary does not, it is in the image) and its sessions and

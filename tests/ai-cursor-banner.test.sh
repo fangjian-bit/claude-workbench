@@ -16,6 +16,11 @@
 # token files (live, expired, malformed, absent, inside the checkout), and that a live
 # admin token is said even with no cursor.
 #
+# Also under test (issue #814): a static block that pins the hook's fixed admin token path to the
+# dev container's mount of that path, so the two cannot drift apart. It needs only POSIX sh, grep
+# and sed, and runs before the skips below so it runs on every host, a dev container with a live
+# admin token included.
+#
 # Permitted toolset: POSIX sh, plus the hook's own dependencies (bash, jq). The
 # hook no-ops without jq, so without jq these assertions could only ever pass
 # vacuously -- skip, loudly, instead.
@@ -23,6 +28,41 @@ set -eu
 
 root_dir="$(cd "$(dirname "$0")/.." && pwd)"
 hook="$root_dir/plugins/way-of-working/hooks/ai-cursor-banner.sh"
+dc="$root_dir/.devcontainer/devcontainer.json"
+
+static_fail=0
+# shellcheck disable=SC2016 # the pattern is literal: the hook's source line, not an expansion
+if grep -qF 'for f in /run/wow/admin-token "${WOW_ADMIN_TOKEN_FILE:-}"; do' "$hook"; then
+  echo "ok - hook still checks /run/wow/admin-token in its candidate loop"
+else
+  echo "FAIL - hook's candidate loop line changed; the devcontainer /run/wow mount may no longer match"
+  static_fail=1
+fi
+
+# devcontainer.json minus its comment lines (first non-blank characters `//`).
+dc_lines="$(sed '/^[[:space:]]*\/\//d' "$dc")"
+wow_line="$(printf '%s\n' "$dc_lines" | grep -F 'target=/run/wow,type=bind,readonly' || true)"
+wow_n="$(printf '%s\n' "$wow_line" | grep -c . || true)"
+if [ "$wow_n" = 1 ]; then
+  echo "ok - devcontainer.json has exactly one /run/wow read-only bind mount"
+else
+  echo "FAIL - devcontainer.json has $wow_n /run/wow read-only mount lines, want 1"
+  static_fail=1
+fi
+
+dev_line="$(printf '%s\n' "$dc_lines" | grep -F 'target=/run/glunk-identity/dev,' || true)"
+dev_n="$(printf '%s\n' "$dev_line" | grep -c . || true)"
+wow_src="$(printf '%s\n' "$wow_line" | sed -n 's/.*\(source=[^,]*\),.*/\1/p')"
+dev_src="$(printf '%s\n' "$dev_line" | sed -n 's/.*\(source=[^,]*\),.*/\1/p')"
+if [ "$dev_n" = 1 ] && [ -n "$wow_src" ] && [ "$wow_src" = "$dev_src" ]; then
+  echo "ok - the /run/wow mount has the same source as the dev token mount"
+else
+  echo "FAIL - dev token mount lines: $dev_n; sources differ or are empty ('$wow_src' vs '$dev_src')"
+  static_fail=1
+fi
+
+# The static block ends here; the skips below end the file with exit 0, so fail first.
+[ "$static_fail" = 0 ] || exit 1
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "skip - ai-cursor-banner fixtures: no jq on PATH (the hook itself no-ops without it)"
