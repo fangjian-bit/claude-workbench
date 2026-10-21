@@ -52,7 +52,7 @@ in_range() { # in_range <value> <min> <max>
 }
 # ---- 1. environment ---------------------------------------------------------------------------
 case ${WOW_HOME:-} in
-  /*|[A-Za-z]:[\/]*) ;;
+  /*|[A-Za-z]:[\\/]*) ;;
   *) die "WOW_HOME must be set and absolute" 1 ;;
 esac
 HAVE_CYGPATH=$(command -v cygpath 2>/dev/null || :)

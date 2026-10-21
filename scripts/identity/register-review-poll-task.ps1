@@ -71,7 +71,7 @@ if ($pwsh -like '*\WindowsApps\Microsoft.PowerShell_*') {
   if (Test-Path -LiteralPath $alias) { $pwsh = $alias } else { Write-Warning "pwsh is a Store install and its alias $alias is missing; the task will break on the next PowerShell update" }
 }
 
-$cmd = "`$env:WOW_HOME = '$WowHome'; & '$Sh' '$($poll.Replace('\', '/'))'"
+$cmd = "`$env:WOW_HOME = '$($WowHome.Replace('\', '/'))'; & '$Sh' '$($poll.Replace('\', '/'))'"
 $arg = "-NoProfile -NonInteractive -WindowStyle Hidden -Command `"$cmd`""
 $action = New-ScheduledTaskAction -Execute $pwsh -Argument $arg
 

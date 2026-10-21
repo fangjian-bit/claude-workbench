@@ -163,6 +163,25 @@ runp() { # runp <args...>: the poller from the fake bin, stdin closed, the stubs
 reviews() { lines "$STUB/review.calls"; }
 log="review-poll.log"
 
+# runw <WOW_HOME value>: the poller with that WOW_HOME and, when a drive-letter value is given, a stub
+# cygpath (in its own directory, outside $tmp/case) ahead of the shared stubs, the way a Windows host has one
+runw() {
+  rc=0; cyg="$tmp/cygstub"; rm -rf "$cyg"; mkdir "$cyg"; wv=$1
+  case $wv in
+    [A-Za-z]:*)
+      cat >"$cyg/cygpath" <<STUB
+#!/bin/sh
+case \$1 in
+  -u) [ "\$2" = '$(printf '%s' "$wv" | sed "s/'/'\\\\''/g")' ] || exit 1; printf '%s\\n' '$home' ;;
+  -m) printf '%s\\n' "\$2" ;;
+  *) exit 1 ;;
+esac
+STUB
+      chmod +x "$cyg/cygpath" ;;
+  esac
+  env PATH="$cyg:$stubs:$orig_path" STUB_DIR="$STUB" WOW_HOME="$wv" sh "$home/bin/wow-review-poll" <&- >"$tmp/out" 2>"$tmp/err" || rc=$?
+}
+
 # =========================================================================================
 new_case; rm -f "$home/review-poll.json"; runp
 assert_eq "no review-poll.json: exit 0" 0 "$rc"
@@ -311,8 +330,28 @@ assert_eq "a failed mint: no review" 0 "$(reviews)"
 check "a failed mint: the run dir is gone" rundir_gone
 check "a failed mint: logged" has "$home/$log" "the session-token mint failed"
 
+# the WOW_HOME check: the drive-letter forms the registration script and the operator write
+new_case; addpr o r 7 "$SHA1" false success none; runw 'C:\wowhome'
+assert_eq "a backslash drive-letter WOW_HOME: exit 0" 0 "$rc"
+assert_eq "a backslash drive-letter WOW_HOME: one call, exact argv" "o/r 7" "$(cat "$STUB/review.calls")"
+check "a backslash drive-letter WOW_HOME: poll start logged" has "$home/$log" "poll start"
+check "a backslash drive-letter WOW_HOME: poll done logged" has "$home/$log" "poll done"
+check "a backslash drive-letter WOW_HOME: not refused" test -z "$(grep 'must be set and absolute' "$tmp/err")"
+new_case; addpr o r 7 "$SHA1" false success none; runw 'C:/wowhome'
+assert_eq "a forward-slash drive-letter WOW_HOME: exit 0" 0 "$rc"
+check "a forward-slash drive-letter WOW_HOME: poll done logged" has "$home/$log" "poll done"
+for bad in '' 'wowhome' 'C:wowhome'; do
+  new_case; addpr o r 7 "$SHA1" false success none; runw "$bad"
+  assert_eq "WOW_HOME [$bad] refused: exit 1" 1 "$rc"
+  check "WOW_HOME [$bad] refused: said so" has "$tmp/err" "WOW_HOME must be set and absolute"
+  assert_eq "WOW_HOME [$bad] refused: no gh call" 0 "$(lines "$STUB/gh.calls")"
+  assert_eq "WOW_HOME [$bad] refused: no mint" 0 "$(lines "$STUB/mint.calls")"
+done
+
 # the poller is installed beside wow-review
 check "install-host-tools.ps1's table names wow-review-poll" has "$root_dir/scripts/identity/install-host-tools.ps1" "@('scripts/identity/wow-review-poll', 'wow-review-poll')"
+
+check "register-review-poll-task.ps1 writes WOW_HOME with forward slashes" has "$root_dir/scripts/identity/register-review-poll-task.ps1" "WOW_HOME = '\$(\$WowHome.Replace('\\', '/'))'"
 
 [ "$fail" = 0 ] && echo "all review-poll fixtures passed"
 exit "$fail"
