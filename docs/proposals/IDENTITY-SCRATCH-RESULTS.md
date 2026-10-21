@@ -4013,3 +4013,47 @@ the probe cleanup (scratch #32) merges.
   viewer checked as `603id-dev[bot]`, and revoked when done (HTTP 204).
 - Host: tools reinstalled into `~/.config/603id-identity/bin` from `9229287`. No App or org
   setting was changed.
+
+## Session 10 (#398): the review gate live on claude-workbench
+
+Observed on 2026-10-21, on `glunk-works/claude-workbench` itself, the first day its
+`architect-review` gate was required (#458, merged as #813). These are not runs made for the
+test: they are the day's real PRs, read back afterwards from GitHub (reviews, the
+`architect-review` commit statuses, the timeline's merge events) and from the host poller's
+`review-poll.log`. The registered poller task (`glunk-wow-review-poll`, installed from
+`c49b654`) ran with its `WOW_HOME` hand-edited to forward slashes until #816 merged.
+
+| #398 item | Result |
+|---|---|
+| One architect review posts through the reviewer flow | **Pass, three times.** The poller launched `wow-review`, and `glunk-review[bot]` (id 339841158) posted a `COMMENTED` review on the head: #819 review 5599476389 on `06abb62` at 12:15:08 UTC, #822 review 5599690318 on `a311be5` at 12:33:00, and #826 review 5599915848 on `41d518d` at 12:50:16. |
+| A gated PR shows the check red until the review posts, then green | **Pass.** On each of the three heads `architect-review` was first `failure` ("No fresh-session review on this head"), then `success` ("Fresh-session review posted on this head") within 15 seconds of the review: #819 at 12:15:19, #822 at 12:33:11 and #826 at 12:50:28. #822 and #826 touch `plugins/`; #819 touches `scripts/`. |
+| Docs and cursor-sync PRs are not gated | **Pass.** The cursor syncs #817 and #818 (only `.ai/next-steps.md`), and #820 (`.devcontainer/`, `docs/`, `tests/`), read `success` ("Exempt: no gated path changed") with no review. |
+| A PR lands through approval and auto-merge | **Pass for gated code PRs.** On #819 and #822 the dev App armed auto-squash when the PR opened (`AutoSquashEnabledEvent` by `glunk-dev`), the maintainer approved after the review, and `glunk-dev[bot]` merged it (#819 as `e189ffa` at 12:28:18, #822 as `7d477bd` at 12:38:37). #826 merged the same way at 12:51:31: the maintainer approved before the review posted, and the merge waited for the check to turn green. |
+| A docs PR and a cursor-sync PR land through approval and auto-merge | **Docs PR: open.** This entry's own PR is shipped with auto-merge armed so it can answer this. **Cursor-sync PR: not reachable as written.** `/way-of-working:handoff` never arms auto-merge on its cursor-sync PR, so #817 and #818 were approved and merged by the maintainer. |
+| Resume waits without a spec reaction and starts with one | **Not exercised.** Every session this day was a driver session whose `next_action` starts no build, so resume never reached its auto-start test with a task anchored. |
+
+**A launcher failure that freed its entry.** The first launch for #819 found no Claude
+credential on the host. The poller logged `launching wow-review` at 12:02:28,
+`wow-review` stopped with `claude-credential is missing or empty` and `exit 1`, and the poller
+revoked its session token and logged `poll done` at 12:02:51. No session had started, so the
+launcher removed the head's ledger entry (its ledger rule (a)), and once the credential file
+existed the next tick launched #819 again and the review posted. The credential is a
+`claude setup-token` token in `$WOW_HOME/claude-credential`, which the review-live-run sheet
+lists as a prerequisite.
+
+## Status against #398
+
+Four items pass (the reviewer flow, the red-then-green gate, the exempt docs and cursor-sync
+PRs, and approval with auto-merge on gated PRs). Still open: the docs PR through auto-merge (this
+entry's PR), resume's auto-start with and without a spec reaction, and the cursor-sync PR through
+auto-merge, which needs a decision: change `/way-of-working:handoff` to arm it, or reword #398's
+item to the manual merge it gets now.
+
+## Configuration changes made during session 10
+
+- Host: a Claude credential written to `$WOW_HOME/claude-credential` (`claude setup-token`).
+  The poller task is still the hand-edited one; it is re-registered once the host tools are
+  reinstalled from a `main` that carries #816 (#819).
+- `glunk-works/claude-workbench`: #819 (#816), #822 (#811) and #826 (the v0.22.0 release prep)
+  merged. The throwaway branch `chore/api-commit-live-811` from #822's live check is on GitHub,
+  left for the maintainer to delete.
