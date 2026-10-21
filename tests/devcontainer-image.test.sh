@@ -10,6 +10,8 @@
 #   devcontainer.json   DISABLE_AUTOUPDATER is "1" inside containerEnv. The file has // comments,
 #                       so jq cannot parse it; this checks with a line-anchored grep inside the
 #                       containerEnv block (awk cuts the block out), not by stripping comments.
+#                       Also: no `devcontainer exec` anywhere in it, and the postAttachCommand line
+#                       ends with `; true",` (#785).
 #   managed-settings.json  a regular file whose bytes are exactly the DISABLE_AUTOUPDATER pin
 #
 # Permitted toolset: POSIX sh and its standard utilities (awk, grep, sed, mktemp), plus cmp for the
@@ -137,6 +139,10 @@ check "devcontainer.json: DISABLE_AUTOUPDATER is \"1\" inside containerEnv" sh -
 for k in 'GIT_CONFIG_COUNT": "2"' 'GIT_CONFIG_KEY_0": "commit.gpgsign"' 'GIT_CONFIG_VALUE_0": "false"' 'GIT_CONFIG_KEY_1": "tag.gpgsign"' 'GIT_CONFIG_VALUE_1": "false"'; do
   check "devcontainer.json: containerEnv keeps $k" sh -c 'printf "%s\n" "$1" | grep -qF "$2"' _ "$block" "$k"
 done
+
+check "devcontainer.json: no devcontainer exec anywhere" test -z "$(grep -F 'devcontainer exec' "$dj" || true)"
+check "devcontainer.json: postAttachCommand line ends with ; true\"," \
+  sh -c 'grep -Eq "^[[:space:]]*\"postAttachCommand\".*; true\",[[:space:]]*\$" "$1"' _ "$dj"
 
 [ "$fail" -eq 0 ] || exit 1
 echo "all devcontainer-image fixtures passed"

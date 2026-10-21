@@ -106,18 +106,18 @@
   // the git identity from the host's identity files. claude-workbench: the template's
   // gpg-check.sh is dropped, since container commits are unsigned (WB-D25, #574).
   // claude-workbench: it first removes the files a VS Code attach leaves on the -tmp volume
-  // (#720). The container is entered through the Dev Containers CLI only, so none should be
+  // (#720). The container is entered only with `docker exec`, so none should be
   // there. The removal comes first so the command's exit status stays git-identity.sh's.
   "postStartCommand": "rm -f /tmp/vscode-remote-containers-* 2>/dev/null; sh /usr/local/share/devc/owner-check.sh; sh /usr/local/share/devc/git-identity.sh",
   "postCreateCommand": "if [ -f .pre-commit-config.yaml ]; then pre-commit install; fi",
 
   // claude-workbench: a backstop, not the fix (#720). A VS Code attach opens the host's git
   // credential channel even with gitCredentialHelperConfigLocation at none, so VS Code attach
-  // is unsupported here: enter with `devcontainer exec`. If one happens anyway, remove the
+  // is unsupported here: enter through the host launchers (`wow-driver.ps1`, `wow-lane.ps1`), which use `docker exec` into the container the driver recorded. If one happens anyway, remove the
   // channel's files and say so. The relay VS Code started keeps running after its socket path
   // is gone, so this is not shown to be a boundary. `devcontainer up` runs this command too,
   // unless given --skip-post-attach (the docs pass it), hence the conditional wording.
-  "postAttachCommand": "rm -f /tmp/vscode-remote-containers-* 2>/dev/null; echo 'NOTE: if this was a VS Code attach (not a plain devcontainer up run without --skip-post-attach), it is unsupported in this container (#720): the host credential channel was open until this removal and may still be reachable. Close the VS Code window, run docker stop on this container now, and rotate every credential the host git helpers can return (each GitHub account) if a session or untrusted code ran between the attach and the stop. Enter with: devcontainer exec --workspace-folder <clone> bash' >&2; true",
+  "postAttachCommand": "rm -f /tmp/vscode-remote-containers-* 2>/dev/null; echo 'NOTE: if this was a VS Code attach (not a plain devcontainer up run without --skip-post-attach), it is unsupported in this container (#720): the host credential channel was open until this removal and may still be reachable. Close the VS Code window, run docker stop on this container now, and rotate every credential the host git helpers can return (each GitHub account) if a session or untrusted code ran between the attach and the stop. Then run wow-driver.ps1.' >&2; true",
 
   "customizations": {
     "vscode": {

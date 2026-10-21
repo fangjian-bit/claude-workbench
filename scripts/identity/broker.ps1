@@ -66,7 +66,7 @@
 
 .PARAMETER WowHome
   The identity directory (default $env:WOW_HOME, else ~/.config/glunk-identity). A value in MSYS
-  form (/c/Users/...), as the host shell scripts need, is converted with the shell's cygpath. One home
+  form (/c/Users/...) is converted with the shell's cygpath. One home
   holds one org's Apps (apps.json has one "dev" entry); a second org needs a second home, a second
   broker.json and a second task (-TaskName in register-broker-task.ps1).
 #>

@@ -46,6 +46,17 @@ that serves the host's git credential (see Hazards that remain).
   pwsh -File $env:WOW_HOME\bin\wow-driver.ps1 -Clone <clone> -Reference <other clone>
   ```
   The path is `$env:WOW_HOME\bin`, or `$HOME\.config\glunk-identity\bin` when `WOW_HOME` is unset.
+  Set `WOW_HOME` once as a user-level environment variable (not only in one shell's profile),
+  written as a drive letter, a colon, then forward slashes throughout, with no backslash and no
+  trailing slash; pwsh and Git Bash both accept that form:
+  ```powershell
+  [Environment]::SetEnvironmentVariable('WOW_HOME', '<path>', 'User')
+  ```
+  A shell opened before the change does not see it. `<path>` is the identity directory already in
+  use, the default `.config/glunk-identity` directory under the user profile: the dev container's
+  token mount reads the repo's `tokens/` subdirectory under that default directory, and nothing
+  else, whatever `WOW_HOME` says. If the bin directory goes on Git Bash's `PATH`, add it in the
+  form `cygpath -u` prints, because `PATH` splits at the drive colon.
   `yq` must be on PowerShell's `PATH`. It runs the checks below in the safe order, so that order is
   the only one it offers.
   - **`-Clone`** is the clone the container opens (an absolute directory, not a link, whose leaf
