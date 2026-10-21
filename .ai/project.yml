@@ -109,7 +109,8 @@ orchestration:
 identities:
   maintainer:
     - { login: Seuss27, id: 22668449 }
-  dev_app: { login: "glunk-dev[bot]", id: 339840170 }
+  # Publish App-mode pushes through bin/api-commit.sh so GitHub signs them (WB-D36, #800).
+  dev_app: { login: "glunk-dev[bot]", id: 339840170, commit_route: api }
   reviewer_app: { login: "glunk-review[bot]", id: 339841158 }
   loop_app: { login: "glunk-loop[bot]", id: 338193635 }
 
