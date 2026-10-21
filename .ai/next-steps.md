@@ -1,26 +1,22 @@
 # Cursor — claude-workbench
 
-**Now:** **Sprint 16** (cursor id `sprint-16`) on [milestone 19, *Identity M4: claude-workbench cutover*](https://github.com/glunk-works/claude-workbench/milestone/19). Status: **implementing**. No lanes are live.
+**Now:** **Sprint 16** (cursor id `sprint-16`) on [milestone 19, *Identity M4: claude-workbench cutover*](https://github.com/glunk-works/claude-workbench/milestone/19). Status: **implementing**. One lane is live: #814 (PR #820).
 
 **Just done (2026-10-21, driver session in the container, opus):**
-- **The three lanes merged and were retired** (`lane.sh done`), each reviewed against its approved spec before the maintainer's approval:
-  - #785 as #806 (`ac3fd8c`);
-  - #601 as #807 (`ff87b6b`, `WB-D36`, the `api` commit route, not turned on here: #800);
-  - #458 as #813 (`c49b654`, `WB-D37`). Pushed and opened as the admin App (`wow-admin`, since revoked).
-- **The review gate is live.** `main` sets `review.ci_gate`, and the live `main-required-checks` ruleset requires `architect-review`, pinned to GitHub Actions (15368). Every PR touching `code_paths` now needs a reviewer-App review on its head.
-- **`wow-review-poll` is registered** on the host (`glunk-wow-review-poll`, installed from `c49b654`) and polls this repo. It failed on every tick until the task's `WOW_HOME` was hand-edited to forward slashes, because the poller rejects the backslash form its own registration writes (#816). Do not re-register it until #816 merges.
-- **Filed:** #808, #809 and #810 (parallel tests: CI split, a local runner, `invariants-check.sh --only`); #811 (the `api` route cannot publish a refreshed branch; blocks #800, commented there); #812 (`WB-D36`'s live checks on the 603-Identity repos); #814 (the banner's admin line watches the wrong path); #815 (scope `wow-review`'s cap and sweep to one identity home); #816.
-- #806, #807 and #813 merged with no reviewer-App review, as planned before the gate. A fresh-session look at #807's code was offered and not taken up.
-- **Milestone prose fixed:** M19's frame now says #601 came back and merged as #807; M22 marks #601 done and drops it from the lanes and model lines.
-- **`plan-sprint` triage, all live, nothing staged:** #811 (before #800), #797 and #814 placed on M19; #815 and #812 on M22 (after #589); new milestone 24, *Green gate in parallel* (due 2026-11-20): #810, #809, #808. Both build-order edits went through `milestone-desc.sh` (`live ok`). #223, #334, #790, #791 and #792 stay unmilestoned, already recorded by their 2026-10-20 triage comments. #816 was left alone while its spec is drafted.
+- **Three lanes built from approved specs and reviewed against them:**
+  - #816 merged as #819 (`e189ffa`). It is verified on the host: the poller task was re-registered with its default `-WowHome`, and a tick ended with `LastTaskResult` 0.
+  - #811 merged as #822 (`7d477bd`), after a live check by the dev App on the throwaway branch `chore/api-commit-live-811`, recorded on #822: the merge kept both parents and read `verified`.
+  - #814 is PR #820, open: the `.devcontainer/` mount at `/run/wow`.
+- **The review gate ran live without a human.** The poller launched `wow-review` for #819, #822 and #826, and `glunk-review[bot]` posted each review. The first launch failed for want of `$WOW_HOME/claude-credential` (now written from `claude setup-token`). This is recorded as Session 10 in `docs/proposals/IDENTITY-SCRATCH-RESULTS.md` (#828) and commented on #398. #623 is closed. #398's cursor-sync item was reworded to the manual merge.
+- **v0.22.0 released** (#826, tag at `2b1c255`, carrying `api-commit.sh`) and pinned here (#829, `acf7710`). Critic gate on #826: architect and docs-consistency; 3 rounds; converged.
+- **Triage.** The #601 prose in M19 and M22 is fixed. #811, #797, #814 and #816 were placed on M19, and #815 and #812 on M22. The new milestone 24, *Green gate in parallel*, holds #810, #809, #808 and #821. Every build-order edit went through `milestone-desc.sh` (`live ok`, in auto mode). Merged cursor sync: #818.
 
 **Next:** on **opus** (driver). No build starts here; the cursor's `next_action` has the steps.
-1. The maintainer launches a `wow-lane -Spec` session for #816. Once its spec comment has a reaction and the maintainer says so, prep the lane and hand over its `wow-lane -Issue` command.
-2. #816's PR is under `scripts/`, so it is gated: the poller should launch its review once the other checks are green. That run is also a first live check of the gate for #398.
-3. Once #816's spec comment is posted, place #816 on M19 (it was kept off the triage so the spec draft's issue check stayed fresh).
-4. For the maintainer, by hand:
-   - Queued spec work: #789, #403 (M23), #811, #814, #797, and #800 (after #811 and a release carrying `api-commit.sh`: v0.21.0 does not).
+1. The maintainer merges PR #820 and recreates the container through `wow-driver.ps1`'s start of day, then runs the live check: six mounts, and the banner shows `ADMIN MODE` with a live `wow-admin` token and `off` after `--revoke`. After that, run `lane.sh done 814`.
+2. Spec sessions, one `wow-lane -Spec` per issue, when the maintainer says: #800 (unblocked by v0.22.0), #789, #815, #810 and #809. Hold #797 until #810's spec shows its files, since both may touch `invariants-check.sh`. #808 waits on #809.
+3. #398's last open item, resume waiting and then starting on a spec reaction, needs a handoff that anchors a task, for example #800 once its spec is approved.
+4. For the maintainer: delete the branch `chore/api-commit-live-811`. Disable `glunk-wow-review-poll` at the end of the day if it should not run overnight.
 
-**HITL Gate: NONE OPEN** — next gate: the maintainer reacts to the 816 spec comment
+**HITL Gate: NONE OPEN** — next gate: the maintainer merges PR 820 and recreates the container
 
 **Pointers:** [docs/decisions.md](../docs/decisions.md) · [milestone 19](https://github.com/glunk-works/claude-workbench/milestone/19) · [docs/identity/DEV-CONTAINER.md](../docs/identity/DEV-CONTAINER.md) · [.ai/parked/](parked/)
