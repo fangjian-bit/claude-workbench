@@ -8,8 +8,8 @@
 # cases are the other half: the captured form the skill actually uses, and `||`, must NOT
 # fire, or the check would reject the very shape it exists to protect.
 #
-# Only check 11's own message is asserted, never the script's overall exit: the other
-# checks run over the same copied tree and are not this suite's business.
+# Only check 11's own message is asserted, never the script's overall exit: every case but the
+# control runs just that check (`--only 11`), and the control runs them all.
 #
 # Permitted toolset: POSIX sh. No jq, no yq, no python.
 set -eu
@@ -33,7 +33,10 @@ tree() {
 skill_in() { ls "$1"/plugins/*/skills/pr-checks/SKILL.md; }
 agent_in() { ls "$1"/plugins/*/agents/architect.md; }
 
-run() { ( cd "$1" && bash "$script" 2>&1 >/dev/null ) || true; }
+# Every case but the control runs just check 11; the control runs them all.
+sel="--only 11"
+
+run() { ( cd "$1" && bash "$script" $sel 2>&1 >/dev/null ) || true; }
 
 assert_fires() { # <desc> <dir>
   if run "$2" | grep -qF -- "$MSG"; then echo "ok - $1"
@@ -48,8 +51,10 @@ assert_silent() { # <desc> <dir>
 append() { printf '\n%s\n' "$2" >>"$1"; } # <file> <line(s)>
 
 # --- control: the real tree ----------------------------------------------------
+sel=
 d="$(tree real)"
 assert_silent "real tree passes" "$d"
+sel="--only 11"
 
 # --- the defect, in each shape it can take -------------------------------------
 d="$(tree plain)"
@@ -263,13 +268,12 @@ assert_fires_msg "no bin scripts found fails the check" "$d" "no plugins/*/bin/*
 d="$(tree stubsed)"
 append "$(skill_in "$d")" 'gh api repos/x | blocked-state.sh BLOCKED 1'
 mkdir -p "$tmp/stub"
-# It fails only on check 11's own first normalising call (the `|&` rewrite): an earlier
-# check also runs sed under `set -e`, and failing that one would end the script before
-# check 11 is reached. Every other call is passed to the real sed.
+# It fails only on check 11's own first normalising call (the `|&` rewrite); every other
+# call is passed to the real sed. Under `--only 11` no earlier check runs.
 real_sed="$(command -v sed)"
 printf '#!/bin/sh\ncase "$*" in *"s/|&/|/g"*) exit 4;; esac\nexec "%s" "$@"\n' "$real_sed" >"$tmp/stub/sed"
 chmod +x "$tmp/stub/sed"
-if ( cd "$d" && PATH="$tmp/stub:$PATH" bash "$script" 2>&1 >/dev/null ) | grep -qF -- "normalising failed"; then
+if ( cd "$d" && PATH="$tmp/stub:$PATH" bash "$script" --only 11 2>&1 >/dev/null ) | grep -qF -- "normalising failed"; then
   echo "ok - a failing sed fails the check"
 else
   echo "FAIL - a failing sed: expected [normalising failed]" >&2; fail=1

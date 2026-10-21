@@ -7,6 +7,8 @@
 # so a check that only passes on the real tree cannot hide. Only check 20's own hit message
 # is asserted, never the script's overall exit.
 #
+# Every case but the first control runs just check 20 (`--only 20`); that control runs the full checker.
+#
 # Permitted toolset: POSIX sh, no yq, no python. The checker this runs needs jq on PATH
 # (check 20 does), so the test skips, loudly, without it.
 set -eu
@@ -30,7 +32,9 @@ tree() {
   echo "$d"
 }
 
-run() { ( cd "$1" && bash "$script" 2>&1 >/dev/null ) || true; }
+sel="--only 20"
+
+run() { ( cd "$1" && bash "$script" $sel 2>&1 >/dev/null ) || true; }
 
 assert_fires() { # <desc> <dir> [<reason substring>]
   out="$(run "$2")"
@@ -65,8 +69,10 @@ swap() { # <dir> <new> [<old>]
 }
 
 # Control: the real tree is clean.
+sel=
 d="$(tree control)"
 assert_silent "real tree passes" "$d"
+sel="--only 20"
 
 d="$(tree prefix)"
 swap "$d" '{f: .filename, p: (.previous_filename // null), s: .status}'

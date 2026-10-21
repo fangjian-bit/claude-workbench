@@ -9,6 +9,8 @@
 #
 # Only check 12's own message is asserted, never the script's overall exit.
 #
+# Every case but the first control runs just check 12 (`--only 12`); that control runs the full checker.
+#
 # Permitted toolset: POSIX sh. No jq, no yq, no python.
 set -eu
 
@@ -28,7 +30,9 @@ tree() {
   echo "$d"
 }
 
-run() { ( cd "$1" && bash "$script" 2>&1 >/dev/null ) || true; }
+sel="--only 12"
+
+run() { ( cd "$1" && bash "$script" $sel 2>&1 >/dev/null ) || true; }
 
 assert_fires() { # <desc> <dir> [<file-substring>]
   out="$(run "$2")"
@@ -50,8 +54,10 @@ assert_silent() { # <desc> <dir>
 }
 
 # Control: the real tree is clean.
+sel=
 d="$(tree control)"
 assert_silent "real tree passes" "$d"
+sel="--only 12"
 
 # A skill whose only note is removed fires.
 d="$(tree skill)"

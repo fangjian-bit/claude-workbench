@@ -7,6 +7,8 @@
 # check that only passes on the real tree cannot hide. Only check 21's own message is asserted,
 # never the script's overall exit.
 #
+# Every case but the first control runs just check 21 (`--only 21`); that control runs the full checker.
+#
 # Permitted toolset: POSIX sh. No jq, no yq, no python.
 set -eu
 
@@ -28,7 +30,9 @@ tree() {
   echo "$d"
 }
 
-run() { ( cd "$1" && bash "$script" 2>&1 >/dev/null ) || true; }
+sel="--only 21"
+
+run() { ( cd "$1" && bash "$script" $sel 2>&1 >/dev/null ) || true; }
 
 assert_fires() { # <desc> <dir>
   if run "$2" | grep -qF -- "$MSG"; then
@@ -53,8 +57,10 @@ resume=plugins/way-of-working/skills/resume/SKILL.md
 coder=plugins/way-of-working/agents/coder.md
 arch=plugins/way-of-working/skills/architect-review/SKILL.md
 
+sel=
 d="$(tree control)"
 assert_silent "the real tree passes" "$d"
+sel="--only 21"
 
 for site in "$resume" "$coder" "$arch"; do
   name="$(basename "$(dirname "$site")")/$(basename "$site")"

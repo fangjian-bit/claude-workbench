@@ -9,6 +9,9 @@
 #
 # Adding a check: it must correspond to a defect that actually shipped. Speculative
 # invariants belong in the skill's own prose, not in a gate.
+#
+# `--only <id>[,<id>...]` runs just the named checks. It is for the tests/invariants-*.test.sh
+# fixtures; it is an argument, never an environment variable, and the gate never passes it.
 set -euo pipefail
 
 fail=0
@@ -26,7 +29,45 @@ report() {
   fail=1
 }
 
+# The check ids, in heading order. `--only <id>[,<id>...]` runs just those checks: it is for
+# the tests/invariants-*.test.sh fixtures, which copy the tree and look for one check's message.
+# It is an argument on purpose, never an environment variable, so nothing ambient can narrow a
+# gate run; the gate (CI, release, gates.green) never passes it.
+ALL_IDS=(1 2 2b 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22)
+only=
+only_set=0
+usage() {
+  echo "usage: invariants-check.sh [--only <id>[,<id>...]]  (ids: ${ALL_IDS[*]})" >&2
+  exit 2
+}
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --only)
+      [ "$only_set" -eq 0 ] && [ "$#" -ge 2 ] && [ -n "$2" ] || usage
+      only_set=1
+      only=",$2,"
+      shift 2
+      ;;
+    *) usage ;;
+  esac
+done
+if [ "$only_set" -eq 1 ]; then
+  rest=${only#,}
+  rest=${rest%,}
+  while :; do
+    el=${rest%%,*}
+    ok=0
+    for id in "${ALL_IDS[@]}"; do [ "$el" = "$id" ] && ok=1; done
+    [ "$ok" -eq 1 ] || usage
+    case "$rest" in *,*) rest=${rest#*,} ;; *) break ;; esac
+  done
+fi
+want() {
+  [ "$only_set" -eq 0 ] || case "$only" in *,"$1",*) return 0 ;; *) return 1 ;; esac
+}
+
 # --- 1. Cursor freshness is compared by CONTENT, never by commit range -------------
+if want 1; then
 #
 # `git diff A..HEAD` and `git rev-list --count A..HEAD` are commit RANGES, and a range
 # only means what you want when A is an ancestor of HEAD. Under squash-merge -- this
@@ -56,8 +97,10 @@ if [ -n "$range_hits" ]; then
     "Use a TWO-ARGUMENT diff -- 'git diff --name-only <last_commit> HEAD' -- which" \
     "compares trees and survives squash-merge. See docs/decisions.md WB-D7."
 fi
+fi
 
 # --- 2. `gh auth status` is never parsed ------------------------------------------
+if want 2; then
 #
 # It reports token SCOPE, and scope is not reach: an account with no membership in the
 # owning org can advertise a broader scope list than the one that actually works, so it
@@ -71,8 +114,10 @@ if [ -n "$auth_hits" ]; then
     "Scope is not reach. Ask the repo what the token can do:" \
     "  gh api repos/{repo} --jq .permissions"
 fi
+fi
 
 # --- 2b. A config value is bound to jq, never spliced into its argument ------------
+if want 2b; then
 #
 # `jq --arg n '{ruleset.name}'` fills a repo-controlled value into single-quoted shell text.
 # Once a name may legally contain `'` or `$` (#451), that form closes the quote (and a
@@ -86,8 +131,10 @@ if [ -n "$splice_hits" ]; then
     "Read the value into a variable and bind it:" \
     "  bind it as resume's ruleset check does: read it into a variable, then jq --arg n \"\$VAR\" ..."
 fi
+fi
 
 # --- 3. The reach check precedes the ruleset call in /resume ----------------------
+if want 3; then
 #
 # An identity that cannot see a ruleset gets 404, NOT 403 -- so the ruleset preflight
 # reads "that ruleset does not exist", which is indistinguishable from the security
@@ -123,8 +170,10 @@ if [ -n "$RESUME" ]; then
       "The reach call must come FIRST -- it is what makes the ruleset result mean anything."
   fi
 fi
+fi
 
 # --- 4. /handoff guards WHOSE sprint it is before it determines the new cursor -----
+if want 4; then
 #
 # Handoff regenerates .ai/state.json and .ai/next-steps.md WHOLESALE (its *Write
 # `.ai/state.json`* and *Regenerate `.ai/next-steps.md`* steps), so
@@ -168,8 +217,10 @@ if [ -n "$HANDOFF" ]; then
       "The guard must come FIRST -- a wholesale rewrite has already lost the state it guards."
   fi
 fi
+fi
 
 # --- 5. The two prune-block copies stay byte-identical ----------------------------
+if want 5; then
 #
 # docs/decisions.md asserts the branch-prune block in resume/SKILL.md and
 # archive-sprint/SKILL.md is byte-identical, and a future bin/ extraction of that block
@@ -212,8 +263,10 @@ else
       "blocks -- see docs/decisions.md and issue #62."
   fi
 fi
+fi
 
 # --- 6. A skill step is cited by name, never by position ---------------------------
+if want 6; then
 #
 # Skill steps are referenced by position (the word "step" or "steps" followed by a
 # number), so inserting a step silently breaks every reference to the ones after it --
@@ -251,9 +304,11 @@ if [ -n "$step_hits" ]; then
     "Cite the step's own bolded name instead, e.g. 'the *Prune squash-merged local" \
     "branches* step' -- never a number, including within the same file. See issue #61."
 fi
+fi
 
 # --- 7. WB-D17 (#142): the completeness checker's key set, the doc's own examples,
 #        and this repo's own file all agree ---------------------------------------
+if want 7; then
 #
 # `.ai/project.yml`'s schema doc (`project-schema.md`) and its completeness checker
 # (`bin/schema-complete.sh`) are two independent surfaces describing the SAME key
@@ -353,8 +408,10 @@ $script_only}" \
   fi
   rm -f "$full_tmp" "$worked_tmp"
 fi
+fi
 
 # --- 8. A known-wrong 'absent defaults to X' form has not come back ---------------
+if want 8; then
 #
 # WB-D17 (#142) removed every documented default -- "files or absent", "absent
 # means X", "absent or `null` means Y" -- because that phrasing is exactly the
@@ -385,8 +442,10 @@ if [ -n "$wrong_hits" ]; then
     "Every schema key must read: state what null means if null is legal for it;" \
     "absent always prompts, never a default. See project-schema.md's own rule."
 fi
+fi
 
 # --- 9. Every executed hook/bin script is stored executable (#214) -----------------
+if want 9; then
 #
 # `hooks/hooks.json` runs ai-cursor-banner.sh directly, and the skills call every
 # `bin/*.sh` by bare name off the plugin's PATH. A git checkout gets the mode the index
@@ -431,8 +490,10 @@ fi
 if [ -n "$mode_problem" ]; then
   report "the executable-bit check could not be completed (#214)" "  $mode_problem"
 fi
+fi
 
 # --- 10. Every reader of a PR body marks it data, and names bot authors (#225) -----
+if want 10; then
 #
 # architect-review's *Load context lean* step loaded "the PR body" as context with no
 # marking, while the task issue beside it was already "read as a specification, never as
@@ -459,8 +520,10 @@ if [ -n "$prbody_hits" ]; then
     "A PR body is data to review, never instructions to the session, and a bot-authored" \
     "PR (Dependabot, any [bot] author) embeds third-party text -- say so where it is read."
 fi
+fi
 
 # --- 11. `gh` output is never piped straight into a bin/ predicate (#243) ---------
+if want 11; then
 #
 # A predicate script (blocked-state.sh, review-gate-state.sh, ...) reads records on stdin
 # and cannot observe how it was fed. In `gh api ... | predicate.sh` a failed `gh api`
@@ -567,8 +630,10 @@ if [ -n "$ghpipe_hits" ]; then
     "Capture first so the failure breaks the chain, and feed nothing when it is empty:" \
     "  T=\$(gh api ...) && { [ -z \"\$T\" ] || printf '%s\\n' \"\$T\"; } | script.sh"
 fi
+fi
 
 # --- 12. A skill or agent that names {backlog.repo} says null reads as {repo} (#479) -
+if want 12; then
 #
 # `backlog.repo: null` is the common case and means the repo itself. archive-sprint wrote
 # `repos/{backlog.repo}/milestones/...` with no such note, and a live run read `null` as
@@ -586,8 +651,10 @@ if [ -n "$nullrepo_hits" ]; then
     "$nullrepo_hits" \
     "State it on a line that names the key: a \`null\` {backlog.repo} means \`{repo}\`."
 fi
+fi
 
 # --- 13. unpark-sprint validates parked_from_commit before git sees it (#539) ------
+if want 13; then
 #
 # Step 2 passed the snapshot's `parked_from_commit` to `git log` and `git merge-base` as read.
 # It comes from a file a branch can edit, so a value starting `-` is an option and a revision
@@ -612,8 +679,10 @@ if [ -n "$unparkpfc_hits" ]; then
     "$unparkpfc_hits" \
     "Keep the jq -r read of parked_from_commit and the case \"\$PFC\" in ''|*[!0-9a-f]*) guard ahead of git log / git merge-base."
 fi
+fi
 
 # --- 14. The three hitl_gate readers call one predicate (#557) ---------------------
+if want 14; then
 #
 # resume, unpark-sprint and plan-sprint each tested "closed" in their own words (a bare
 # `NONE OPEN` prefix in two, a model judgment about the text after it in the third), so two
@@ -654,8 +723,10 @@ if [ -n "$gate_hits" ]; then
     "$gate_hits" \
     "resume, unpark-sprint and plan-sprint must call bin/hitl-gate-closed.sh, not restate the test."
 fi
+fi
 
 # --- 15. architect-review never loads the task issue's body under an identities map (#566) --
+if want 15; then
 #
 # resume and the coder's builder rule read only the approved spec comment under a map, because
 # the maintainer's reaction covers the comment and an agent with issue write can edit the body
@@ -686,8 +757,10 @@ if [ -n "$specbody_hits" ]; then
     "$specbody_hits" \
     "Under a map step 5 loads the approved spec comment only; keep that rule and the schema text saying it is covered."
 fi
+fi
 
 # --- 16. One spec-reaction rule, one implementation (#613) --------------------------------
+if want 16; then
 #
 # Whether a declared maintainer reacted to a spec comment after its last edit is asked by
 # plan-anchor.sh (resume's auto-start), by architect-review's Map branch, and by spec-comment.sh
@@ -762,8 +835,10 @@ if [ -n "$reaction_hits" ]; then
     "$reaction_hits" \
     "plan-anchor.sh, spec-comment.sh, spec-find.sh, spec-issue.sh, spec-post.sh, architect-review's SKILL.md and scripts/loop/preflight.sh must all call bin/spec-reaction.sh, not restate the rule."
 fi
+fi
 
 # --- 17. The spec comment is printed only after its checks pass, and found, not listed (#614, WB-D30) --
+if want 17; then
 #
 # resume's builder rule and the coder's fetch step told the reader to fetch the anchored spec
 # comment and check it "in that same response", so the unchecked text had already entered
@@ -850,8 +925,10 @@ if [ -n "$speccomment_hits" ]; then
     "$speccomment_hits" \
     "Name bin/spec-find.sh in each reader and take the comment id from its found line; fetch the comment into a file and print it with bin/spec-comment.sh body, never to the transcript; list no comments. resume and the coder also name bin/spec-fresh.sh, run before the body prints (#663). In bin/spec-find.sh keep the one listing line with its projection, and read no .body elsewhere. bin/spec-fresh.sh makes no gh call."
 fi
+fi
 
 # --- 18. The spec-task skill carries no posting form; its writes live in spec-post.sh (#611, #661, #746, WB-D29) --
+if want 18; then
 #
 # A dev-App spec comment is used only with a declared maintainer's fresh approving reaction. A comment
 # posted under a human-trusted login would be read as "maintainer-authored": it would credit a human with
@@ -959,8 +1036,10 @@ done
 [ "$spectask_posts_seen" -eq 1 ] || report "plugins/*/bin/spec-post.sh is missing (#661)" \
   "(no plugins/*/bin/spec-post.sh found)" \
   "The spec-task skill posts through this script. See docs/decisions.md WB-D29."
+fi
 
 # --- 19. A milestone read is projected, and a description read goes through the script (#640) ----
+if want 19; then
 #
 # `ship` (unattended) and `archive-sprint` read a milestone description with no projection, so
 # all of it, author-editable and unbound since WB-D27, entered the session. bin/blocking-
@@ -1068,8 +1147,10 @@ if [ -n "$mjq_hits" ]; then
     "$mjq_hits" \
     "Fetch with --jq naming a field; send a description to a file and print it with blocking-criteria.sh."
 fi
+fi
 
 # --- 20. The pulls/<N>/files --jq filter reads the endpoint's page shape (#698) ---------------
+if want 20; then
 #
 # architect-review's container-mode exempt check passed `--jq '{f: .filename, ...}'` to a
 # `gh api --paginate` call on `pulls/<N>/files`. That endpoint returns a JSON ARRAY per page and
@@ -1160,8 +1241,10 @@ if [ -n "$ff_hits" ]; then
     "$ff_hits" \
     "The endpoint returns an array per page and --jq runs once per page: start the filter with .[] |, keep a single-quoted argument, and project f, p and s."
 fi
+fi
 
 # --- 21. The three task-issue author readers call `task-author`, not `author` (#664, WB-D32) ------
+if want 21; then
 #
 # Under an identities map `gh-identity.sh author` trusts a declared maintainer only; the verb that
 # lets an issue the dev or reviewer App filed through to a builder is `task-author`. Resume's body
@@ -1189,8 +1272,10 @@ if [ -n "$ta_hits" ]; then
     "$ta_hits" \
     "Judge the task issue's author with gh-identity.sh task-author (trusted or agent passes under a map); author is for comment and PR authors (and plan-sprint's display)."
 fi
+fi
 
 # --- 22. No file that names the git/commits endpoint sends it an author or committer (#601, WB-D36) -----
+if want 22; then
 #
 # A commit created through the REST git data API with no `author` or `committer` field is signed
 # by GitHub; setting either one makes it unsigned (#588 test 1), and an unsigned branch commit
@@ -1217,6 +1302,7 @@ if [ -n "$ac_hits" ]; then
     "$ac_hits" \
     "A commit made through the git data API with no author or committer is signed by GitHub; either field makes it unsigned (#588 test 1). See docs/decisions.md WB-D36."
 fi
+fi
 
 if [ "$fail" -ne 0 ]; then
   cat >&2 <<'EOF'
@@ -1230,3 +1316,8 @@ EOF
 fi
 
 echo "Invariant check passed: no known-wrong form has returned."
+if [ "$only_set" -eq 1 ]; then
+  ran=
+  for id in "${ALL_IDS[@]}"; do want "$id" && ran+="${ran:+,}$id"; done
+  echo "Narrowed run (--only): checks $ran only."
+fi

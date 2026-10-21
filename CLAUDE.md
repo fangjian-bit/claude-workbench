@@ -71,6 +71,7 @@ sh tests/blocking-criteria.test.sh  # blocking-criteria.sh criterion projection,
 sh tests/invariants-milestone-jq.test.sh  # invariants-check.sh check 19 (every milestone read projected, description reads go through blocking-criteria.sh) fixtures (not yet required)
 sh tests/invariants-files-filter.test.sh  # invariants-check.sh check 20 (the pulls/<N>/files --jq filter reads a canned page of the endpoint) fixtures (not yet required)
 sh tests/hitl-gate-closed.test.sh  # hitl-gate-closed.sh canonical closed form vs bare, OPEN, parked, appended clause, empty fixtures (not yet required)
+sh tests/invariants-only.test.sh  # invariants-check.sh --only selector: malformed values exit 2, no argument runs every check, an exported only does not narrow, each id alone (not yet required)
 sh tests/invariants-gh-pipe.test.sh  # invariants-check.sh check 11 (no gh output piped into a bin/ predicate) fixtures (not yet required)
 sh tests/cursor-sync-pr.test.sh # resume's cursor-sync PR report predicate fixtures (not yet required)
 sh tests/driver-lock.test.sh    # resume's driver-lock predicate fixtures (not yet required)
@@ -109,6 +110,7 @@ sh tests/lane-state.test.sh     # lane-state.sh list/check fixtures vs a scratch
 
 `scripts/lint.sh` needs the `claude` CLI and `jq` on PATH. `scripts/invariants-check.sh` needs
 `yq` (mikefarah v4) and `jq` on PATH too — it fails the gate, never skips it, when either is missing.
+`tests/invariants-only.test.sh` needs `yq`, `jq` and `git` for its run-each-id-alone case and skips that case loudly without them.
 `tests/review-base-anchor.test.sh`, `tests/schema-complete.test.sh`, `tests/milestone-desc.test.sh`, `tests/spec-issue.test.sh`, `tests/spec-post.test.sh`, `tests/spec-fresh.test.sh` (which also needs `git`) and `tests/draft-identity.test.sh` need `yq` on PATH as
 well (each skips itself, loudly, if absent). `tests/lane.test.sh` and `tests/lane-state.test.sh` need `git`, `yq` and `jq`, `tests/statusline-context.test.sh` needs `jq`, and `tests/compact-handoff.test.sh` needs `git` (and `jq` for its registration cases); each skips itself loudly without them. `tests/review-image.test.sh` needs `jq` and `yq`,
 and skips itself loudly without them. `tests/identity-launchers.test.sh` needs `pwsh`, `git`, `yq` and `jq`, and skips itself loudly without them. `tests/invariants-files-filter.test.sh` needs `jq` on PATH

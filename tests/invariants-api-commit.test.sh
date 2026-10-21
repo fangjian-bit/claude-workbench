@@ -9,6 +9,8 @@
 #
 # Only check 22's own message is asserted, never the script's overall exit.
 #
+# Every case but the first control runs just check 22 (`--only 22`); that control runs the full checker.
+#
 # Permitted toolset: POSIX sh. No jq, no yq, no python.
 set -eu
 
@@ -32,7 +34,9 @@ bin_in() { ls "$1"/plugins/*/bin/api-commit.sh; }
 skill_in() { ls "$1"/plugins/*/skills/ship/SKILL.md; }
 agent_in() { ls "$1"/plugins/*/agents/coder.md; }
 
-run() { ( cd "$1" && bash "$script" 2>&1 >/dev/null ) || true; }
+sel="--only 22"
+
+run() { ( cd "$1" && bash "$script" $sel 2>&1 >/dev/null ) || true; }
 
 assert_fires() { # <desc> <dir>
   if run "$2" | grep -qF -- "$MSG"; then echo "ok - $1"
@@ -47,9 +51,11 @@ assert_silent() { # <desc> <dir>
 append() { printf '\n%s\n' "$2" >>"$1"; } # <file> <line(s)>
 
 # --- control: the shipped tree ---------------------------------------------------
+sel=
 d="$(tree real)"
 assert_silent "the shipped tree passes" "$d"
 grep -q 'git/commits' "$(bin_in "$d")" || { echo "FAIL - api-commit.sh does not name git/commits, so the control proves nothing" >&2; fail=1; }
+sel="--only 22"
 
 # --- the defect, in each shape it can take ----------------------------------------
 d="$(tree key)"

@@ -15,9 +15,8 @@
 # later fix over-tightening the pattern. The real-tree case is a deliberate control.
 # See issue #162.
 #
-# Only check 3's own messages are asserted, never the script's overall exit: the other
-# checks (yq-backed ones, the two prune-block copies) run over the same copied tree and
-# are not this suite's business.
+# Only check 3's own messages are asserted, never the script's overall exit: every case but
+# the control runs just that check (`--only 3`), and the control runs them all.
 #
 # Permitted toolset: POSIX sh. No jq, no yq, no python.
 set -eu
@@ -44,8 +43,11 @@ tree() {
 
 resume_in() { ls "$1"/plugins/*/skills/resume/SKILL.md; }
 
+# Every case but the control runs just check 3; the control runs them all.
+sel="--only 3"
+
 run() { # run <dir> -> stderr on stdout
-  ( cd "$1" && bash "$script" 2>&1 >/dev/null ) || true
+  ( cd "$1" && bash "$script" $sel 2>&1 >/dev/null ) || true
 }
 
 assert_fires() { # assert_fires <desc> <dir> <message>
@@ -75,9 +77,11 @@ reorder() { # reorder <resume-file>
 }
 
 # --- control: the real skill is in the right order ---------------------------
+sel=
 d="$(tree real)"
 assert_silent "real tree: reach precedes the ruleset call" "$d" "$ORDER_MSG"
 assert_silent "real tree: the ruleset call is found" "$d" "$MISSING_MSG"
+sel="--only 3"
 
 # --- the actual form: `gh api --paginate repos/...` (the #162 defect) ----------
 d="$(tree paginate)"

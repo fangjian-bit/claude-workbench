@@ -6,6 +6,8 @@
 # a check that only passes on the real tree cannot hide. Only check 15's own message is
 # asserted, never the script's overall exit.
 #
+# Every case but the first control runs just check 15 (`--only 15`); that control runs the full checker.
+#
 # Permitted toolset: POSIX sh. No jq, no yq, no python.
 set -eu
 
@@ -25,7 +27,9 @@ tree() {
   echo "$d"
 }
 
-run() { ( cd "$1" && bash "$script" 2>&1 >/dev/null ) || true; }
+sel="--only 15"
+
+run() { ( cd "$1" && bash "$script" $sel 2>&1 >/dev/null ) || true; }
 
 assert_fires() { # <desc> <dir>
   if run "$2" | grep -qF -- "$MSG"; then
@@ -46,8 +50,10 @@ assert_silent() { # <desc> <dir>
 }
 
 # Control: the real tree is clean.
+sel=
 d="$(tree control)"
 assert_silent "real tree passes" "$d"
+sel="--only 15"
 
 # The map-mode rule removed fires.
 d="$(tree norule)"

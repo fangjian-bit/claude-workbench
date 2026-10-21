@@ -7,6 +7,8 @@
 # so a check that only passes on the real tree cannot hide. Only check 19's own message is
 # asserted, never the script's overall exit.
 #
+# Every case but the first control runs just check 19 (`--only 19`); that control runs the full checker.
+#
 # Permitted toolset: POSIX sh. No jq, no yq, no python.
 set -eu
 
@@ -26,7 +28,9 @@ tree() {
   echo "$d"
 }
 
-run() { ( cd "$1" && bash "$script" 2>&1 >/dev/null ) || true; }
+sel="--only 19"
+
+run() { ( cd "$1" && bash "$script" $sel 2>&1 >/dev/null ) || true; }
 
 assert_fires() { # <desc> <dir> [<substring>]
   out="$(run "$2")"
@@ -50,8 +54,10 @@ assert_silent() { # <desc> <dir>
 skill() { ls "$1"/plugins/*/skills/"$2"/SKILL.md; }
 
 # Control: the real tree is clean.
+sel=
 d="$(tree control)"
 assert_silent "real tree passes" "$d"
+sel="--only 19"
 
 # The real PATCH close, with its --jq removed (the read-back on the next line stays projected).
 d="$(tree patch)"

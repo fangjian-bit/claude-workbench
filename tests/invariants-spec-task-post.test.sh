@@ -6,6 +6,8 @@
 # a check that only passes on the real tree cannot hide. Only check 18's own message is
 # asserted, never the script's overall exit.
 #
+# Every case but the first control runs just check 18 (`--only 18`); that control runs the full checker.
+#
 # Permitted toolset: POSIX sh. No jq, no yq, no python.
 set -eu
 
@@ -30,7 +32,9 @@ tree() {
   echo "$d"
 }
 
-run() { ( cd "$1" && bash "$script" 2>&1 >/dev/null ) || true; }
+sel="--only 18"
+
+run() { ( cd "$1" && bash "$script" $sel 2>&1 >/dev/null ) || true; }
 
 assert_fires() { # <desc> <dir> [message]
   if run "$2" | grep -qF -- "${3:-$MSG}"; then
@@ -57,8 +61,10 @@ pinned_label() { grep -F -e '--method POST' "$1" | grep -F -e '/labels"' | head 
 pinned_viewer() { grep -F -e 'graphql' "$1" | head -n 1; }
 
 # Control: the real tree is clean.
+sel=
 d="$(tree control)"
 assert_silent "real tree passes" "$d"
+sel="--only 18"
 
 # Each posting form fires.
 n=0
@@ -164,7 +170,7 @@ d="$(tree noskill)"
 rm -rf "$d"/plugins/*/skills/spec-task
 assert_fires "a missing spec-task skill fires" "$d"
 
-# The real tree trips none of the spec-post.sh messages.
+# The real tree trips none of the spec-post.sh messages (this second control runs only check 18).
 d="$(tree control2)"
 for m in "$MSG_NAME" "$MSG_MISSING" "$MSG_ODD" "$MSG_ONCE" "$MSG_EVAL"; do
   assert_silent "real tree is silent on: $m" "$d" "$m"
