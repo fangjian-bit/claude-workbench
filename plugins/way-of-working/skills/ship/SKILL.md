@@ -207,17 +207,36 @@ here. The *Open the PR against `{pr_base}`* step also reads `pointers.sprint_pla
                  --jq '[.data.viewer.login, .data.viewer.databaseId] | @tsv') &&
           LOGIN=$(printf '%s' "$LU" | cut -f1) && ID=$(printf '%s' "$LU" | cut -f2) &&
           A=$(gh-identity.sh pr-actor "$LOGIN" "$ID" "$DEF_YML_FILE") && [ "$A" = match ]
-          rc=$?; rm -f "$DEF_YML_FILE"; [ "$rc" -eq 0 ]
+          rc=$?
+          if [ "$rc" -eq 0 ]; then
+            RT=$(yq -r '.identities.dev_app | explode(.) | if has("commit_route") then "true " + (.commit_route | tag) + " " + (.commit_route // "") + "|" else "false" end' "$DEF_YML_FILE") || rc=3
+          fi
+          if [ "$rc" -eq 0 ]; then
+            case "$RT" in
+              "false"|"true !!str git|") echo "Commit route: git" ;;
+              "true !!str api|") echo "Commit route: api" ;;
+              *) rc=3 ;;
+            esac
+          fi
+          [ "$rc" -ne 3 ] || echo "Commit route: invalid"
+          rm -f "$DEF_YML_FILE"; [ "$rc" -eq 0 ]
           ```
           Only a zero status continues. `mismatch` (another App, a human, an undeclared account),
           exit 2 or a failed `gh` call **stops loudly before any branch exists**: report the actual
           login (or that it could not be read) and the expected `identities.dev_app`. The *Open
-          the PR* step's check of the PR's `user` stays as the backstop.
-       4. **Pin `git` to `gh`'s token for every push this skill makes** by making each one
+          the PR* step's check of the PR's `user` stays as the backstop. A `Commit route: invalid` line is its own stop,
+          reported as such and not as an identity mismatch (the block exits 1 either way, so
+          the line is what tells them apart): `identities.dev_app.commit_route`
+          is neither `git` nor `api`, or could not be read (`reference/conventions.md` § *Push
+          identity*). The printed `Commit route:` line is the route for every push this skill
+          makes; an undeclared key prints `git`. A missing `Commit route:` line with no
+          `invalid` line is an identity or read failure, not a route.
+       4. **Pin `git` to `gh`'s token for every push this skill makes under the `git` route** by making each one
           through `app-push.sh` (bare name, same `bin/` `PATH` as `cursor-drift.sh`; the pin and
           why it matters are in its header and `reference/conventions.md` § *Push identity*),
           so a host-configured helper cannot push as another account, a human's included.
-          Then probe write reach, creating nothing:
+          Then probe write reach, creating nothing (under both routes: it says the token
+          `gh` holds can write, which the `api` route's REST writes use):
           ```bash
           app-push.sh --dry-run origin <branch>      # the work branch
           ```
@@ -239,8 +258,13 @@ here. The *Open the PR against `{pr_base}`* step also reads `pointers.sprint_pla
    - If commits are signed, a signing *timeout* usually means the host pinentry is waiting
      for input — answer it and re-run the commit; it is not a commit failure.
 
-3. **Push the branch** (`git push -u origin <branch>`; in App mode `app-push.sh -u origin
-   <branch>`, the pin from the preflight). Push freely to the work branch,
+3. **Push the branch** (`git push -u origin <branch>`; in App mode under the `git` route
+   `app-push.sh -u origin <branch>`, the pin from the preflight; under the `api` route
+   `api-commit.sh origin <branch>`, which replays the commits through the git data API as
+   the dev App, resets the local branch onto the commits GitHub made and sets the upstream
+   itself — so run it before anything that records the branch's commit ids, and re-read
+   `HEAD` after it; a refusal (exit 2, no write sent) is a stop to report, not to retry with
+   a bare push, and a workflow edit it refuses stays a host-side commit). Push freely to the work branch,
    **never to `{pr_base}`**. Once asked to push in a session, keep pushing later commits
    without re-confirming — but always to the branch.
 

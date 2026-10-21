@@ -553,13 +553,17 @@ names `{backlog.repo}` takes `{repo}` then (the derive line below passes `-` ins
      reach preflight of its own and carries the same push-identity exposure as
      `/way-of-working:ship`'s *Preflight the branch* step — a 403 here is diagnosed the same way
      (`reference/conventions.md` § *Push identity*). **In App mode** (`gh api user` refused to
-     an installation token) push with `app-push.sh -u origin <branch>` (user mode: `git push -u
-     origin <branch>`), never a bare push: the PR is opened as the dev App, and a push made
+     an installation token) push with `app-push.sh -u origin <branch>` under the `git` route, or
+     `api-commit.sh origin <branch>` under the `api` route (the route is the default branch's
+     `identities.dev_app.commit_route`, read as `reference/conventions.md` § *Push identity*
+     spells it; an undeclared key is `git`; user mode: `git push -u origin <branch>`), never a
+     bare push: the PR is opened as the dev App, and a push made
      with the maintainer's own stored credential makes the human the last pusher, so on a base
      with `require_last_push_approval` the human's approval no longer counts and a
      one-code-owner repo cannot merge it (`#478`). `app-push.sh` refuses (exit 2, nothing
      pushed) when `origin` is not `https://github.com/` for fetch and push alike — over SSH the
      pin would pin nothing — so a refusal is a stop to report, not to retry with a bare push.
+     `api-commit.sh` refuses a remote that is not `https://github.com/<owner>/<repo>` the same way, naming the remote and never its URL.
    - **Never merge it.** A human approval is the gate: the code-owner approval where the base requires one, else the human's merge. Report the PR URL and stop. If it
      is still open when the next session starts, `/way-of-working:resume`'s *Report a
      forgotten cursor-sync PR* step finds it — which is why the branch must keep the

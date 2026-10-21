@@ -193,7 +193,7 @@ uses.
 git -c credential.helper= -c credential.helper='!gh auth git-credential' push …
 ```
 
-In **App mode** a skill's push goes through `bin/app-push.sh`, which spells this pin once
+In **App mode**, on the `git` route (the default), a skill's push goes through `bin/app-push.sh`, which spells this pin once
 (adding `-c http.extraHeader=`, which clears only the generic key). The pin is not only a 403
 workaround there: a push made with the maintainer's own stored credential makes the human the
 *last pusher*, and a base whose approval rule sets `require_last_push_approval` then refuses
@@ -202,7 +202,35 @@ The pin works only over HTTPS with no URL-scoped `http.<url>.extraheader` set, s
 refuses (exit 2) any remote whose fetch or push URL is not `https://github.com/` — `pushurl`
 and `pushInsteadOf` count; over SSH no helper is consulted — or that has such a header. It also
 accepts only `-u` and `-n`, a remote name and plain refspecs, never a force, delete, mirror or
-prune spelling. `tests/app-push.test.sh` holds every pushing skill to that script.
+prune spelling. `tests/app-push.test.sh` holds every pushing skill to the two scripts of this
+section, `bin/app-push.sh` and `bin/api-commit.sh`.
+
+**The `api` route** (`WB-D36`, `#601`). On a repo whose default branch requires signed commits,
+a PR whose branch commits are unsigned reads `BLOCKED` and neither the merge box nor an armed
+auto-merge merges it (`WB-D25`), and dev-container commits are unsigned by rule. `bin/api-commit.sh
+<remote> <branch>` publishes the branch's local commits not on the remote (or, for a new branch,
+not on the base set) through the REST git data API as the dev App, oldest first: blobs for the
+added or changed paths, a tree on the remote parent's tree with the local modes, and a commit
+with the local message and no `author` or `committer`, which GitHub signs. It checks each
+response's tree against the local commit's, moves the branch's ref once (`POST` for a new
+branch, `PATCH` with `force: false` for an existing one), then fetches the branch and resets
+the local branch onto the commits GitHub made, so the cursor and prune scripts work unchanged.
+It refuses (exit 2, no write sent) a remote that is not `https://github.com/<owner>/<repo>`, a
+branch that is a base branch or not checked out, a merge or root commit, a symlink or
+submodule, a message or path JSON cannot carry byte for byte, and any path under
+`.github/workflows/`: the dev App holds no `workflows` permission, so a workflow edit stays
+host-side. The commits carry the dev App's `[bot]` authorship, not the human's.
+
+**Which route a push site runs.** An App-mode push site reads `identities.dev_app.commit_route`
+from the default branch's committed `.ai/project.yml`, never the working tree's. An undeclared key,
+or no file on the default branch, selects `git`. A value other than the strings `git` and
+`api`, or a failed read or fetch, stops the push. The read, after the fetch that
+`ship`'s identity preflight already makes (`$D` the default branch, `DEF_YML_FILE` the copy):
+
+```bash
+RT=$(yq -r '.identities.dev_app | explode(.) | if has("commit_route") then "true " + (.commit_route | tag) + " " + (.commit_route // "") + "|" else "false" end' "$DEF_YML_FILE")
+# "false" -> git    "true !!str git|" -> git    "true !!str api|" -> api    else stop
+```
 
 **Durable fix** (changes global git config — offer it, don't do it unasked): either
 `gh auth setup-git`, or clear the stale credential-manager entry for `github.com` so it

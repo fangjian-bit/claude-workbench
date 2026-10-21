@@ -10,7 +10,8 @@
 # pusher. The pin used to be copied prose in `ship`; it lives here so `ship`, `handoff`,
 # `archive-sprint` and `resume`'s schema interview cannot drift apart, and
 # tests/app-push.test.sh holds every pushing skill to calling this rather than spelling a
-# push itself.
+# push itself. This is the `git` route; `api-commit.sh` is the `api` route beside it
+# (`identities.dev_app.commit_route`, WB-D36), and a skill calls whichever its repo selects.
 #
 # Usage: app-push.sh [-u|--set-upstream] [-n|--dry-run] <remote> <refspec>...
 #        e.g.  app-push.sh -u origin <branch>      app-push.sh --dry-run origin <branch>

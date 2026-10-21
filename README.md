@@ -66,7 +66,7 @@ plugins/way-of-working/
               spawn-model.sh review-base-anchor.sh review-sandbox.sh review-outbox.sh
               milestone-close-line.sh plan-gather.sh milestone-desc.sh schema-complete.sh
               cursor-sync-pr.sh blocked-state.sh prune-verdict.sh review-step.sh critic-section.sh
-              plan-depends.sh driver-lock.sh auto-merge-arm.sh app-push.sh stall-merge.sh gh-identity.sh review-token.sh token-check.sh hitl-gate-closed.sh spec-reaction.sh spec-comment.sh spec-find.sh spec-shape.sh blocking-criteria.sh spec-issue.sh spec-post.sh spec-fresh.sh draft-identity.sh lane-state.sh
+              plan-depends.sh driver-lock.sh auto-merge-arm.sh app-push.sh api-commit.sh stall-merge.sh gh-identity.sh review-token.sh token-check.sh hitl-gate-closed.sh spec-reaction.sh spec-comment.sh spec-find.sh spec-shape.sh blocking-criteria.sh spec-issue.sh spec-post.sh spec-fresh.sh draft-identity.sh lane-state.sh
               — executables, added to the Bash
               tool's PATH
   hooks/      hooks.json + ai-cursor-banner.sh (SessionStart) + compact-handoff.sh (PreCompact/PostCompact, automatic compaction only)

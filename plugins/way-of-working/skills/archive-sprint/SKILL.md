@@ -69,7 +69,10 @@ the common case, not "no repo." Resolve it once here, and every call below that 
    Make the roadmap edit there, stage it by explicit path (`git add {roadmap}`, never `-A`
    or `-a` — precondition 2 admits unrelated uncommitted changes), commit (subject `docs:
    mark <sprint> done in {roadmap}`), push (in App mode `app-push.sh -u origin
-   docs/<sprint>-status`, else `git push -u origin docs/<sprint>-status`), and open a PR against `{pr_base}` (`gh pr create
+   docs/<sprint>-status` under the `git` route or `api-commit.sh origin docs/<sprint>-status`
+   under the `api` route, the route being the default branch's `identities.dev_app.commit_route`
+   as `reference/conventions.md` § *Push identity* reads it; else `git push -u origin
+   docs/<sprint>-status`), and open a PR against `{pr_base}` (`gh pr create
    --base {pr_base}`) — this fix is not part of the sprint being archived and does not
    belong on its branch or in its PR. **A failed commit is a stop, reported the same way —
    but stay on `docs/<sprint>-status`, never `git checkout {pr_base}`**: a failed commit
@@ -78,10 +81,12 @@ the common case, not "no repo." Resolve it once here, and every call below that 
    failed push or `gh pr create`, by contrast, happens after a real commit exists on the
    side branch**, so `git checkout {pr_base}` there is safe — do it first, and say the
    commit is waiting on `docs/<sprint>-status` to be pushed. In App mode say so in those
-   words and have the push retried from this session (`app-push.sh`), not pushed by hand (if
-   `app-push.sh` itself refused, exit 2, report which remote URL or `http.*.extraheader` it
-   named — retrying cannot pass until the human fixes that, and a bare push is not the way
-   around it): a
+   words and have the push retried from this session (`app-push.sh`, or `api-commit.sh` under
+   the `api` route, after switching back to `docs/<sprint>-status`: it refuses a branch that
+   is not checked out), not pushed by hand (if `app-push.sh` itself refused, exit 2, report
+   which remote URL or `http.*.extraheader` it named; if `api-commit.sh` refused, report the
+   remote it named, which is never a URL — retrying cannot pass until the human fixes that,
+   and a bare push is not the way around it): a
    human push makes them the last pusher and, on a base with `require_last_push_approval`,
    their approval of the App-opened PR would not count. On success,
    `git checkout {pr_base}` and STOP per the rule below: the fix is not on
@@ -396,8 +401,9 @@ If any precondition fails, STOP and report why — do not archive.
    has no reach preflight of its own and carries the same push-identity exposure as
    `/way-of-working:ship`'s *Preflight the branch* step; a `403` here is diagnosed the same way.
    **Every push this skill makes** (this one, the roadmap fix's above and the
-   milestone-outcome commit's below) goes through `app-push.sh -u origin <branch>` **in App mode** (`gh api
-   user` refused to an installation token) and `git push -u origin <branch>` in user mode: a
+   milestone-outcome commit's below) goes through `app-push.sh -u origin <branch>` **in App mode** under the `git` route (`gh api
+   user` refused to an installation token), `api-commit.sh origin <branch>` in App mode under
+   the `api` route, and `git push -u origin <branch>` in user mode: a
    push made with the maintainer's own stored credential makes the human the last pusher, so
    on a base with `require_last_push_approval` their approval of the App-opened PR no longer
    counts (`#478`).
@@ -623,7 +629,7 @@ If any precondition fails, STOP and report why — do not archive.
    `implementing`); when it does happen to be `planning` (parked mid-planning), the script
    checks this cursor like any other and finds the (now singular, replaced) line `present`,
    which is correct, not coincidental. Either way this line is written for the same
-   human-legibility reason. Commit that as a second commit on the same branch and push it (in App mode with `app-push.sh`), updating
+   human-legibility reason. Commit that as a second commit on the same branch and push it (in App mode with `app-push.sh`, or `api-commit.sh` under the `api` route), updating
    unpark's already-open PR rather than opening a second one — the delta is still
    `.ai/next-steps.md` only, so `cursor-drift.sh` still classifies it `cursor-sync`. **Check
    `.ai/state.json`'s `hitl_gate` the same way** (local, not committed — `.ai/state.json` is

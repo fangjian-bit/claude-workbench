@@ -1822,8 +1822,9 @@ take effect. Full reasoning and the task breakdown that implements them:
     signed with their host key, merge commit committed by GitHub and `verified`. So on a repo
     carrying `required_signatures`, an unsigned container commit cannot merge by the normal
     route: the rule above ("container commits are unsigned") and `required_signatures` on the
-    same repo do not fit together. How container commits are signed or merged there is open;
-    host-signed commits are unaffected. The workflows of neither repo hold a `git push` to
+    same repo do not fit together. How container commits are signed or merged there is open
+    (`WB-D36` offers a second route, `api`, used there only after the live checks its scope
+    names); host-signed commits are unaffected. The workflows of neither repo hold a `git push` to
     `main`: in `terraform-microsoft365-entra` the two that run on a push to `main` are
     `contents: read`, and the only `contents: write` is the review gate's arming of squash
     auto-merge, which takes the normal route above. Each test added a `sigtest.txt` to `main`;
@@ -1834,11 +1835,14 @@ take effect. Full reasoning and the task breakdown that implements them:
     - **A signing SSH key held in the container.** It is a long-lived human credential in the
       container, which `WB-D24` item 4 rules out, and an App cannot register a signing key.
   - **Deferred.**
-    - **Commits created through the App API**, which GitHub signs as the bot.
+    - **Commits created through the App API**, which GitHub signs as the bot. `WB-D36` decides
+      this for repos that select the `api` route.
     - **Authoring container commits as the dev App's `[bot]` noreply identity** instead of the
-      human's `user.name`/`email`. They stay the human's, with the Co-Authored-By trailer.
+      human's `user.name`/`email`. They stay the human's, with the Co-Authored-By trailer,
+      except on a repo that selects the `api` route, where `WB-D36` decides the authorship.
     - **Signed branch commits on the terraform repos after cutover.** The only route is a
-      forwarded agent, with the exposure above.
+      forwarded agent, with the exposure above. `WB-D36` offers a second route, used there only
+      after the live checks its scope names.
   - **Cost.** PR-branch commits show no signature, or "Unverified" if vigilant mode is on for
     the human's account.
   - **Residual, live check run 2026-10-13 (`#574`).** On the rebuilt container (image built
@@ -2543,6 +2547,47 @@ take effect. Full reasoning and the task breakdown that implements them:
     is never a weaker approval path than a GitHub reaction. Nothing in this plugin writes to Slack until a
     later entry answers all three.
 
+- **WB-D36 (`#601`) — an `api` commit route beside `app-push.sh`, selected by the optional
+  `identities.dev_app.commit_route`.** Builds on `WB-D25` (unsigned container commits) and the
+  signing spike (`#588`, route D).
+  - **The decision.** `bin/api-commit.sh <remote> <branch>` replays the branch's local commits
+    through the REST git data API as the dev App, with no `author` or `committer` field, so GitHub
+    signs them, then resets the local branch onto the commits GitHub made. A PR from such a branch
+    reads `CLEAN` where an unsigned one reads `BLOCKED` on a repo that requires signed commits.
+    The route works on any repo, whether or not it requires signed commits. `ship`, `handoff`,
+    `archive-sprint` and resume's schema interview read the key in App mode and call
+    `api-commit.sh` or `app-push.sh` to match; user mode is unchanged. This build does not turn the
+    route on for this repo (`#800`).
+  - **The key.** `identities.dev_app.commit_route` is `git` or `api`, optional, and an undeclared
+    one selects `git`. An exception to `WB-D17`, safe because an undeclared key selects `git`, which
+    every repo runs today, so it cannot make a repo behave as if it had declared one. The precedent
+    is `rulesets[].required_checks`, checked inside its entry and not a row of any key table.
+    `schema-complete.sh` rejects any present value but the strings `git` and `api`, `null`
+    included.
+  - **Authorship, and its cost.** API commits are authored by the dev App's `[bot]` identity on
+    repos that select `api`. The human is neither author nor committer of those branch commits, and
+    the message's trailers are unchanged (here they name only Claude). An API commit also carries a
+    Verified signature for whatever identity `gh`'s token holds. A squash merge still signs what
+    lands on the base.
+  - **What it refuses.** Before any write: a remote that is not `https://github.com/<owner>/<repo>`,
+    a branch in the base set (the default branch, `pr_base`, a non-null `migration_base`) or not
+    checked out, a merge or root commit, a symlink or submodule, a path or message JSON cannot carry
+    byte for byte, and any path under `.github/workflows/`, since the dev App holds no `workflows`
+    permission. A workflow edit stays host-side.
+  - **Check 22.** `scripts/invariants-check.sh` fails a skill, agent or bin script that names the
+    `git/commits` endpoint and sends it an `author` or `committer`, since either field makes the
+    commit unsigned (`#588` test 1).
+  - **Scope.** The live checks on 603-Identity's terraform repos, made with that org's own dev App
+    (the App holds `contents: write`; one 100755 API commit comes out `verified`; the required
+    checks fire on a head the App made through the API; an API-route PR reads `CLEAN` under the
+    full rulesets and its armed auto-merge fires; the human's approval counts under
+    `require_last_push_approval`; neither repo uses symlinks; an API commit carrying a test secret is
+    refused or alerted as a `git push` of it is, since the route may bypass push protection and
+    any client pre-push hook), run as one real PR that goes the
+    whole way before anything is built on the route there. The two new suites are not in CI, since
+    the dev App holds no `workflows: write`: whether that limit is acceptable on infra repos is the
+    maintainer's decision before cutover.
+
 ## Status
 
 All four of `WB-D1..D4` are implemented by this repo's existence and structure as of
@@ -2719,3 +2764,6 @@ PR #598), and the conventions clear the phantom `settings.json` diff after a pin
 PR #576). The signing spike (#588) recommends REST git-data commits through the dev App; the
 `bin/api-commit.sh` build is #601, in milestone 19. Sprint 15 closed at `41e8eb7` (PR #602), not
 at a release tag.
+
+`WB-D36` (#601) adds `bin/api-commit.sh` and the optional `identities.dev_app.commit_route`;
+this build turns the route on for no repo, and turning it on for this repo is #800.

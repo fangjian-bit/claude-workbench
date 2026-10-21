@@ -1,4 +1,4 @@
-# Trust predicates, the spec-selection predicates (spec-find.sh, spec-reaction.sh, gh-identity.sh, spec-comment.sh), the spec freshness and drafting-identity predicates (spec-fresh.sh, draft-identity.sh), the App-mode push pin (app-push.sh, #478) and their own fixtures (#296, decision 6 of docs/proposals/orchestrator-m2-decisions.md).
+# Trust predicates, the spec-selection predicates (spec-find.sh, spec-reaction.sh, gh-identity.sh, spec-comment.sh), the spec freshness and drafting-identity predicates (spec-fresh.sh, draft-identity.sh), the App-mode push pin and its API-commit route (app-push.sh, #478; api-commit.sh, #601) and their own fixtures (#296, decision 6 of docs/proposals/orchestrator-m2-decisions.md).
 # A loop diff touching any entry here is refused by driver-core.sh (rule `protected`), so an edit
 # to one always needs the human. One literal path per line, matched as the file or as `entry/...`,
 # case-folded; blank lines and lines starting with # are skipped. Narrow on purpose: the rest of
@@ -19,6 +19,7 @@ plugins/way-of-working/bin/spawn-model.sh
 plugins/way-of-working/bin/review-base-anchor.sh
 plugins/way-of-working/bin/auto-merge-arm.sh
 plugins/way-of-working/bin/app-push.sh
+plugins/way-of-working/bin/api-commit.sh
 tests/plan-anchor.test.sh
 tests/review-sandbox.test.sh
 tests/review-step.test.sh
@@ -30,6 +31,7 @@ tests/spawn-model.test.sh
 tests/review-base-anchor.test.sh
 tests/auto-merge-arm.test.sh
 tests/app-push.test.sh
+tests/api-commit.test.sh
 plugins/way-of-working/bin/spec-find.sh
 plugins/way-of-working/bin/spec-reaction.sh
 plugins/way-of-working/bin/gh-identity.sh

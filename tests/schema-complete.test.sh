@@ -885,6 +885,27 @@ done
 ident_fixture "$tmp/el_app_ok.yml" "  maintainer:" "    - $ok_login" "  dev_app: { login: d, id: 1 }" "  reviewer_app: { login: \"r[bot]\", id: 2 }" "  loop_app: { login: \"l[bot]\", id: 3 }"
 assert_eq "all three Apps well-formed is complete" "complete" "$(run_check "$tmp/el_app_ok.yml")"
 
+# identities.dev_app.commit_route (#601, WB-D36): optional, git or api
+for v in 'git' 'api' '"git"'; do
+  ident_with "$tmp/el_cr.yml" "$ok_login" "{ login: \"dev-app[bot]\", id: 2001, commit_route: $v }"
+  assert_eq "commit_route: $v is complete" "complete" "$(run_check "$tmp/el_cr.yml")"
+done
+ident_with "$tmp/el_cr.yml" "$ok_login" '{ login: "dev-app[bot]", id: 2001 }'
+assert_eq "an undeclared commit_route is complete" "complete" "$(run_check "$tmp/el_cr.yml")"
+ident_with "$tmp/el_cr.yml" "$ok_login" 'null'
+assert_eq "a null dev_app has no commit_route finding" "complete" "$(run_check "$tmp/el_cr.yml")"
+for v in 'null' 'yes' 'true' 'Git' '"git "' '1' '[git]' '{ a: b }'; do
+  ident_with "$tmp/el_cr.yml" "$ok_login" "{ login: \"dev-app[bot]\", id: 2001, commit_route: $v }"
+  out=$(run_check "$tmp/el_cr.yml")
+  assert_eq "commit_route: $v is invalid, and the only finding" \
+    "incomplete|invalid identities.dev_app.commit_route|2" \
+    "$(printf '%s\n' "$out" | sed -n '1p;2p' | cut -d' ' -f1,2 | paste -sd'|')|$(printf '%s\n' "$out" | wc -l | tr -d ' ')"
+done
+ident_with "$tmp/el_cr.yml" "$ok_login" '{ login: "dev-app[bot]", id: 2001, commit_route: null }'
+assert_eq "a null commit_route names the offending value" \
+  'incomplete
+invalid identities.dev_app.commit_route null' "$(run_check "$tmp/el_cr.yml")"
+
 # an element finding is never raised for an identities: null repo, nor stacked on a shape finding
 ident_fixture "$tmp/el_shape.yml" "  maintainer: some-login" "  dev_app: null" "  reviewer_app: null" "  loop_app: null"
 assert_eq "a maintainer that is not a list is one shape finding, with no element findings" \

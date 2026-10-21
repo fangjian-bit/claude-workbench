@@ -1190,6 +1190,34 @@ if [ -n "$ta_hits" ]; then
     "Judge the task issue's author with gh-identity.sh task-author (trusted or agent passes under a map); author is for comment and PR authors (and plan-sprint's display)."
 fi
 
+# --- 22. No file that names the git/commits endpoint sends it an author or committer (#601, WB-D36) -----
+#
+# A commit created through the REST git data API with no `author` or `committer` field is signed
+# by GitHub; setting either one makes it unsigned (#588 test 1), and an unsigned branch commit
+# reads BLOCKED on a repo that requires signed commits (WB-D25). api-commit.sh is the one script
+# that posts to `git/commits`; a later edit that adds a field there, or a skill or agent that posts
+# a commit itself, would drop the signature with nothing failing until a PR sat BLOCKED.
+#
+# Per skill, appendix, agent and bin script that names `git/commits`, after whole-line comments
+# are dropped (so a header that says "no author or committer" is not a hit) and CRs stripped, a
+# line fails if it holds `author` or `committer` as a jq object key (`author:`, `"author" :`,
+# `{author}`-style shorthand is not covered) or as a gh field (`-f`/`-F`/`--field`/`--raw-field`
+# followed by `author` or `committer`, with or without a `[...]`, `.` or `=` after it). This
+# guards the known spellings; a payload built from a variable key is outside it, and
+# tests/api-commit.test.sh is the behavioral guard on the recorded requests.
+ac_hits=""
+for f in "${SKILLS[@]}" "${AGENTS[@]}" "${BIN_SCRIPTS[@]}"; do
+  [ -f "$f" ] || continue
+  grep -q 'git/commits' "$f" || continue
+  h=$(tr -d '\r' <"$f" | grep -v '^[[:space:]]*#' | grep -nE '\\?"?\b(author|committer)\\?"?[[:space:]]*:|(-f|-F|--field|--raw-field)[[:space:]=]*["'"'"']?(author|committer)([^A-Za-z_-]|$)' || true)
+  [ -n "$h" ] && ac_hits+="  $f:$h"$'\n'
+done
+if [ -n "$ac_hits" ]; then
+  report "a git/commits request sets an author or committer (#601)" \
+    "$ac_hits" \
+    "A commit made through the git data API with no author or committer is signed by GitHub; either field makes it unsigned (#588 test 1). See docs/decisions.md WB-D36."
+fi
+
 if [ "$fail" -ne 0 ]; then
   cat >&2 <<'EOF'
 

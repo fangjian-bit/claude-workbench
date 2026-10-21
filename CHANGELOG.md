@@ -19,6 +19,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Rel
 `v0.5.0` are summarized from their tags; the full record is `docs/decisions.md` (`WB-D*`) and
 the GitHub release notes.
 
+## [Unreleased]
+
+- **`bin/api-commit.sh`, a second App-mode publishing route (`WB-D36`, `#601`).** It replays a
+  branch's local commits through the REST git data API as the dev App, with no `author` or
+  `committer`, so GitHub signs them and a PR from a repo that requires signed commits reads `CLEAN`,
+  then resets the local branch onto the commits GitHub made. A repo selects it with the new optional
+  sub-key `identities.dev_app.commit_route` (`git` or `api`); an undeclared one selects `git`, so no
+  existing `.ai/project.yml` needs a change. `ship`, `handoff`, `archive-sprint` and `resume`'s schema
+  interview read the key in App mode. `schema-complete.sh` rejects a present value other than `git`
+  and `api`. A new invariants check fails a `git/commits` request that sets an `author` or
+  `committer`. Workflow edits stay host-side: the route refuses a commit that touches
+  `.github/workflows/`.
+
 ## [0.21.0] — 2026-10-20
 
 **⚠️ Migration** — on a map repo a build now refuses, as `bad-shape`, an approved spec whose body

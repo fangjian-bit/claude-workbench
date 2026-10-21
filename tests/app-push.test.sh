@@ -166,22 +166,39 @@ assert_eq "no skill spells the credential-helper pin itself" "" "$spelled"
 assert_eq "every literal git push is paired with an app-push.sh mention" "" "$unpaired"
 
 # The skills that push a branch, with the exact number of literal user-mode push commands and
-# of app-push.sh mentions each carries. Exact on both, so removing a mention fails, and so does
+# of app-push.sh and api-commit.sh mentions each carries (#601: the two App-mode routes, picked
+# by identities.dev_app.commit_route). Exact on all three, so removing a mention fails, and so does
 # adding a plain push that hides behind a prose mention's spare count. Adding a push site means
 # updating the numbers here, in the same diff. A new pushing skill is added here.
 expect() {
   file="$1"
   lits="$2"
   apps="$3"
+  apis="$4"
   got=$(grep -o 'app-push\.sh' "$skills_dir/$file" | wc -l | tr -d ' ')
   assert_eq "$file names app-push.sh exactly $apps times" "$apps" "$got"
+  gota=$(grep -o 'api-commit\.sh' "$skills_dir/$file" | wc -l | tr -d ' ')
+  assert_eq "$file names api-commit.sh exactly $apis times" "$apis" "$gota"
   gotl=$(tr '\n' ' ' <"$skills_dir/$file" | tr -s ' ' | grep -oE 'git( +-[cC] +[^ ]+)* +push( +-[-a-z]+)* +[^ ]+' | grep -vE -- '--force|push +-f( |$)' | wc -l | tr -d ' ')
   assert_eq "$file has exactly $lits literal git push commands" "$lits" "$gotl"
 }
-expect ship/SKILL.md 1 3
-expect handoff/SKILL.md 1 2
-expect archive-sprint/SKILL.md 2 5
-expect resume/appendices/schema-interview.md 1 1
+expect ship/SKILL.md 1 3 1
+expect handoff/SKILL.md 1 2 2
+expect archive-sprint/SKILL.md 2 5 5
+expect resume/appendices/schema-interview.md 1 1 1
+
+# Every skill or appendix that names app-push.sh also names api-commit.sh: a push site that
+# learns one route and not the other would push as the human on a repo that selects the other.
+# The pairing rule above is unchanged: a literal git push still pairs with app-push.sh alone,
+# so a bare push cannot pair with api-commit.sh.
+one_route=
+for f in "$skills_dir"/*/SKILL.md "$skills_dir"/*/appendices/*.md; do
+  [ -f "$f" ] || continue
+  if grep -q 'app-push\.sh' "$f" && ! grep -q 'api-commit\.sh' "$f"; then
+    one_route="$one_route ${f#"$root_dir"/}"
+  fi
+done
+assert_eq "every file that names app-push.sh also names api-commit.sh" "" "$one_route"
 
 # --- ship proves the acting App before its first push (#476) ----------------------------
 # The viewer read must feed gh-identity.sh pr-actor, and both come before the dry-run probe,
@@ -194,5 +211,30 @@ ordered=no
 if [ -n "$viewer_at" ] && [ -n "$actor_at" ] && [ -n "$dry_at" ] && [ "$viewer_at" -lt "$actor_at" ] && [ "$actor_at" -lt "$dry_at" ]; then ordered=yes; fi
 assert_eq "ship reads viewer, then tests it with pr-actor, before the dry-run push probe" "yes" "$ordered"
 assert_eq "ship still checks the PR's user afterwards" "yes" "$(grep -c 'gh-identity\.sh pr-actor "\$LOGIN" "\$ID"' "$ship" | tr -d ' ' | grep -qx 2 && echo yes || echo no)"
+
+# --- the commit_route reader (#601): the yq expression conventions.md spells, run on fixtures ---
+# The expression is cut out of conventions.md and must be the one ship carries. Needs yq; skips
+# loudly without it.
+conv="$root_dir/plugins/way-of-working/reference/conventions.md"
+if command -v yq >/dev/null 2>&1; then
+  expr=$(grep -m1 "^RT=\$(yq -r '" "$conv" | sed "s/^RT=\$(yq -r '//; s/' \"\$DEF_YML_FILE\")\$//")
+  assert_eq "ship carries the reader conventions.md spells" "1" "$(grep -cF -- "$expr" "$skills_dir/ship/SKILL.md" | tr -d ' ')"
+  rt_case() { # <dev_app flow map body> <expected>
+    printf 'identities:\n  dev_app: { login: d, id: 1%s }\n' "$1" >"$work/rt.yml"
+    assert_eq "commit_route reader on [$1]" "$2" "$(yq -r "$expr" "$work/rt.yml")"
+  }
+  rt_case '' 'false'
+  rt_case ', commit_route: git' 'true !!str git|'
+  rt_case ', commit_route: api' 'true !!str api|'
+  rt_case ', commit_route: null' 'true !!null |'
+  rt_case ', commit_route: "api\n"' 'true !!str api
+|'
+  rt_case ', commit_route: yes' 'true !!str yes|'
+  for lab in '"false"|"true !!str git|")' '"true !!str api|")'; do
+    assert_eq "ship's case carries the label $lab" "1" "$(grep -cF -- "$lab" "$skills_dir/ship/SKILL.md" | tr -d ' ')"
+  done
+else
+  echo "skip - yq not on PATH, the commit_route reader cases did not run"
+fi
 
 exit "$fail"

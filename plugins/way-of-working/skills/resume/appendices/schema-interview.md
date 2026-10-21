@@ -86,7 +86,7 @@ runs `git status --short` itself (the step it used to cite comes later).
    **Where the answers go — a pull request, never a working-tree value this session (or a
    delegated `coder` subagent) might read.** Every skill and every agent reads the
    **working-tree** copy of `.ai/project.yml` (`reference/project-schema.md` § *How skills
-   reference keys*); the one exception is `migration_base`, read only from the default
+   reference keys*); the exceptions include `migration_base` and `identities.dev_app.commit_route`, read only from the default
    branch. A value merely staged in the checkout is therefore believed immediately by
    whatever runs next in this same session — an unreviewed `backlog.repo` would route a
    `/way-of-working:retro` finding before a human ever saw it. So:
@@ -190,7 +190,9 @@ runs `git status --short` itself (the step it used to cite comes later).
         the branch it was supposed to reach only via review. Commit **only** `.ai/project.yml`,
         **`git push -u origin "$BRANCH"`** (in App mode, `gh api user` refused to an
         installation token, **`app-push.sh -u origin "$BRANCH"`** so the dev App is the pusher,
-        `#478`) — an explicit destination, never a bare `git push`
+        `#478`; under the `api` route **`api-commit.sh origin "$BRANCH"`**, the route read as
+        `reference/conventions.md` § *Push identity* spells it, no `.ai/project.yml` on the
+        default branch yet selecting `git`) — an explicit destination, never a bare `git push`
         relying on tracking — and open the PR with `gh pr create --repo "$R" --base "$BASE"`
         — explicit `--repo`, never left to ambient context — with a body listing each
         `key: value` answered and what it routes to (*"findings will be filed at …", "PRs

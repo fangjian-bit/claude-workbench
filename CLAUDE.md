@@ -79,6 +79,8 @@ sh tests/blocked-state-block.test.sh  # pr-checks' blocked-state and pinned-app 
 sh tests/prune-verdict.test.sh    # resume/archive-sprint prune: merged-tip-or-ancestor verdict fixtures (not yet required)
 sh tests/auto-merge-arm.test.sh  # ship's auto-merge arm predicate fixtures (not yet required)
 sh tests/app-push.test.sh      # app-push.sh App-mode pinned push and no-skill-pushes-unpinned fixtures (not yet required)
+sh tests/api-commit.test.sh    # api-commit.sh refusals, write order, modes, tree equality and reconcile vs a stub gh, a stub fetch and a bare repo (not yet required)
+sh tests/invariants-api-commit.test.sh  # invariants-check.sh check 22 (no author or committer sent to git/commits) fixtures (not yet required)
 sh tests/stall-merge.test.sh    # pr-checks' stalled-auto-merge predicate fixtures (not yet required)
 sh tests/review-step.test.sh    # review-step derive/decide predicate fixtures (not yet required)
 sh tests/critic-section.test.sh  # critic-section PR-body section fixtures (not yet required)

@@ -753,11 +753,30 @@ $pair_rows
 EOF_PAIRS
 }
 
+# `identities.dev_app.commit_route` (#601, WB-D36) is an optional sub-key, checked here as
+# `rulesets[].required_checks` is in its entry check above: undeclared is not reported (it
+# selects `git`), and a present one must be the string `git` or `api`. Anything else, `null`
+# included, is an invalid finding with the value as `to_json(0)`. It is not a row of any key
+# table, so the `keys` output does not list it.
+check_commit_route() {
+  route_row=$(yq eval '.identities.dev_app | explode(.) | select(tag == "!!map")
+    | (has("commit_route") | to_string)
+    + "\t" + ((((.commit_route | select(tag == "!!str") | (. == "git" or . == "api")) // false)) | to_string)
+    + "\t" + (.commit_route | to_json(0))' "$FILE" 2>/dev/null) || { echo unreadable; exit 0; }
+  [ -n "$route_row" ] || return 0
+  IFS="$TAB" read -r route_present route_ok route_json <<EOF_ROUTE
+$route_row
+EOF_ROUTE
+  [ "$route_present" = true ] || return 0
+  [ "$route_ok" = true ] || invalid_finding identities.dev_app.commit_route "$route_json"
+}
+
 check_identity_entries() {
   check_pairs '.identities.maintainer' identities.maintainer 1
   for app in dev_app reviewer_app loop_app; do
     check_pairs "[.identities.$app | explode(.) | select(tag == \"!!map\")]" "identities.$app" 0
   done
+  check_commit_route
 }
 
 cigate_is_map=0

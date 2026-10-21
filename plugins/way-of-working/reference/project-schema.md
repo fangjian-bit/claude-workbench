@@ -36,7 +36,8 @@ failure the skill exists to prevent.
 Same rule for an individual key: a key that is absent is not a key that is `null`. `null` is
 a decision ("this repo has no review CI gate"); **absent is an unanswered question, always —
 no key has a default any more** (`WB-D17`, `#142`, reversing `#127`'s Optional-key clause).
-(`rulesets` and `lanes`, the two optional keys, are the stated exception: an absent one is simply not declared and is never asked, and
+(`rulesets` and `lanes`, the two optional keys, and the optional sub-key
+`identities.dev_app.commit_route` are the stated exceptions: an absent one is simply not declared and is never asked, and
 each one's section says so.)
 `/way-of-working:resume` is the one place a missing key is asked for, once per session, at
 its own *Ensure the schema is complete* step (`bin/schema-complete.sh`) — every other skill
@@ -820,7 +821,7 @@ identities:
   maintainer:                       # non-empty: every account whose reaction is trusted, and whose issue and PR authorship is trusted without one (a spec comment needs a reaction whoever wrote it)
     - { login: example-maintainer, id: 1001 }
     - { login: example-maintainer-2, id: 1002 }
-  dev_app: { login: "example-dev[bot]", id: 2001 }       # or null until the App exists
+  dev_app: { login: "example-dev[bot]", id: 2001 }       # or null until the App exists; may add commit_route: git | api (below)
   reviewer_app: { login: "example-review[bot]", id: 2002 }
   loop_app: null                    # the loop's App, kept apart from the interactive ones
 ```
@@ -835,6 +836,16 @@ all four sub-keys:
   that does not exist yet. An App's `login` is the `<slug>[bot]` form the REST API reports as
   `user.login`, as in `orchestration.loop_identity`; `loop_app` is the same identity from
   the identity side.
+- **`dev_app.commit_route`** (optional sub-key, `WB-D36`, `#601`) — `git` or `api`, how an
+  App-mode push publishes the branch's commits. `git` pushes with `bin/app-push.sh`; `api`
+  replays the commits through the REST git data API as the dev App with `bin/api-commit.sh`,
+  which GitHub signs, for a repo whose default branch requires signed commits (`WB-D25`). An
+  undeclared one is never asked and selects `git`. It sits inside the `dev_app` pair, so a
+  `null` `dev_app` has none. The checker reads it with the entries below: a present value
+  other than the strings `git` and `api`, `null` included, is `invalid`. Its readers are
+  `/way-of-working:ship`, `/way-of-working:handoff`, `/way-of-working:archive-sprint` and
+  `/way-of-working:resume`'s schema interview, each reading the default branch's committed copy
+  (`reference/conventions.md` § *Push identity*). User mode ignores it.
 
 **Elements are the reader's to validate, and a malformed one is untrusted.** The `id` is the
 trust anchor: an entry that is not a map with a positive-integer `id` and a string `login` (for
