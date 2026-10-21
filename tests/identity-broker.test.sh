@@ -323,6 +323,20 @@ esac
 case "$reg" in *WindowsApps\\Microsoft.PowerShell_*) bad "register: version-pinned Store pwsh path recorded" ;; *) ok "register: no version-pinned Store pwsh path" ;; esac
 check "register: -WhatIf installs nothing" test ! -e "$home/bin"
 
+# --- an MSYS-form WowHome (#789) -------------------------------------------------------------
+# Windows only: Git Bash rewrites a /-leading argument into Windows form when it starts pwsh, so
+# MSYS2_ARG_CONV_EXCL='*' keeps the value as typed. bin goes first, as in the install cases above.
+case "$(uname -s)" in
+  MINGW*|MSYS*)
+    reset; rm -rf "$home/bin"; rc=0
+    MSYS2_ARG_CONV_EXCL='*' pwsh -NoProfile -NonInteractive -File "$(wp "$root_dir/scripts/identity/install-host-tools.ps1")" \
+      -WowHome "$(cygpath -u "$home")" -SourceRepo "$(wp "$src")" >"$tmp/out" 2>&1 || rc=$?
+    check "msys: install refuses an MSYS-form WowHome" test "$rc" -ne 0
+    check "msys: ...naming the fix" grep -q 'is in MSYS form; pass -WowHome in Windows form' "$tmp/out"
+    check "msys: ...and creates no bin" test ! -e "$home/bin" ;;
+  *) echo "SKIP - not Git Bash on Windows; the MSYS-form install case did not run" >&2 ;;
+esac
+
 # --- no tool on PATH -------------------------------------------------------------------------
 # PATH holds only an empty directory, pwsh is run by the absolute path resolved before that, and no -Sh is
 # given: each script's own "not found" message must be reached, not a null .Source lookup.

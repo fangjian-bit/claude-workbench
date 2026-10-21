@@ -171,7 +171,7 @@ try {
   if (-not (Test-Path -LiteralPath $gitDir -PathType Container)) { Stop-BadArgument '-Reference needs a .git directory (not a file, so not a worktree)' }
   if (Test-ReparsePoint $gitDir) { Stop-BadArgument "-Reference's .git is a link or reparse point" }
   if ((Test-PathInside $cloneP $refP) -or (Test-PathInside $refP $cloneP)) { Stop-BadArgument '-Clone and -Reference may not be, or contain, one another' }
-  $wowP = Resolve-LaunchDir '-WowHome' $WowHome -Plain
+  $wowP = Resolve-LaunchDir '-WowHome' (ConvertFrom-MsysDrivePath '-WowHome' $WowHome) -Plain
   if ((Test-PathInside $cloneP $wowP) -or (Test-PathInside $wowP $cloneP)) { Stop-BadArgument '-Clone may not be, contain or sit inside -WowHome' }
   if (-not (Test-RefName $Remote)) { Stop-BadArgument '-Remote is not a plain ref name' }
   if (-not (Test-RefName $Base)) { Stop-BadArgument '-Base is not a plain ref name' }

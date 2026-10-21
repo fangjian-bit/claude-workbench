@@ -62,6 +62,10 @@ that serves the host's git credential (see Hazards that remain).
   token mount reads the repo's `tokens/` subdirectory under that default directory, and nothing
   else, whatever `WOW_HOME` says. If the bin directory goes on Git Bash's `PATH`, add it in the
   form `cygpath -u` prints, because `PATH` splits at the drive colon.
+  If `WOW_HOME` is already in MSYS form (`/c/...`), both launchers convert the drive form for
+  `-WowHome` and refuse any other `/`-leading form, but the script path in the `pwsh -File
+  $env:WOW_HOME\bin\...` commands is not converted: either set the user-level variable in the form
+  above or spell the script path in that form. `install-host-tools.ps1` refuses an MSYS-form `WowHome`.
   `yq` must be on PowerShell's `PATH`. It runs the checks below in the safe order, so that order is
   the only one it offers.
   - **`-Clone`** is the clone the container opens (an absolute directory, not a link, whose leaf

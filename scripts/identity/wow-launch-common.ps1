@@ -109,6 +109,17 @@ function Test-PathInside([string]$Outer, [string]$Inner) {
   $i -eq $o -or $i.StartsWith($o + '\')
 }
 
+# ConvertFrom-MsysDrivePath <name> <path> [<is-windows>]: on Windows, the Git Bash tools may hold WOW_HOME in MSYS form
+# (/c/x) and pwsh does not resolve that. A drive form (/c, /c/, /c/x) comes back as C:/x; any other /-leading path
+# exits 2 naming the fix; anything else, and everything off Windows, comes back unchanged. It assumes Git for Windows'
+# default drive prefix: on a host with another prefix the converted path is a different directory, which the
+# launcher's bin-under-WowHome check then refuses. It runs no external program.
+function ConvertFrom-MsysDrivePath([string]$Name, [string]$Path, [bool]$OnWindows = $IsWindows) {
+  if (-not $OnWindows -or -not $Path.StartsWith('/')) { return $Path }
+  if ($Path -cmatch '\A/([A-Za-z])(?:/(.*))?\z') { return "$($Matches[1].ToUpperInvariant()):/$($Matches[2])" }
+  Stop-BadArgument "$Name is in MSYS form; give its Windows form (what cygpath -w prints)"
+}
+
 # Resolve-LaunchDir <name> <path> [-Plain]: the argument checks shared by -Clone, -Reference and (with -Plain, which
 # allows a link and skips the leaf and character rules) -WowHome; exit 2. Returns the final path.
 function Resolve-LaunchDir([string]$Name, [string]$Path, [switch]$Plain) {

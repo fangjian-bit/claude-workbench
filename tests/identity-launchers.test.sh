@@ -754,5 +754,32 @@ if mklink_dir "$tmp/clones-link" "$tmp/clones"; then
   check "helper: Get-FinalPath follows a link in a parent" test "$(norm "$out")" = "$(norm "$(wp "$clone")")"
 else skip "a directory link cannot be made here; the Get-FinalPath link fixture did not run"; fi
 
+# --- ConvertFrom-MsysDrivePath (#789): the platform flag is passed, so these run on any host -------------
+msys_conv() { # msys_conv <path> <is-windows>: output in $out, exit code in $rc
+  rc=0; out=$("$pwsh_abs" -NoProfile -NonInteractive -Command "\$script:LaunchProg = 't'; \$script:LaunchUsage = 'u'; . '$(wp "$root_dir/scripts/identity/wow-launch-common.ps1")'; ConvertFrom-MsysDrivePath '-WowHome' '$1' \$$2" 2>&1) || rc=$?
+  out=$(printf '%s' "$out" | tr -d '\r')
+}
+for pair in '/c|C:/' '/c/|C:/' '/C/|C:/' '/c/x/y|C:/x/y'; do
+  msys_conv "${pair%%|*}" true
+  check "msys: ${pair%%|*} converts to ${pair#*|}" test "$rc" -eq 0 -a "$out" = "${pair#*|}"
+done
+for badp in /cc/x /tmp/x /1/x; do
+  msys_conv "$badp" true
+  check "msys: $badp exits 2" test "$rc" -eq 2
+  case "$out" in
+    *'-WowHome is in MSYS form; give its Windows form'*) ok "msys: $badp names the argument and the fix" ;;
+    *) bad "msys: $badp names the argument and the fix" ;;
+  esac
+done
+msys_conv 'C:/x/y' true
+check "msys: a drive-form path is unchanged" test "$rc" -eq 0 -a "$out" = 'C:/x/y'
+msys_conv 'x/y' true
+check "msys: a relative path is unchanged" test "$rc" -eq 0 -a "$out" = 'x/y'
+msys_conv '/c/x' false
+check "msys: flag false leaves /c/x unchanged" test "$rc" -eq 0 -a "$out" = '/c/x'
+for f in wow-driver.ps1 wow-lane.ps1; do
+  check "msys: $f converts -WowHome before resolving it" grep -qF "Resolve-LaunchDir '-WowHome' (ConvertFrom-MsysDrivePath '-WowHome' \$WowHome) -Plain" "$root_dir/scripts/identity/$f"
+done
+
 [ "$fail" -eq 0 ] || { echo "identity-launchers: FAILED" >&2; exit 1; }
 echo "identity-launchers: all passed"
