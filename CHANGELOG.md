@@ -27,6 +27,12 @@ the GitHub release notes.
   tracked snapshot with `"lanes": null`, and `unpark-sprint` restores the cursor with
   `"lanes": null` whatever the snapshot holds; the next handoff derives the live array. A new
   invariants check (23) fails a tree where either skill drops the literal.
+- **`spec-shape.sh check` refuses a marker-prefixed line (`#831`).** A draft with a line beginning
+  with `spec-task:` or `spec-task-escalated:` now reads `has-marker` at the first shape check,
+  before any critic runs, instead of only at `spec-post.sh` after the critic gate. spec-task fixes
+  it once and re-checks, as for `missing`. `spec-post.sh` is unchanged and keeps its own
+  `has-marker` check as a backstop, but now stops such a draft `bad-shape`, as it runs the shape
+  check first.
 
 ## [0.22.0] — 2026-10-21
 

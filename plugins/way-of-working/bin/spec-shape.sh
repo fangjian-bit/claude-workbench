@@ -7,9 +7,14 @@
 #
 # Usage: spec-shape.sh check <file>
 # Prints exactly one of, and exits 0 (the caller decides policy):
-#   ok                          -- every required section heading is present, in order, and every
+#   ok                          -- every required section heading is present, in order, every
 #                                  section has at least one non-blank line (`nothing` counts: it
-#                                  is text)
+#                                  is text), and no line begins with either marker prefix
+#   has-marker                  -- a line begins with `spec-task:` or `spec-task-escalated:` (after
+#                                  a trailing carriage return is stripped), the rule spec-post.sh
+#                                  applies at the post, after the critic gate (it now stops such a
+#                                  draft `bad-shape`, since it runs this script first); it takes
+#                                  precedence over `missing`
 #   missing <section>[,<section>...]
 #                               -- the headings (comma-joined, in the required order) that are
 #                                  absent, first appear before an earlier required heading, or
@@ -18,7 +23,8 @@
 #                                  cannot be read
 #
 # Required headings, in order, each a level-3 line (`### Goal`) -- the first line of a draft is
-# free-form (a title line), and the prose between a heading and the next heading of any level
+# free-form (a title line) except that it, like every line, never begins with a marker prefix
+# (spec-post.sh writes the marker line itself), and the prose between a heading and the next heading of any level
 # (`#` through `######`) is that section's body:
 #   Goal | Files touched | Done when | Tests | Out of scope | Restated from the issue body
 #
@@ -52,10 +58,12 @@ awk '
     n = split("Goal|Files touched|Done when|Tests|Out of scope|Restated from the issue body", want, "|")
     for (i = 1; i <= n; i++) idx[want[i]] = i
     last_body = 0
+    marker = 0
   }
   {
     line = $0
     sub(/\r$/, "", line)
+    if (line ~ /^spec-task:/ || line ~ /^spec-task-escalated:/) marker = 1
     if (line ~ /^#+ /) {
       cur = 0
       if (line ~ /^### /) {
@@ -69,6 +77,7 @@ awk '
     if (cur && first[cur] && line ~ /[^ \t]/) body[cur]++
   }
   END {
+    if (marker) { print "has-marker"; exit }
     out = ""
     maxpos = 0
     for (i = 1; i <= n; i++) {

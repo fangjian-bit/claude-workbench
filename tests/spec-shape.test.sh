@@ -28,7 +28,7 @@ assert_eq() {
 }
 
 # write_draft <name> <section>... : a draft with the named sections, each with one body line.
-# The title line is free-form. A section named `Restated from the issue body` gets the body
+# The title line is free-form, but never begins with a marker prefix. A section named `Restated from the issue body` gets the body
 # in $RESTATED (default: one bullet).
 RESTATED='- The skill is draft-only.'
 write_draft() {
@@ -122,10 +122,34 @@ mkdir "$tmp/cwd"
 printf '### Goal\nx\n### Files touched\nx\n### Done when\nx\n### Tests\nx\n### Out of scope\nx\n### Restated from the issue body\nnothing\n' >"$tmp/cwd/k=v"
 assert_eq "a name=value path is a file, not an awk assignment" ok "$(cd "$tmp/cwd" && "$script" check 'k=v' </dev/null)"
 
-# Title line is free-form; no title at all is fine.
+# Title line is free-form (apart from the marker prefixes below); no title at all is fine.
 f="$tmp/t1"
 printf '### Goal\nx\n### Files touched\nx\n### Done when\nx\n### Tests\nx\n### Out of scope\nx\n### Restated from the issue body\nnothing\n' >"$f"
 check "no title line" ok "$f"
+
+# A line beginning with a marker prefix is refused, as spec-post.sh refuses it, and wins over missing.
+ALLS='### Goal\nx\n### Files touched\nx\n### Done when\nx\n### Tests\nx\n### Out of scope\nx\n### Restated from the issue body\nnothing\n'
+f="$tmp/k1"
+{ printf 'spec-task: issue=1 base=main sha=abc\n'; printf "$ALLS"; } >"$f"
+check "marker title line" has-marker "$f"
+f="$tmp/k2"
+{ printf 'spec-task-escalated: issue=1\n'; printf "$ALLS"; } >"$f"
+check "escalated marker title line" has-marker "$f"
+f="$tmp/k3"
+printf '### Goal\nx\nspec-task-escalated: y\n### Files touched\nx\n### Done when\nx\n### Tests\nx\n### Out of scope\nx\n### Restated from the issue body\nnothing\n' >"$f"
+check "marker line in a section body" has-marker "$f"
+f="$tmp/k4"
+printf 'spec-task: x\r\n### Goal\r\nx\r\n### Files touched\r\nx\r\n### Done when\r\nx\r\n### Tests\r\nx\r\n### Out of scope\r\nx\r\n### Restated from the issue body\r\nx\r\n' >"$f"
+check "marker title line with CRLF" has-marker "$f"
+f="$tmp/k5"
+printf 'see spec-task: x\n### Goal\nx\n### Files touched\nx\n### Done when\nx\n### Tests\nx\n### Out of scope\nx\n### Restated from the issue body\nnothing\n' >"$f"
+check "prefix after leading text" ok "$f"
+f="$tmp/k6"
+printf '### Goal\nx\n  spec-task: x\n### Files touched\nx\n### Done when\nx\n### Tests\nx\n### Out of scope\nx\n### Restated from the issue body\nnothing\n' >"$f"
+check "prefix after two leading blanks" ok "$f"
+f="$tmp/k7"
+printf 'spec-task: x\n### Files touched\nx\n### Done when\nx\n### Tests\nx\n### Out of scope\nx\n### Restated from the issue body\nnothing\n' >"$f"
+check "marker line and no Goal is has-marker, not missing" has-marker "$f"
 
 # Unreadable: absent, a directory, empty.
 check "absent file" unreadable "$tmp/nope"

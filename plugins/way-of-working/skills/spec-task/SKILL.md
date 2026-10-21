@@ -194,6 +194,9 @@ the draft* step) and relays its findings to the drafter.
    directory the dev container file declares"). A credential or key is never written into a draft in
    any form; only a path is written in words.
 
+   No line of the draft, the title line included, begins with `spec-task:` or
+   `spec-task-escalated:`: `spec-post.sh` writes the marker line itself and refuses a draft that has one.
+
    Anything the builder needs from the issue text must be in the draft: under a map the builder
    never sees the body. A choice the issue did not specify is **named as a choice** in the last
    section, not slipped in.
@@ -258,9 +261,12 @@ the draft* step) and relays its findings to the drafter.
    DD='<printed draft dir>' &&
    S=$(spec-shape.sh check "$DD/draft.md"); echo "SHAPE=$S"
    ```
-   `spec-shape.sh` prints `ok`, `missing <section>[,<section>…]` or `unreadable`. On `missing`, fix
+   `spec-shape.sh` prints `ok`, `missing <section>[,<section>…]`, `has-marker` or `unreadable`. On `missing`, fix
    those sections in the file and check once more; a second failure stops, naming the sections,
-   and both directories are removed. `unreadable`, or anything else (an empty `SHAPE=` means
+   and both directories are removed. On `has-marker`, reword each line that begins with
+   `spec-task:` or `spec-task-escalated:` and check once more, under the same one-fix rule; a
+   second failure of either kind (a `missing` after a `has-marker` fix, or the reverse, included)
+   stops, naming what the second check printed, and both directories are removed. `unreadable`, or anything else (an empty `SHAPE=` means
    `spec-shape.sh` is not on `PATH`), stops the same way.
 
    After `spec-shape.sh` says `ok`, check that the draft has no hidden or refused text and its *Files touched* section is one the

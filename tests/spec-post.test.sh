@@ -317,6 +317,15 @@ run() {
     *"$MARK"*) echo "FAIL - $desc: the marker reached the script's output" >&2; fail=1 ;;
   esac
 }
+# A copy of spec-post.sh beside the real gh-identity.sh and spec-reaction.sh and a spec-shape.sh
+# that always says ok: the real spec-shape.sh now refuses a marker line first (#831), so the
+# cases that pin spec-post.sh's own has-marker check run against this copy.
+stubshape="$tmp/stubshape"
+mkdir -p "$stubshape"
+cp "$script" "$stubshape/spec-post.sh"
+cp "$bindir/gh-identity.sh" "$bindir/spec-reaction.sh" "$stubshape/"
+printf '#!/bin/sh\necho ok\n' >"$stubshape/spec-shape.sh"
+chmod +x "$stubshape/spec-shape.sh"
 # post <draft> <out-dir> -- the usual call
 post() { run post 661 "$SHA" "$1" "$2"; }
 esc() { run escalate 661 "$SHA" "$1" "$2"; }
@@ -451,7 +460,7 @@ for m in post escalate; do
     d4="$(newdir)"
     if [ "$m" = escalate ]; then mkesc "$d4/draft.md" "$pre"; else mkdraft "$d4/draft.md" "$pre"; fi
     o="$(newdir)"
-    run "$m" 661 "$SHA" "$d4/draft.md" "$o"
+    SCRIPT="$stubshape/spec-post.sh" run "$m" 661 "$SHA" "$d4/draft.md" "$o"
     stop_is has-marker
     assert_eq "$desc (out-dir empty)" "" "$(ls -A "$o")"
   done
@@ -670,7 +679,7 @@ desc="order: no critic line and a marker line stops no-critic-line, not has-mark
 dcl="$(newdir)"
 _mk "$dcl/draft.md" 'A title.' 'spec-task: issue=1 base=main sha=x' '' ''
 o="$(newdir)"
-post "$dcl/draft.md" "$o"
+SCRIPT="$stubshape/spec-post.sh" run post 661 "$SHA" "$dcl/draft.md" "$o"
 stop_is no-critic-line
 
 desc="pass: post with 1 round; converged."
@@ -705,9 +714,17 @@ done
 desc="stop: a draft with a line beginning with the marker prefix"
 mkdraft "$d2/draft.md" 'spec-task: issue=1 base=main sha=x'
 o="$(newdir)"
-post "$d2/draft.md" "$o"
+SCRIPT="$stubshape/spec-post.sh" run post 661 "$SHA" "$d2/draft.md" "$o"
 stop_is has-marker
 assert_eq "$desc (out-dir empty)" "" "$(ls -A "$o")"
+
+desc="stop: the real spec-shape.sh refuses a marker title line first, as bad-shape"
+dcl="$(newdir)"
+mkdraft "$dcl/ok.md"
+{ printf '%s\n' 'spec-task: issue=1 base=main sha=x'; tail -n +2 "$dcl/ok.md"; } >"$dcl/draft.md"
+o="$(newdir)"
+post "$dcl/draft.md" "$o"
+stop_is bad-shape
 
 tok='abcdefghijklmnopqrstuvwxyz0123'
 for case_ in \
