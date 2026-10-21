@@ -42,6 +42,9 @@
 #   no-critic-line      the draft does not carry a well-formed critic line for its mode (#629): see
 #                       the grammar below
 #   has-marker          a line of the draft begins with either marker prefix (`spec-task:` or `spec-task-escalated:`)
+#                       A backstop: the sibling spec-shape.sh refuses such a line first (#831), so the
+#                       `bad-shape` stop pre-empts this one, and `has-marker` is printed only when that
+#                       sibling says `ok` to a marker-prefixed draft (as a stub shape script does)
 #   leak <line> <shape> a line matches an obvious local-path or secret shape (a filter, not a boundary).
 #                       <shape> is the first of drive, users, home, appdata, pem, token (in that order)
 #                       that matches any line; <line> is the 1-based number, in the draft, of the first
