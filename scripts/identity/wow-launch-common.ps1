@@ -110,14 +110,33 @@ function Test-PathInside([string]$Outer, [string]$Inner) {
 }
 
 # ConvertFrom-MsysDrivePath <name> <path> [<is-windows>]: on Windows, the Git Bash tools may hold WOW_HOME in MSYS form
-# (/c/x) and pwsh does not resolve that. A drive form (/c, /c/, /c/x) comes back as C:/x; any other /-leading path
-# exits 2 naming the fix; anything else, and everything off Windows, comes back unchanged. It assumes Git for Windows'
-# default drive prefix: on a host with another prefix the converted path is a different directory, which the
-# launcher's bin-under-WowHome check then refuses. It runs no external program.
+# (/c/x) and pwsh does not resolve that. Off Windows, or for a value not starting with /, the value comes back
+# unchanged. A value starting with // (a forward-slash network path) exits 2: unsupported. Any other /-leading value is
+# converted by `cygpath -w` run through the first sh on PATH (kept only when it is an existing file), as
+# register-broker-task.ps1 finds and runs it, so the host's real mount prefix applies. A value holding & | ^ % " < > '
+# exits 2 before sh runs (an sh.cmd would run through cmd.exe); a nonzero exit or empty output from sh exits 2 naming
+# the fix. An sh that cannot be started at all throws and exits 1 through the launcher's outer catch. With no sh
+# found, the fixed drive-prefix conversion applies (Git for Windows' default: /c, /c/, /c/x become C:/, C:/x; any other
+# /-leading value exits 2); on a host with another prefix that converted path is a different directory, which the
+# launcher's bin-under-WowHome check then refuses.
 function ConvertFrom-MsysDrivePath([string]$Name, [string]$Path, [bool]$OnWindows = $IsWindows) {
   if (-not $OnWindows -or -not $Path.StartsWith('/')) { return $Path }
+  if ($Path.StartsWith('//')) { Stop-BadArgument "$Name is a forward-slash network path, which is unsupported; give a local Windows path" }
+  # -ErrorAction SilentlyContinue: the launchers run with $ErrorActionPreference = 'Stop', so a missing sh would throw.
+  $found = Get-Command sh -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+  $sh = if ($found -and (Test-Path -LiteralPath $found.Source -PathType Leaf)) { $found.Source }
+  if ($sh) {
+    if ($Path -cmatch "[&|^%`"<>']") {
+      Stop-BadArgument "$Name is in MSYS form and holds one of & | ^ % `" < > ', which cannot go through sh; give its Windows form (what cygpath -w prints)"
+    }
+    $r = Invoke-Tool $sh @('-c', 'cygpath -w "$1"', 'sh', $Path)
+    $conv = [Text.Encoding]::UTF8.GetString($r.Out).TrimEnd("`r", "`n")
+    if ($r.Code -ne 0) { Stop-BadArgument "$Name is in MSYS form and the cygpath -w conversion through sh failed (exit $($r.Code)); give its Windows form (what cygpath -w prints)" }
+    if ($conv -eq '') { Stop-BadArgument "$Name is in MSYS form and the cygpath -w conversion through sh printed nothing; give its Windows form (what cygpath -w prints)" }
+    return $conv
+  }
   if ($Path -cmatch '\A/([A-Za-z])(?:/(.*))?\z') { return "$($Matches[1].ToUpperInvariant()):/$($Matches[2])" }
-  Stop-BadArgument "$Name is in MSYS form; give its Windows form (what cygpath -w prints)"
+  Stop-BadArgument "$Name is in MSYS form and no sh was found on PATH to convert it; give its Windows form (what cygpath -w prints)"
 }
 
 # Resolve-LaunchDir <name> <path> [-Plain]: the argument checks shared by -Clone, -Reference and (with -Plain, which

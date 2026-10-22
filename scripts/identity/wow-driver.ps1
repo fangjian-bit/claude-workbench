@@ -30,7 +30,8 @@
   (WB-D33). The docker exec literals are that file's remoteUser (app) and remoteEnv
   (GIT_TERMINAL_PROMPT=0); tests/identity-launchers.test.sh holds the two equal.
 
-  Exit codes: 2 for a bad or missing argument (a usage line on stderr, before any external call);
+  Exit codes: 2 for a bad or missing argument (a usage line on stderr, before any external call, except the
+  sh run that converts an MSYS-form -WowHome);
   1 for every refusal (a one-line reason on stderr); otherwise the session's own exit code.
   PowerShell's own binding errors (an unknown parameter, a stray positional argument) exit 1 with
   PowerShell's message.
@@ -52,7 +53,8 @@
 
 .PARAMETER WowHome
   Default: $env:WOW_HOME, else $HOME/.config/glunk-identity. The Clone may not contain it.
-  On Windows an MSYS drive form (/c/x) is converted to its Windows form; any other /-leading value is refused.
+  On Windows an MSYS form (/c/x) is converted with cygpath -w through the first sh on PATH, as the register scripts do;
+  with no sh it falls back to the drive-form conversion (any other /-leading value is refused). A // value is refused.
 
 .PARAMETER Remote
   Default origin.
@@ -94,7 +96,7 @@ $script:LaunchUsage = 'usage: wow-driver.ps1 -Clone <path> -Reference <path> [-W
 . (Join-Path $PSScriptRoot 'wow-launch-common.ps1')
 
 try {
-  # --- arguments: exit 2, before any external call ---------------------------------------------
+  # --- arguments: exit 2, before any external call (the one exception: the sh run for an MSYS-form -WowHome) ---
   $cloneP = Resolve-LaunchDir '-Clone' $Clone
   $refP = Resolve-LaunchDir '-Reference' $Reference
   $gitDir = Join-Path $refP '.git'

@@ -754,23 +754,92 @@ if mklink_dir "$tmp/clones-link" "$tmp/clones"; then
   check "helper: Get-FinalPath follows a link in a parent" test "$(norm "$out")" = "$(norm "$(wp "$clone")")"
 else skip "a directory link cannot be made here; the Get-FinalPath link fixture did not run"; fi
 
-# --- ConvertFrom-MsysDrivePath (#789): the platform flag is passed, so these run on any host -------------
-msys_conv() { # msys_conv <path> <is-windows>: output in $out, exit code in $rc
-  rc=0; out=$("$pwsh_abs" -NoProfile -NonInteractive -Command "\$script:LaunchProg = 't'; \$script:LaunchUsage = 'u'; . '$(wp "$root_dir/scripts/identity/wow-launch-common.ps1")'; ConvertFrom-MsysDrivePath '-WowHome' '$1' \$$2" 2>&1) || rc=$?
+# --- ConvertFrom-MsysDrivePath (#789, #842): the platform flag is passed, so these run on any host -------
+# A stub sh in its own directory logs its arguments and answers from sh.out and sh.code. It is written directly,
+# not with mkstub: on MSYS mkstub's .cmd shim runs `sh` by name, so a shim named sh would run itself. There the
+# stub is an sh.cmd running the real sh (by its Windows path, taken before PATH changes) on sh.sh.
+shdir="$tmp/shstub" ; mkdir "$shdir"
+noshdir="$tmp/nosh" ; mkdir "$noshdir"
+# The stub uses only shell builtins: pwsh runs it with a PATH that holds no dirname or cat.
+cat >"$tmp/sh.body" <<'STUB'
+d=${0%/*}; d=${d%\\*}
+echo "argc $#" >>"$d/sh.log"
+for a in "$@"; do echo "arg $a" >>"$d/sh.log"; done
+if [ -r "$d/sh.out" ]; then while IFS= read -r l || [ -n "$l" ]; do printf '%s\n' "$l"; done <"$d/sh.out"; fi
+c=0; if [ -r "$d/sh.code" ]; then read -r c <"$d/sh.code"; fi
+exit "$c"
+STUB
+if [ -n "$msys" ]; then
+  real_sh_win=$(cygpath -w "$(command -v sh)")
+  cp "$tmp/sh.body" "$shdir/sh.sh"
+  printf '@"%s" "%%~dp0sh.sh" %%*\r\n' "$real_sh_win" >"$shdir/sh.cmd"
+else
+  { echo '#!/bin/sh'; cat "$tmp/sh.body"; } >"$shdir/sh"; chmod +x "$shdir/sh"
+fi
+sh_reset() { rm -f "$shdir/sh.log" "$shdir/sh.out" "$shdir/sh.code"; }
+# msys_conv <path> <is-windows> [<path-dir>]: output in $out, exit code in $rc. The path reaches pwsh through an
+# environment variable behind one leading letter (Git Bash rewrites a /-leading value on its way to a native
+# program), never inside the -Command string. <path-dir> is the whole PATH pwsh runs with (default: the stub sh's).
+msys_conv() {
+  rc=0; out=$(MSYS_CONV_PATH="v$1" PATH="${3:-$shdir}" "$pwsh_abs" -NoProfile -NonInteractive -Command "\$script:LaunchProg = 't'; \$script:LaunchUsage = 'u'; . '$(wp "$root_dir/scripts/identity/wow-launch-common.ps1")'; ConvertFrom-MsysDrivePath '-WowHome' \$env:MSYS_CONV_PATH.Substring(1) \$$2" 2>&1) || rc=$?
   out=$(printf '%s' "$out" | tr -d '\r')
 }
+
+# With the stub sh on PATH: the conversion is whatever cygpath -w through sh printed.
+sh_reset; printf 'D:\\conv\\y\n' >"$shdir/sh.out"
+msys_conv '/c/x/y' true
+check "msys: an sh conversion returns exactly what the stub printed" test "$rc" -eq 0 -a "$out" = 'D:\conv\y'
+check "msys: the stub saw the value" grep -qxF 'arg /c/x/y' "$shdir/sh.log"
+check "msys: the stub saw -c" grep -qxF 'arg -c' "$shdir/sh.log"
+check "msys: the stub saw sh as \$0" grep -qxF 'arg sh' "$shdir/sh.log"
+if [ -z "$msys" ]; then
+  check "msys: the stub saw the cygpath script" grep -qxF 'arg cygpath -w "$1"' "$shdir/sh.log"
+  check "msys: the stub saw four arguments" grep -qxF 'argc 4' "$shdir/sh.log"
+fi
+sh_reset; printf 'D:\\mnt\\x\n' >"$shdir/sh.out"
+msys_conv '/mnt/c/x' true
+check "msys: a non-default prefix returns what the stub printed" test "$rc" -eq 0 -a "$out" = 'D:\mnt\x'
+sh_reset; echo 3 >"$shdir/sh.code"
+msys_conv '/c/x' true
+check "msys: a nonzero sh exit exits 2" test "$rc" -eq 2
+case "$out" in
+  *'-WowHome'*'cygpath -w conversion through sh failed (exit 3)'*'give its Windows form'*) ok "msys: a nonzero sh exit names the argument, the cause and the fix" ;;
+  *) bad "msys: a nonzero sh exit names the argument, the cause and the fix" ;;
+esac
+sh_reset
+msys_conv '/c/x' true
+check "msys: empty sh output exits 2" test "$rc" -eq 2
+case "$out" in
+  *'-WowHome'*'printed nothing'*'give its Windows form'*) ok "msys: empty sh output names the argument, the cause and the fix" ;;
+  *) bad "msys: empty sh output names the argument, the cause and the fix" ;;
+esac
+for refused in '//server/share/x' '/c/a&b' '/c/a>b' "/c/it's"; do
+  sh_reset
+  msys_conv "$refused" true
+  check "msys: $refused exits 2 without running sh" test "$rc" -eq 2
+  check "msys: $refused leaves no stub call" test ! -e "$shdir/sh.log"
+done
+msys_conv "/c/it's" true
+case "$out" in
+  *'one of & | ^ %'*) ok "msys: a single-quote path reaches the function and names the refused characters" ;;
+  *) bad "msys: a single-quote path reaches the function and names the refused characters" ;;
+esac
+
+# With no sh on PATH: the fixed drive-prefix conversion.
 for pair in '/c|C:/' '/c/|C:/' '/C/|C:/' '/c/x/y|C:/x/y'; do
-  msys_conv "${pair%%|*}" true
-  check "msys: ${pair%%|*} converts to ${pair#*|}" test "$rc" -eq 0 -a "$out" = "${pair#*|}"
+  msys_conv "${pair%%|*}" true "$noshdir"
+  check "msys: no sh, ${pair%%|*} converts to ${pair#*|}" test "$rc" -eq 0 -a "$out" = "${pair#*|}"
 done
 for badp in /cc/x /tmp/x /1/x; do
-  msys_conv "$badp" true
-  check "msys: $badp exits 2" test "$rc" -eq 2
+  msys_conv "$badp" true "$noshdir"
+  check "msys: no sh, $badp exits 2" test "$rc" -eq 2
   case "$out" in
-    *'-WowHome is in MSYS form; give its Windows form'*) ok "msys: $badp names the argument and the fix" ;;
-    *) bad "msys: $badp names the argument and the fix" ;;
+    *'-WowHome is in MSYS form'*'no sh was found on PATH'*'give its Windows form'*) ok "msys: no sh, $badp names the argument, the cause and the fix" ;;
+    *) bad "msys: no sh, $badp names the argument, the cause and the fix" ;;
   esac
 done
+msys_conv '//server/share/x' true "$noshdir"
+check "msys: no sh, a // value exits 2" test "$rc" -eq 2
 msys_conv 'C:/x/y' true
 check "msys: a drive-form path is unchanged" test "$rc" -eq 0 -a "$out" = 'C:/x/y'
 msys_conv 'x/y' true

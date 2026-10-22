@@ -20,7 +20,7 @@
 
   Order, both modes:
     1. The MANIFEST check, inline, before the helper is dot-sourced (as wow-driver.ps1 does it).
-    2. The arguments (exit 2, before any external call).
+    2. The arguments (exit 2, before any external call, except the sh run that converts an MSYS-form -WowHome).
     3. Installed from bin under the final -WowHome.
     4. git, docker and yq. No devcontainer: this launcher never runs it.
     5. Exactly one container for the clone, running; none for the Reference; the driver record names
@@ -37,7 +37,8 @@
   positional arguments, each validated here first. None holds & | ^ % or a double quote, nor does any
   other docker argument (Resolve-Tool may resolve a docker.cmd, which runs through cmd.exe).
 
-  Exit codes: 2 for a bad or missing argument (a usage line on stderr, before any external call);
+  Exit codes: 2 for a bad or missing argument (a usage line on stderr, before any external call, except the sh run
+  that converts an MSYS-form -WowHome);
   1 for every refusal (a one-line reason on stderr) and for a spec worktree that was kept rather than
   removed; otherwise the session's own exit code.
 
@@ -164,7 +165,7 @@ function Invoke-ContainerWord([string]$Docker, [string]$Id, [string]$Script, [st
 }
 
 try {
-  # --- arguments: exit 2, before any external call ---------------------------------------------
+  # --- arguments: exit 2, before any external call (the one exception: the sh run for an MSYS-form -WowHome) ---
   $cloneP = Resolve-LaunchDir '-Clone' $Clone
   $refP = Resolve-LaunchDir '-Reference' $Reference
   $gitDir = Join-Path $refP '.git'
