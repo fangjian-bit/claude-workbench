@@ -2,29 +2,17 @@
 
 **Now:** **Sprint 17** (cursor id `sprint-17`) on [milestone 24, *Green gate in parallel*](https://github.com/glunk-works/claude-workbench/milestone/24). Status: **implementing**. Live lanes: `lane-state.sh list`.
 
-**Just done (2026-10-21 to 22, driver session in the container, opus):**
-- **Sprint 16 closed:** milestone 19 (*Identity M4*) was closed, and sprint-16 was archived after its done entry merged (PR #906, `791c0ff`).
-  - `v0.23.0` was released (PR #888) and pinned (PR #889). The container install was rotated and verified by commit.
-  - #398 passes in full: the resume test of 2026-10-22 is written up in PR #887.
-- **The verdict gate (WB-D38) works live.** On PR #897 a `changes-needed` review turned `architect-review` red, and the `pass` review turned it green.
-  - The follow-up that drops the no-verdict form is #905. Every home's launcher must be reinstalled first, `603id-identity` included.
-- **The retro now mines the repo's other sessions** (#895, PR #897).
-  - Critic pass: architect, security-critic and docs-consistency converged after 3 rounds. Then 2 more architect rounds on the fix from the fresh-session review, which converged at round 5, the cap.
-  - The retro filed #890–#894, #896, #898 and #905. Those reviews filed the follow-ups #899, #900, #903, #904 and #901 (fixed).
-- **plan-sprint** rewrote M24's and M22's build orders live through `milestone-desc.sh`, checked by hash, and placed #823–#825 on M22.
+**Just done (2026-10-22, driver session in the container, opus):**
+- **Wave 1 of M24 ran as lanes and merged** (the milestone's Lanes section lists each issue and PR):
+  - CI's tests job is split into three parallel jobs and runs every suite through `scripts/test-all.sh -x` (#808 with #821, #836, #866, #877 and #881 folded in, PR #913, `90aa472`). The required `invariants` job also runs `tests/review-verdict.test.sh`.
+  - spec-task judges an App issue's reaction by its content time (#890, PR #919, `08584c4`). A spec post, label or milestone change no longer stales the reaction.
+  - Retro's transcript reader is confined by its tool list (#899, PR #911, `3f9b59c`). Check 24 stops reading quoted hashes as comments (#882, PR #917, `971f318`; spec posted by the maintainer after a critic-cap escalation).
+  - Follow-ups #892, #912, #918, #903, #915 and #923 merged too (PRs #910, #921, #926, #924, #928 and #929). #922 was closed as a duplicate of #881.
+- **Triage:** #914 (with #916 folded in), #915 and #923 were placed on M24. #920 was left unmilestoned for the next plan-sprint pass. #894's body gained the lane-tab-title note.
+- Critic passes ran in each spec and lane session; their outcomes are in each PR body.
 
-**Next:** on **opus** (driver). Start no build here; `next_action` holds the lane loop. M24's build order names the tracks and their shared files. Tracks that can start in parallel:
-- the CI track: #808, then #866, #877 and #881. It includes a host-side `ci.yml` push.
-- #878, then #879.
-- #882.
-- #890 (needs security-critic).
-- #862.
-- #891, then #894.
-- the retro follow-ups: #899 (with #903 folded in), then #900, then #904.
-- #898.
-- #896.
-- #905, once every home is reinstalled.
+**Next:** on **opus** (driver). Start no build here; `next_action` holds the test-speed push. Tests now run every suite on every push, so the push looks for where local and CI test time goes and cuts it, as lanes. #900's spec comment awaits the maintainer's reaction, and the rest of wave 2 is in M24's Lanes section.
 
-**HITL Gate: OPEN** — first anchor for milestone 24: the maintainer confirms sprint-17 works from milestone 24
+**HITL Gate: NONE OPEN** — next gate: the maintainer reacts to each spec comment before its lane is prepped
 
-**Pointers:** [docs/decisions.md](../docs/decisions.md) · [milestone 24](https://github.com/glunk-works/claude-workbench/milestone/24) · [milestone 22](https://github.com/glunk-works/claude-workbench/milestone/22) · [.ai/parked/](parked/)
+**Pointers:** [docs/decisions.md](../docs/decisions.md) · [milestone 24](https://github.com/glunk-works/claude-workbench/milestone/24) · [.ai/parked/](parked/)
