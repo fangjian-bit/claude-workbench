@@ -19,7 +19,7 @@ covers. (`/way-of-working:critic-gate` and the `architect` agent audit code; `do
 prose-vs-code; the backlog holds product/infra defects. None look at the working
 relationship.) It exists to **reduce** friction — so it must not become a friction generator.
 
-**Read `.ai/project.yml` first** for `{backlog}`, `{roadmap}`, `{decisions}`, `{pr_base}` and
+**Read `.ai/project.yml` first** for `{backlog}`, `{roadmap}`, `{decisions}` and
 `{lanes}` (optional; under `null` or undeclared there are no lane sessions to mine).
 
 ## Where the backlog lives
