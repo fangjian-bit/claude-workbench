@@ -169,8 +169,8 @@ newly-added-doc row; this is the overview.)
 
 #### The agent catalog (spawn via the Agent tool by `subagent_type`)
 
-The plugin ships four, in its own `agents/`; `agents.enabled` in `.ai/project.yml` picks
-which of them a repo uses, and `/way-of-working:critic-gate` proposes from that list only.
+The plugin ships five, in its own `agents/`; `agents.enabled` in `.ai/project.yml` picks
+which of the review and implementation agents a repo uses, and `/way-of-working:critic-gate` proposes from that list only.
 
 - **`coder`** (Sonnet by default, read/write) — implement one defined sprint task; the
   secondary in-session path when a full handoff is overkill.
@@ -181,8 +181,11 @@ which of them a repo uses, and `/way-of-working:critic-gate` proposes from that 
   `code_paths` diff.
 - **`docs-consistency`** (Opus by default, read-only) — cross-check load-bearing prose
   against ground truth; run before a roadmap-heavy PR or at archive time.
+- **`transcript-reader`** (Sonnet by default, read-only by tool surface: `Read`, `Grep`, `Glob`)
+  — reads transcript text `/way-of-working:retro` has staged; spawned only by that skill,
+  never a critic.
 
-  Three of these four are `/way-of-working:critic-gate`'s critics (`coder` implements, it is
+  Three of the first four are `/way-of-working:critic-gate`'s critics (`coder` implements, it is
   never proposed as one); each pins its default in its own frontmatter, and
   `models.second_opinion` is the one spawn-time override on it (`project-schema.md` §
   `agents`, `models`).

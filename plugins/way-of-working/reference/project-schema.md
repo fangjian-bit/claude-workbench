@@ -612,7 +612,9 @@ review:
 
 ### `agents`, `models`
 
-`agents.enabled` is which of the plugin's agents this repo uses. `/way-of-working:critic-gate` proposes
+`agents.enabled` is which of the plugin's review and implementation agents this repo uses;
+`transcript-reader` is spawned by `/way-of-working:retro` directly and is not listed there.
+`/way-of-working:critic-gate` proposes
 from this list only — it never offers an agent the repo has not enabled, and never one that
 is not in the plugin at all. Its spec mode selects from this list only as well.
 

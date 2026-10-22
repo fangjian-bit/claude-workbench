@@ -10,7 +10,7 @@ task's spec comment (it critic-gates the draft, then posts as the dev App or hol
 that wires a fresh-session review gate, and `/way-of-working:park-sprint` /
 `/way-of-working:unpark-sprint` for
 setting a sprint aside mid-flight), four general-purpose review/implementation agents (`architect`, `coder`,
-`security-critic`, `docs-consistency`), a `SessionStart` cursor-banner hook with `PreCompact`/`PostCompact` compaction hooks, and the
+`security-critic`, `docs-consistency`) and the read-only `transcript-reader`, a `SessionStart` cursor-banner hook with `PreCompact`/`PostCompact` compaction hooks, and the
 Global Conventions (Python, OpenTofu/IaC, Conventional Commits, branch names, the
 squash-merge policy, label taxonomy, Definition of Done).
 
@@ -61,7 +61,7 @@ plugins/way-of-working/
   .claude-plugin/plugin.json
   skills/     resume/ handoff/ critic-gate/ ship/ pr-checks/ archive-sprint/ retro/
               park-sprint/ unpark-sprint/ plan-sprint/ spec-task/ architect-review/
-  agents/     architect.md coder.md security-critic.md docs-consistency.md
+  agents/     architect.md coder.md security-critic.md docs-consistency.md transcript-reader.md
   bin/        cursor-drift.sh entry-anchor.sh review-gate-state.sh plan-anchor.sh
               spawn-model.sh review-base-anchor.sh review-sandbox.sh review-outbox.sh
               milestone-close-line.sh plan-gather.sh milestone-desc.sh schema-complete.sh

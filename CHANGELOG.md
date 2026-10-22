@@ -27,9 +27,14 @@ the GitHub release notes.
   selects the host's top-level Claude Code transcripts whose `cwd` is the main worktree or a
   path under `lanes.dir`, changed since the reviewed sprint began (from the newest
   `.ai/archive/` snapshot, else the last 7 days, or a window the human names), newest first and
-  at most 50. One subagent confined to `jq`, `ls` and `stat` reads them and returns a
+  at most 50. One subagent reads them and returns a
   paraphrased friction list, never verbatim transcript text. A finding seen only in other
   sessions needs the human's OK before it becomes a memory or a fix.
+
+- **Retro's transcript reader is confined by its tool list (`#899`).** The reader is now the
+  plugin agent `transcript-reader`, whose frontmatter grants only `Read`, `Grep` and `Glob`, over
+  text the parent stages with one fixed `jq` filter into a temporary directory, instead of a
+  subagent told in prose to run only a few commands.
 
 ## [0.23.0] — 2026-10-22
 
