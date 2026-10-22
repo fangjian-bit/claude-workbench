@@ -13,16 +13,14 @@
 # Permitted toolset: POSIX sh and its standard utilities, jq and yq (skipped, loudly, if absent).
 #
 # Runtime (#755): run alone, in the dev container as built (GNU coreutils 9.7 `timeout`, linked
-# by #741), this suite takes 88 s. The same run with the uutils 0.8.0 `timeout` first on PATH
-# takes 775 s, about 8.8 times as long. The cause is the container's `timeout` build: a run makes
+# by #741), this suite takes 97 s (#935). The same run with the uutils 0.8.0 `timeout` first on PATH
+# took 775 s; that and the figures below were measured before #935. The cause is the container's `timeout` build: a run makes
 # about 7,500 `timeout` calls (the launcher wraps nearly every docker and gh call in it), and an
 # isolated `timeout 5 true` costs 62.2 ms with uutils against 0.8 ms with GNU in a 100-call loop
 # (a 61.4 ms difference; the figure varies with load, and the suite's effective overhead is
-# higher, about 90 ms per call). The other uutils tools' share was not measured. The deliberate
-# waits (about 25 s) are in both figures; the largest gap in a timestamped run is the 9.8 s
-# injector that never comes up. The 300 s overrun seen while #710
+# higher, about 90 ms per call). The other uutils tools' share was not measured. The 300 s overrun seen while #710
 # was built was not reproduced on the GNU build. Run it alone, in its own Bash call, with the
-# tool timeout at least 176 s (twice the 88 s). On a container whose `timeout` is uutils the bound
+# tool timeout at least 194 s (twice the 97 s). On a container whose `timeout` is uutils the bound
 # is about 1550 s: run it in the background, or stop and ask the maintainer to remove a uutils
 # copy from ~/.local/bin or recreate the container (DEV-CONTAINER.md, Lanes).
 set -u
@@ -62,8 +60,10 @@ mkdir "$stubs"
 # =========================================================================================
 cat >"$stubs/sleep" <<'STUB'
 #!/bin/sh
-# The gate poll's 15 second pause is skipped; every other sleep is real.
+# The gate poll's 15 second pause is skipped and the injector poll's 0.2 second pause is cut to
+# 0.02; every other sleep is real.
 [ "$1" != 15 ] || exit 0
+[ "$1" != 0.2 ] || set -- 0.02
 exec "$REAL_SLEEP" "$@"
 STUB
 
@@ -1223,7 +1223,7 @@ if ln -s /etc/hostname "$STUB/outbox/outcome" 2>/dev/null && [ -L "$STUB/outbox/
 else
   ok "a symlinked outcome (skipped: no symlinks here)"
 fi
-new_case; printf 'wait\n' >/dev/null; : >"$STUB/wait.hang"; T_TIMEOUT=2
+new_case; printf 'wait\n' >/dev/null; : >"$STUB/wait.hang"; T_TIMEOUT=1
 run o/r 7
 T_TIMEOUT=20
 expect_failure_post "a session that overruns the timeout" timed-out
@@ -1521,7 +1521,7 @@ new_case; set_outcome "stopped 7 $SHA entry-clone"; run o/r 7; cleaned "after a 
 new_case; set_outcome "stopped 7 $SHA checks-pending"
 printf '{"check_runs":[{"name":"ci","status":"queued","conclusion":null}]}\n' >"$STUB/gh/repos_o_r_commits_${SHA}_check-runs"
 run o/r 7;                                              cleaned "after a retryable stop"
-new_case; : >"$STUB/wait.hang"; T_TIMEOUT=2; run o/r 7; T_TIMEOUT=20; cleaned "after a timeout"
+new_case; : >"$STUB/wait.hang"; T_TIMEOUT=1; run o/r 7; T_TIMEOUT=20; cleaned "after a timeout"
 check "after a timeout: the stuck session was killed" has "$STUB/events" "docker-kill"
 
 new_case; : >"$STUB/wait.hang"; reset_logs

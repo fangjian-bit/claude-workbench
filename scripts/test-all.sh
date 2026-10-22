@@ -16,7 +16,7 @@
 # Three suites are held out of the pool and started one at a time after it has drained, in this
 # order, each with nothing else running: tests/ai-cursor-banner.test.sh and
 # tests/loop-critic.test.sh assert wall-clock upper bounds that a loaded pool can trip, and
-# tests/identity-review.test.sh runs last (its own header's Runtime note: about 88 s alone in the
+# tests/identity-review.test.sh runs last (its own header's Runtime note: about 97 s alone in the
 # dev container), so a whole run needs more than a two-minute tool timeout. A held-out file the
 # glob does not find is skipped. No glob match prints `no tests found` and exits 1.
 #
@@ -50,7 +50,7 @@
 #   - tests/identity-launchers.test.sh needs `pwsh`, `git`, `yq` and `jq`;
 #     tests/identity-broker.test.sh needs `pwsh`.
 #   - tests/invariants-files-filter.test.sh needs `jq` (the checker's check 20 does).
-#   - tests/identity-review.test.sh takes 88 s alone and its bound is 176 s; see the Runtime
+#   - tests/identity-review.test.sh takes 97 s alone and its bound is 194 s; see the Runtime
 #     bullet of the Lanes section of docs/identity/DEV-CONTAINER.md.
 # The script runs under bash 3.2.
 set -euo pipefail
