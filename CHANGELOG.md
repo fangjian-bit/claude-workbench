@@ -50,6 +50,10 @@ the GitHub release notes.
   check silent while bash still ran a narrowed or empty call. The whole-line test and the
   trailing-comment strip now see only ASCII spaces and tabs, and a line whose trailing comment holds
   a quote now fails.
+- **Both manifest descriptions now name the `transcript-reader` agent (`#915`).** The plugin
+  manifest and the marketplace's `way-of-working` entry listed only the architect, coder,
+  security-critic and docs-consistency agents; they now add the read-only `transcript-reader`
+  that `/way-of-working:retro` spawns.
 
 ## [0.23.0] — 2026-10-22
 
