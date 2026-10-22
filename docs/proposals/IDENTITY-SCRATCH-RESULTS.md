@@ -4057,3 +4057,36 @@ item to the manual merge it gets now.
 - `glunk-works/claude-workbench`: #819 (#816), #822 (#811) and #826 (the v0.22.0 release prep)
   merged. The throwaway branch `chore/api-commit-live-811` from #822's live check is on GitHub,
   left for the maintainer to delete.
+
+## Session 11 (#398): resume's spec-reaction gate, and the cursor-sync merge
+
+Observed on 2026-10-22 on `glunk-works/claude-workbench`, with #842 as the anchored task. Two
+fresh sessions ran `/way-of-working:resume` from the driver launcher (`wow-driver.ps1`, attach
+path, `/model sonnet`, then `/way-of-working:resume`, nothing typed before it), before and after
+the maintainer's reaction on #842's spec comment. The results are read back from the two
+sessions' transcripts and from GitHub.
+
+| #398 item | Result |
+|---|---|
+| Resume waits without a spec reaction | **Pass.** Session `94dbffee` (10:15:11 to 10:17:05 UTC, `claude-sonnet-5-5` on every turn) found the cursor clean: no cursor-sync PR open, `cursor-sync` (no drift), no driver lock, gate closed, `next_action` and the ledger's **Next:** both beginning `task #842 — `. The finder printed `unreacted 6329037391,6329248894`, `plan-anchor.sh verify --plan` printed `match`, and the session waited on its `Spec approval: waiting` line naming both comments. It started no build. |
+| Resume starts with one | **Pass.** The maintainer reacted (`rocket`) to spec comment 6329248894 at 10:19:43. Session `8939b8bc` (from 10:20:19, `claude-sonnet-5-5` on every turn, with only `/model sonnet` and `/way-of-working:resume` typed) printed `found 6329248894 2026-10-21T23:57:37Z` and `Spec pin: 6329248894 2026-10-21T23:57:37Z`, ran full-mode `verify` to `match`, and passed the body read (`spec-comment.sh check` `ok`). It then built #842 with no "go". The build shipped as #884, merged as `a066179`. The superseded comment 6329037391, never reacted to, was never fetched. The transcript holds no separate `Auto-starting:` line: the session went from the checks straight to the build. |
+| A cursor-sync PR lands by the maintainer's approval and merge | **Pass.** #883 (only `.ai/next-steps.md`, opened by `/way-of-working:handoff` with no auto-merge armed) was approved by the maintainer at 10:12:05 and merged by the maintainer as `9ebbc29` at 10:12:32. Check 1 then read the merged ledger as `cursor-sync`. #398's body was reworded on 2026-10-21 to this manual merge, which settles the decision session 10 left open. |
+| A docs PR lands through approval and auto-merge | **Pass** (recorded on #398 on 2026-10-21). #828, session 10's own entry, had auto-squash armed by the dev App at 12:54:07, was approved by the maintainer at 13:00:41 and merged by `glunk-dev[bot]` as `b33961b` at 13:01:41. Its gate read "Exempt: no gated path changed". |
+
+**Two spec comments on one task.** #842 carried two `spec-task:` comments from the dev App: the
+first draft (6329037391) and a redraft (6329248894) posted after the maintainer changed the
+design. Neither the finder nor resume treats the extra comment as a problem: an unreacted comment
+is never a spec, and a found spec needs exactly one reacted comment. A third `-Spec 842` session
+was started and closed before it drafted anything.
+
+## Status against #398
+
+Every item passes: the reviewer flow, the red-then-green gate, the exempt docs and cursor-sync
+PRs, approval with auto-merge on gated and docs PRs, the cursor-sync PR's manual merge, and
+resume waiting without a spec reaction and starting with one.
+
+## Configuration changes made during session 11
+
+- `glunk-works/claude-workbench`: #883 (the cursor-sync PR) and #884 (#842, with #843 and #844)
+  merged. The throwaway branch `chore/api-commit-live-811` was deleted.
+- Host: none.
