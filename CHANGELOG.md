@@ -21,6 +21,13 @@ the GitHub release notes.
 
 ## [Unreleased]
 
+## [0.23.0] — 2026-10-22
+
+**⚠️ Migration** — on a repo whose reviews post through the host launcher (`wow-review`), reinstall
+the host tools from a default branch at or after this release in every home before bumping the pin
+(`WB-D38`). An older launcher ignores the review's verdict file and posts without a `Review verdict:`
+line, which the gate still accepts as a pass until the follow-up drops that form.
+
 ### Added
 
 - **`review-outbox.sh verdict` and the architect-review container-mode verdict step (`#851`).** The
