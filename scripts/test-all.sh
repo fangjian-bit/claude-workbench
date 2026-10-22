@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Runs every tests/*.test.sh, N at a time, and reports one verdict per file.
 #
-# Usage: bash scripts/test-all.sh [-j N]
-#   -j N   run at most N files at once. N is one to three decimal digits with no leading
-#          zero. Default: the CPU count (`nproc`, else `getconf _NPROCESSORS_ONLN`, else 4).
-#   -h     print this usage on stdout and exit 0.
-# A bad -j value, a missing value or any other argument prints the usage on stderr and exits 2.
+# Usage: bash scripts/test-all.sh [-j N] [-x NAME]...
+#   -j N     run at most N files at once. N is one to three decimal digits with no leading
+#            zero. Default: the CPU count (`nproc`, else `getconf _NPROCESSORS_ONLN`, else 4).
+#   -x NAME  leave tests/NAME out of the run; repeatable. NAME is the file name, byte for byte,
+#            of a tests/*.test.sh file the glob finds (a pool file or a held-out one).
+#   -h       print this usage on stdout and exit 0.
+# A bad -j value, a bad -x value (none, or one naming no such file), a missing value or any
+# other argument prints the usage on stderr and exits 2.
 #
 # The files are found by a glob (sorted), so a new tests/X.test.sh is picked up with no list to
 # edit; every matching file runs, tracked or not. Each runs as `sh tests/NAME` from the repo
@@ -54,14 +57,16 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: bash scripts/test-all.sh [-j N]
-  -j N   run at most N test files at once (one to three digits, no leading zero);
-         default: the CPU count
-  -h     print this usage
+Usage: bash scripts/test-all.sh [-j N] [-x NAME]...
+  -j N     run at most N test files at once (one to three digits, no leading zero);
+           default: the CPU count
+  -x NAME  leave tests/NAME out of the run (a tests/*.test.sh file name); repeatable
+  -h       print this usage
 EOF
 }
 
 jobs=""
+xs=()   # -x names, checked against the glob after the cd below
 while [ "$#" -gt 0 ]; do
   case "$1" in
     -h)
@@ -83,6 +88,14 @@ while [ "$#" -gt 0 ]; do
           ;;
       esac
       ;;
+    -x)
+      if [ "$#" -lt 2 ]; then
+        usage >&2
+        exit 2
+      fi
+      xs+=("$2")
+      shift 2
+      ;;
     *)
       usage >&2
       exit 2
@@ -101,10 +114,30 @@ fi
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root_dir"
 
+is_excluded() { # <name>
+  local x
+  for x in ${xs[@]+"${xs[@]}"}; do
+    [ "$x" = "$1" ] && return 0
+  done
+  return 1
+}
+# Each -x name must be a file the glob finds, so a renamed suite cannot drop out of every job.
+for x in ${xs[@]+"${xs[@]}"}; do
+  found=0
+  for f in tests/*.test.sh; do
+    [ -f "$f" ] && [ "${f#tests/}" = "$x" ] && found=1
+  done
+  if [ "$found" -eq 0 ]; then
+    usage >&2
+    exit 2
+  fi
+done
+
 held=(ai-cursor-banner.test.sh loop-critic.test.sh identity-review.test.sh)
 names=()
 for f in tests/*.test.sh; do
   [ -f "$f" ] || continue
+  ! is_excluded "${f#tests/}" || continue
   is_held=0
   for h in "${held[@]}"; do
     [ "${f#tests/}" = "$h" ] && is_held=1
@@ -113,7 +146,7 @@ for f in tests/*.test.sh; do
 done
 pool_end="${#names[@]}"
 for h in "${held[@]}"; do
-  [ -f "tests/$h" ] && names+=("$h")
+  [ -f "tests/$h" ] && ! is_excluded "$h" && names+=("$h")
 done
 if [ "${#names[@]}" -eq 0 ]; then
   echo "no tests found" >&2

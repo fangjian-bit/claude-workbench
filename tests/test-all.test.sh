@@ -10,6 +10,11 @@
 # adds ai-cursor-banner.test.sh and loop-critic.test.sh stubs that fail if any other stub's
 # marker exists when they start or just before they end, and an identity-review stub that fails
 # unless both have finished. The TERM case's slow stub traps TERM, writes a marker and exits.
+# The -x cases add extra.test.sh, a stub that passes and that the identity-review stub does not
+# wait on: -x extra.test.sh and -x identity-review.test.sh each leave that file's verdict line
+# out and the rest of the run unchanged, two -x options leave both out, and -x with no value,
+# an empty value, a value with a slash and a value naming no file exit 2 with the usage on stderr
+# and run nothing.
 # Needs bash (the runner is a bash script). Permitted toolset: POSIX sh, plus bash, grep, sed
 # and sleep.
 set -eu
@@ -188,5 +193,51 @@ assert_eq "held-out verdicts end in list order" \
   "tests/ai-cursor-banner.test.sh tests/loop-critic.test.sh tests/identity-review.test.sh" \
   "$(grep -E '^(pass|fail|skip) ' "$t6/out" | tail -n 3 | sed 's/^[a-z]* //' | tr '\n' ' ' | sed 's/ $//')"
 assert_has "held-out: summary" "$t6/out" "test-all: 5 pass, 0 fail, 0 skip"
+
+# --- -x leaves a file out ---
+t7="$tmp/t7"
+make_tree "$t7" 0
+echo "exit 0" >"$t7/tests/extra.test.sh"
+run "$t7"
+assert_eq "-x baseline exits 0" 0 "$rc"
+assert_has "-x baseline: extra runs" "$t7/out" "pass tests/extra.test.sh"
+assert_has "-x baseline: summary" "$t7/out" "test-all: 3 pass, 0 fail, 2 skip"
+run "$t7" -x extra.test.sh
+assert_eq "-x pool file exits 0" 0 "$rc"
+assert_lacks "-x pool file: verdict line gone" "$t7/out" "tests/extra.test.sh"
+assert_has "-x pool file: rest unchanged" "$t7/out" "pass tests/pass.test.sh"
+assert_has "-x pool file: identity-review still last" "$t7/out" "pass tests/identity-review.test.sh"
+assert_has "-x pool file: summary" "$t7/out" "test-all: 2 pass, 0 fail, 2 skip"
+run "$t7" -x identity-review.test.sh
+assert_eq "-x held-out file exits 0" 0 "$rc"
+assert_lacks "-x held-out file: verdict line gone" "$t7/out" "tests/identity-review.test.sh"
+assert_has "-x held-out file: extra runs" "$t7/out" "pass tests/extra.test.sh"
+assert_has "-x held-out file: summary" "$t7/out" "test-all: 2 pass, 0 fail, 2 skip"
+run "$t7" -x extra.test.sh -x identity-review.test.sh
+assert_eq "two -x exits 0" 0 "$rc"
+assert_lacks "two -x: extra gone" "$t7/out" "tests/extra.test.sh"
+assert_lacks "two -x: identity-review gone" "$t7/out" "tests/identity-review.test.sh"
+assert_has "two -x: summary" "$t7/out" "test-all: 1 pass, 0 fail, 2 skip"
+for x in "a/b" "../tests/extra.test.sh" "tests/extra.test.sh" "nosuch.test.sh" "extra" "*"; do
+  run "$t7" -x "$x"
+  assert_eq "-x '$x' exits 2" 2 "$rc"
+  assert_has "-x '$x' prints usage on stderr" "$t7/err" "Usage: bash scripts/test-all.sh"
+  assert_eq "-x '$x' runs nothing" "" "$(cat "$t7/out")"
+done
+run "$t7" -x ""
+assert_eq "-x with an empty value exits 2" 2 "$rc"
+assert_has "-x with an empty value prints usage on stderr" "$t7/err" "Usage: bash scripts/test-all.sh"
+run "$t7" -x
+assert_eq "-x with no value exits 2" 2 "$rc"
+assert_has "-x with no value prints usage on stderr" "$t7/err" "Usage: bash scripts/test-all.sh"
+run "$t7" -x extra.test.sh -x
+assert_eq "a trailing -x with no value exits 2" 2 "$rc"
+# the name is checked against the repo root's tests/, whatever the caller's directory
+rc=0
+(cd "$t7/tests" && bash ../scripts/test-all.sh -x extra.test.sh) >"$t7/out" 2>"$t7/err" || rc=$?
+assert_eq "-x from another directory exits 0" 0 "$rc"
+assert_lacks "-x from another directory: verdict line gone" "$t7/out" "tests/extra.test.sh"
+run "$t7" -h
+assert_has "-h shows -x" "$t7/out" "-x NAME"
 
 exit "$fail"

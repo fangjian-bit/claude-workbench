@@ -57,6 +57,11 @@ jobs:
           persist-credentials: false
       - name: No known-wrong form has returned
         run: bash scripts/invariants-check.sh
+      # The one guard that the review-match program in architect-review-gate.yml and its
+      # copy in scripts/identity/wow-review (decide_already) stay identical (#866); `tests`
+      # is not a required check, this job is.
+      - name: review-match program and its copy agree
+        run: sh tests/review-verdict.test.sh
 
   # Also its own job: fixture tests for the plugin's bin/ scripts (see issue #21 --
   # deterministic predicates extracted from skill prose belong in tested scripts), for
@@ -64,7 +69,13 @@ jobs:
   # (see issue #53 -- a gate that stops gating looks exactly like a gate that passed, so
   # its fail-closed behaviour is pinned by fixtures too), and for the App-mode review
   # image's entrypoint, outbox reader, Dockerfile and build context (#634).
-  # Not yet in {ruleset.required_checks} -- see the PR that added this job.
+  # Split in three parallel jobs (#808): this one runs every tests/*.test.sh through
+  # scripts/test-all.sh (files run concurrently; a failed file's log is printed) except
+  # the two launcher suites, which `tests-launchers` and `tests-review-launcher` run
+  # alone, so each file runs in one of the three (review-verdict also runs in
+  # `invariants`). A new tests/X.test.sh needs no edit here.
+  # Not yet in {ruleset.required_checks} -- see the PR that added this job. The same
+  # goes for the two launcher jobs.
   tests:
     runs-on: ubuntu-latest
     steps:
@@ -72,84 +83,29 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: cursor-drift.sh fixtures
-        run: sh tests/cursor-drift.test.sh
-      - name: coupling-check.sh fixtures
-        run: sh tests/coupling-check.test.sh
-      - name: entry-anchor.sh fixtures
-        run: sh tests/entry-anchor.test.sh
-      - name: review-gate-state.sh fixtures
-        run: sh tests/review-gate-state.test.sh
-      - name: ai-cursor-banner.sh fixtures
-        run: sh tests/ai-cursor-banner.test.sh
-      - name: schema-complete.sh fixtures
-        run: sh tests/schema-complete.test.sh
-      - name: review-sandbox.sh fixtures
-        run: sh tests/review-sandbox.test.sh
-      - name: review-token.sh fixtures
-        run: sh tests/review-token.test.sh
-      - name: review-outbox.sh fixtures
-        run: sh tests/review-outbox.test.sh
-      - name: cursor-sync-pr.sh fixtures
-        run: sh tests/cursor-sync-pr.test.sh
-      - name: blocked-state.sh fixtures
-        run: sh tests/blocked-state.test.sh
-      - name: pr-checks blocked-state block fixtures
-        run: sh tests/blocked-state-block.test.sh
-      - name: auto-merge-arm.sh fixtures
-        run: sh tests/auto-merge-arm.test.sh
-      - name: app-push.sh fixtures
-        run: sh tests/app-push.test.sh
-      - name: stall-merge.sh fixtures
-        run: sh tests/stall-merge.test.sh
-      - name: prune-verdict.sh fixtures
-        run: sh tests/prune-verdict.test.sh
-      - name: invariants-check.sh reach-order fixtures
-        run: sh tests/invariants-reach-order.test.sh
-      - name: review-step.sh fixtures
-        run: sh tests/review-step.test.sh
-      - name: critic-section.sh fixtures
-        run: sh tests/critic-section.test.sh
-      - name: invariants-check.sh gh-pipe fixtures
-        run: sh tests/invariants-gh-pipe.test.sh
-      - name: plan-depends.sh fixtures
-        run: sh tests/plan-depends.test.sh
-      - name: driver-lock.sh fixtures
-        run: sh tests/driver-lock.test.sh
-      - name: gh-identity.sh fixtures
-        run: sh tests/gh-identity.test.sh
-      - name: milestone-desc.sh fixtures
-        run: sh tests/milestone-desc.test.sh
-      - name: spec-issue.sh fixtures
-        run: sh tests/spec-issue.test.sh
-      - name: spec-find.sh fixtures
-        run: sh tests/spec-find.test.sh
-      - name: spec-fresh.sh fixtures
-        run: sh tests/spec-fresh.test.sh
-      - name: draft-identity.sh fixtures
-        run: sh tests/draft-identity.test.sh
-      - name: spec-post.sh fixtures
-        run: sh tests/spec-post.test.sh
-      - name: token-check.sh fixtures
-        run: sh tests/token-check.test.sh
-      - name: review image fixtures
-        run: sh tests/review-image.test.sh
-      - name: dev container image fixtures
-        run: sh tests/devcontainer-image.test.sh
-      - name: wow-review launcher fixtures
-        run: sh tests/identity-review.test.sh
-      - name: review-verdict fixtures
-        run: sh tests/review-verdict.test.sh
+      - name: Every suite except the two launcher suites
+        run: bash scripts/test-all.sh -x identity-launchers.test.sh -x identity-review.test.sh
+
+  tests-launchers:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: host driver launcher fixtures
         run: sh tests/identity-launchers.test.sh
-      - name: blocking-criteria.sh fixtures
-        run: sh tests/blocking-criteria.test.sh
-      - name: invariants-check.sh check 19 (milestone reads) fixtures
-        run: sh tests/invariants-milestone-jq.test.sh
-      - name: invariants-check.sh check 20 (pulls files filter) fixtures
-        run: sh tests/invariants-files-filter.test.sh
-      - name: invariants-check.sh check 21 (task-author readers) fixtures
-        run: sh tests/invariants-task-author.test.sh
+
+  # Alone in its job: its header's Runtime note bounds it as a suite that runs alone.
+  tests-review-launcher:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: wow-review launcher fixtures
+        run: sh tests/identity-review.test.sh
 
   # WB-D15 (#45): workflow security scanner, modeled on bounty-infra's own `zizmor` job
   # (`ci.yml`). Unchained like `coupling`/`invariants` above -- a future required check
