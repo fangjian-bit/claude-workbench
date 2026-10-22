@@ -2810,3 +2810,24 @@ at a release tag.
 
 `WB-D36` (#601) adds `bin/api-commit.sh` and the optional `identities.dev_app.commit_route`;
 this build turns the route on for no repo, and turning it on for this repo is #800.
+
+Sprint 16 (milestone 19, *Identity M4: claude-workbench cutover*, all its issues closed) cuts this
+repo over to the code-owner approval gate and container-only sessions. The fresh-session review
+gate is adopted and counts only the declared reviewer App (#458, PR #813). The dev App commits
+through the API route (#601, PR #807; #811, PR #822), which this repo now selects (#800). The host
+launchers drive the container's driver, lane and spec sessions (#728, PR #783; #762, PR #787; #842,
+PR #884). `WB-D38` (#851, PR #861) makes the gate read the review's verdict. It shipped in
+`v0.19.0` through `v0.23.0`. `v0.23.0` is tagged at `a88f3bf` (PR #888), with the host tools
+reinstalled from that commit before the pin bump.
+
+Verified live on this repo: every item of #398 (PR #887, sessions 10 and 11 of
+`docs/proposals/IDENTITY-SCRATCH-RESULTS.md`). That covers the reviewer flow, the red-then-green
+gate, the exempt docs and cursor-sync PRs, approval with auto-merge, and resume waiting without a
+spec reaction and starting with one. The verdict gate was verified on PR #897, whose
+`changes-needed` review turned the gate red and whose `pass` review turned it green. Deferred and
+tracked:
+- dropping the gate's no-verdict transition form, the `WB-D38` follow-up (#905);
+- the `sh.cmd` path of the launchers' `cygpath` conversion on a real Windows Git Bash (#885);
+- the release-tag and immutable-release check for the other repos' cutovers (#433, milestone 20).
+
+Sprint 16 closed at `24e1ba6` (PR #889), the pin bump to `v0.23.0`.
