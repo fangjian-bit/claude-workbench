@@ -484,7 +484,8 @@ assert_eq "a path with edge spaces publishes" "0" "$(run origin feat/sp)"
 assert_eq "the edge spaces survive in the remote tree" " sp ace " "$("$real_git" --git-dir="$bare" ls-tree --name-only feat/sp | grep 'sp ace')"
 
 # --- static: the script's own shape -----------------------------------------------------
-assert_eq "the script is stored with mode 100755" "100755" "$("$real_git" -C "$root_dir" ls-files -s plugins/way-of-working/bin/api-commit.sh | cut -d' ' -f1)"
+# the only git call that reads the checkout, which may be owned by another user (/workspace in the dev container): safe.directory here, not in the shared env
+assert_eq "the script is stored with mode 100755" "100755" "$("$real_git" -c safe.directory="$root_dir" -C "$root_dir" ls-files -s plugins/way-of-working/bin/api-commit.sh | cut -d' ' -f1)"
 assert_eq "every gh call goes through the pinned wrapper" "0" "$(grep -n 'gh api' "$script" | grep -v -- '--hostname github.com' | grep -vc '^[0-9]*:#' || true)"
 assert_eq "the script never builds an author or committer field" "0" "$(grep -v '^#' "$script" | grep -cE 'author|committer' || true)"
 
