@@ -45,6 +45,10 @@ the GitHub release notes.
 
 ### Fixed
 
+- **Retro's other-session path match is stated as POSIX-only (`#904`).** Separators and drive
+  letters are compared as written, with no normalization, so on a host whose recorded `cwd` and
+  the paths it is matched against differ in form (native Windows) the step finds no transcript
+  and says so, as it does for any host with no matching transcript.
 - **Invariants check 24 no longer reads a hash inside a quote that closes on the same line, or a
   hash after a Unicode space, as a comment (`#882`).** A gate call such as `bash
   scripts/invariants-check.sh " #" || true`, or one followed by U+2003 and `# || true`, left the

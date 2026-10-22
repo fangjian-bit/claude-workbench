@@ -1,5 +1,5 @@
 #!/bin/sh
-# Static checks for issues #899 and #900: /way-of-working:retro's transcript reader is a plugin agent
+# Static checks for issues #899, #900 and #904: /way-of-working:retro's transcript reader is a plugin agent
 # confined by its frontmatter tool list, not by a prose instruction.
 # Permitted toolset: POSIX sh, grep, sed.
 set -eu
@@ -22,6 +22,7 @@ if grep -q 'runs only `jq`' "$skill"; then bad "$skill: still says the reader ru
 grep -qF 'path match only, not confirmed to be this repo' "$skill" || bad "$skill: no caveat text"
 grep -q 'confirms in this session' "$skill" || bad "$skill: no confirmation wording ('confirms in this session')"
 if grep -qF 'is filed or surfaced, never written to memory' "$skill"; then bad "$skill: old filing rule is back"; fi
+grep -qF 'POSIX-only' "$skill" || bad "$skill: no POSIX-only statement for the cross-session path match"
 
 [ "$fail" = 0 ] && echo "retro-reader: ok"
 exit "$fail"

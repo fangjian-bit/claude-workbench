@@ -124,7 +124,12 @@ Explicitly reject:
      read with `jq`, is the main worktree (the first entry of `git worktree list --porcelain`)
      or a path under it, or a path under `{lanes.dir}/`, read from the **default branch's**
      committed `.ai/project.yml` as `reference/project-schema.md` § `lanes` says. "Under" is by
-     path component, so a sibling directory with the same prefix does not match. A path match
+     path component, so a sibling directory with the same prefix does not match. Separators and
+     drive letters are compared as written, with no normalization, so the match is POSIX-only:
+     on a host where the recorded `cwd` and the paths it is matched against differ in form
+     (native Windows, where one may use a drive letter and backslashes and the other forward
+     slashes), no transcript matches and the step takes the no-transcript branch of *When it
+     cannot run*. A path match
      is not a repo match: a host that has held another repo at the same path mixes them, so
      what is drawn from these sessions is held (see the paragraph that ends this step).
      Take the transcripts changed since the reviewed sprint began. `/way-of-working:archive-sprint`
