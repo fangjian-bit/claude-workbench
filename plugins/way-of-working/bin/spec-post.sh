@@ -51,14 +51,16 @@
 #                       line it matches. A line number that cannot be read back (a NUL byte anywhere in the draft,
 #                       or under a UTF-8 locale an invalid byte, makes GNU grep print no line) stops `unreadable` instead
 #   too-long            the composed body is over 65536 bytes
-#   unreachable         the issue fetch failed, or (App-filed path) the issue's reactions read or second fetch
+#   unreachable         the issue fetch failed, or (App-filed path) the issue's reactions read, second fetch or
+#                       content-time query failed
 #   not-an-issue        the response has a `pull_request` key
 #   closed              the issue is not open
 #   locked              the issue is locked
 #   loop-identity       the issue's author is `orchestration.loop_identity`
 #   untrusted           the issue's author is not trusted (also a config gh-identity.sh could not judge)
 #   unreacted           the issue's author is the declared dev or reviewer App and no declared maintainer
-#                       has reacted approvingly to the issue strictly after its last update (WB-D32, #664)
+#                       has reacted approvingly to the issue strictly after the time its content last
+#                       changed (WB-D32, #664, #890)
 #   hidden              an App-filed issue's reacted title or body carries text a reader of the rendered
 #                       issue cannot see (the screen spec-issue.sh's header describes: an opener, a
 #                       character reference, a link definition line or a default-ignorable character)
@@ -91,12 +93,16 @@
 #                (`gh-identity.sh task-author`). After the author is judged, `app_check` runs for a `trusted` or
 #                `agent` verdict, before the App-filed path reads any reaction (see `unreadable` above). An author the dev or reviewer App declares (`agent`) passes
 #                only through spec-issue.sh's App-filed path, in its order: the issue's reactions are
-#                read first (so an edit after that read moves `updated_at` past the reaction), then the
-#                issue is fetched a second time and its type, closed, locked, loop-identity and author
-#                checks re-run on that copy (same login and id as the first), then the maintainer ids,
-#                `spec-reaction.sh` for the copy's `updated_at`, and the hidden-text screen. Adding a
-#                reaction does not move an issue's `updated_at`; an edit does (measured on 2026-10-17,
-#                scratch issue #706)
+#                read first (so an edit to the title or body after that read moves the content time past the
+#                reaction), then the issue is fetched a second time and its type, closed, locked,
+#                loop-identity and author checks re-run on that copy (same login and id as the first),
+#                then the maintainer ids, then one GraphQL query for the content time (the latest of the
+#                issue's creation, its body's `lastEditedAt` and its newest title rename, checked to carry
+#                the copy's `updated_at`; a comment, a label or a milestone change moves `updated_at` but
+#                not the content time; a change landing between the two reads stops `unreadable`, and a
+#                rerun judges afresh), then `spec-reaction.sh` for the content time, and the hidden-text screen. Adding a reaction does not move an issue's `updated_at`; an edit
+#                does (measured on 2026-10-17, scratch issue #706; the content time on 2026-10-22,
+#                scratch issue #909, recorded in WB-D32)
 #   compose      the body is the marker line, one empty line, then the copy byte for byte; it is
 #                renamed into <out-dir>/comment.md. This is the only place the marker is written
 #   hold         the comment is posted only when `identities` is a map and the acting account is
@@ -135,8 +141,8 @@
 #   - text paraphrased from an issue body whose author is trusted can have been edited by an
 #     account with write access, and is posted; so can text paraphrased from a reacted App-filed
 #     body (the reaction gates the read, not the content, and the hidden-text screen is a filter);
-#   - the App-filed path makes four pinned reads (the default-branch reads aside): the issue, its
-#     reactions, the issue again and the viewer, then, only on a pass, the comment write (and, in
+#   - the App-filed path makes five pinned reads (the default-branch reads aside): the issue, its
+#     reactions, the issue again, the content-time query and the viewer, then, only on a pass, the comment write (and, in
 #     `escalate` mode, the label read and write);
 #   - a hang during the label calls comes after a confirmed post and reads as no word, which the
 #     caller treats as `post-unknown`; that fails closed, because the finder already shows the comment;
@@ -509,6 +515,47 @@ agent_path() {
   [ -n "$maint_ids" ] || stop unreadable
   m_good="$(printf '%s' "$maint_ids" | awk -F, '{print NF}')" || stop unreadable
   [ "$m_good" = "$m_total" ] || stop unreadable
+  # 3b. the content time (#890, WB-D32): the latest of the issue's creation, its body's last edit and its
+  # newest title rename, so a comment, a label or a milestone change leaves a reaction standing
+  gh api --hostname github.com graphql -f query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){createdAt updatedAt lastEditedAt timelineItems(itemTypes:[RENAMED_TITLE_EVENT],last:1){nodes{... on RenamedTitleEvent{createdAt}}}}}}' -f owner="${backlog%%/*}" -f name="${backlog#*/}" -F number="$n" >"$tmp/ct.json" 2>/dev/null || stop unreachable
+  CT() { yq -p=json -o=yaml "$1" "$tmp/ct.json" 2>/dev/null; }
+  ct_ts() {
+    case "$1" in
+      [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) : ;;
+      *) stop unreadable ;;
+    esac
+  }
+  [ "$(CT 'has("errors")')" = false ] || stop unreadable
+  [ "$(CT '.data.repository.issue | tag')" = '!!map' ] || stop unreadable
+  [ "$(CT '.data.repository.issue | has("lastEditedAt")')" = true ] || stop unreadable
+  [ "$(CT '.data.repository.issue.timelineItems.nodes | tag')" = '!!seq' ] || stop unreadable
+  ct_created="$(CT '.data.repository.issue.createdAt')" || stop unreadable
+  ct_upd="$(CT '.data.repository.issue.updatedAt')" || stop unreadable
+  [ "$(CT '[(.data.repository.issue.createdAt | tag), (.data.repository.issue.updatedAt | tag)] | join(",")')" = '!!str,!!str' ] || stop unreadable
+  ct_ts "$ct_created"
+  ct_ts "$ct_upd"
+  [ "$ct_upd" = "$i_updated" ] || stop unreadable
+  ct_time="$ct_created"
+  case "$(CT '.data.repository.issue.lastEditedAt | tag')" in
+    '!!null') : ;;
+    '!!str')
+      ct_edit="$(CT '.data.repository.issue.lastEditedAt')" || stop unreadable
+      ct_ts "$ct_edit"
+      ct_time="$(printf '%s\n%s\n' "$ct_time" "$ct_edit" | LC_ALL=C awk '$0 > m { m = $0 } END { print m }')" || stop unreadable
+      ;;
+    *) stop unreadable ;;
+  esac
+  case "$(CT '.data.repository.issue.timelineItems.nodes | length')" in
+    0) : ;;
+    1)
+      [ "$(CT '.data.repository.issue.timelineItems.nodes[0].createdAt | tag')" = '!!str' ] || stop unreadable
+      ct_ren="$(CT '.data.repository.issue.timelineItems.nodes[0].createdAt')" || stop unreadable
+      ct_ts "$ct_ren"
+      ct_time="$(printf '%s\n%s\n' "$ct_time" "$ct_ren" | LC_ALL=C awk '$0 > m { m = $0 } END { print m }')" || stop unreadable
+      ;;
+    *) stop unreadable ;;
+  esac
+  i_updated="$ct_time"
   # 4. the approval
   if got="$(sh "$sr" "$i_updated" "$maint_ids" <"$tmp/reactions.tsv" 2>/dev/null)" && [ "$got" = approved ]; then
     :

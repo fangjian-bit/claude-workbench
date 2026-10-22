@@ -61,6 +61,16 @@ fail_with() { # a failure path that leaks the marker on both streams
   exit 1
 }
 case "$1 $2" in
+  "api graphql")
+    # the content-time query (#890): FX_CT is the response; by default a never-edited issue created at the
+    # served copy's updated_at, so its content time is that updated_at
+    [ -z "${FX_CT_FAIL:-}" ] || fail_with
+    if [ -n "${FX_CT:-}" ]; then "$FX_CAT" "$FX_CT"; exit 0; fi
+    src="$FX_ISSUE"
+    [ -z "${FX_ISSUE2:-}" ] || src="$FX_ISSUE2"
+    u="$(sed -n 's/.*"updated_at":"\([^"]*\)".*/\1/p' "$src")"
+    printf '{"data":{"repository":{"issue":{"createdAt":"%s","updatedAt":"%s","lastEditedAt":null,"timelineItems":{"nodes":[]}}}}}\n' "$u" "$u"
+    ;;
   "repo view")
     [ -n "$3" ] || exit 1
     [ -z "${FX_VIEW_FAIL:-}" ] || fail_with
@@ -284,12 +294,25 @@ mkrx() {
 reset_fx() {
   FX_NWO=acme/repo FX_DEF=main FX_ISSUE="$tmp/issue.json" FX_ECHO=1
   FX_VIEW_FAIL= FX_PERM_FAIL= FX_ISSUE_FAIL= FX_PLANT= FX_OUT= FX_LINK_TARGET=
-  FX_RX= FX_RX_FAIL= FX_ISSUE2= FX_ISSUE2_FAIL=
+  FX_RX= FX_RX_FAIL= FX_ISSUE2= FX_ISSUE2_FAIL= FX_CT= FX_CT_FAIL=
   export FX_NWO FX_DEF FX_ISSUE FX_ECHO FX_VIEW_FAIL FX_PERM_FAIL FX_ISSUE_FAIL FX_PLANT FX_OUT FX_LINK_TARGET
-  export FX_RX FX_RX_FAIL FX_ISSUE2 FX_ISSUE2_FAIL
+  export FX_RX FX_RX_FAIL FX_ISSUE2 FX_ISSUE2_FAIL FX_CT FX_CT_FAIL
 }
 reset_fx
 mkissue maint 100 '"OWNER"'
+
+# the content-time query text, read back from the script, and the argv line the stub logs for it
+CTQ="$(sed -n "s/^  gh api graphql -f query='\(.*\)' -f owner=.*/\1/p" "$script")"
+assert_eq "the script carries one content-time query line" yes "$([ -n "$CTQ" ] && [ "$(printf '%s\n' "$CTQ" | wc -l)" -eq 1 ] && echo yes || echo no)"
+CTLINE="api|graphql|-f|query=$CTQ|-f|owner=acme|-f|name=backlog|-F|number=611|"
+# mkct <created> <updated> <lastEditedAt-json> [rename-createdAt ...] -- the query's response, to $tmp/ct.json
+mkct() {
+  _c="$1"; _u="$2"; _e="$3"; shift 3
+  _nodes=
+  for _n in "$@"; do _nodes="${_nodes:+$_nodes,}{\"createdAt\":\"$_n\"}"; done
+  printf '{"data":{"repository":{"issue":{"createdAt":"%s","updatedAt":"%s","lastEditedAt":%s,"timelineItems":{"nodes":[%s]}}}}}\n' \
+    "$_c" "$_u" "$_e" "$_nodes" >"$tmp/ct.json"
+}
 
 newout() { mktemp -d "$scratch/o.XXXXXX"; }
 calls() { # calls <log> -- the number of lines
@@ -429,7 +452,8 @@ repo|view|$ourl|--json|defaultBranchRef|--jq|.defaultBranchRef.name // \"\"|
 api|repos/acme/backlog|--jq|.permissions|
 api|repos/acme/backlog/issues/611|
 api|repos/acme/backlog/issues/611/reactions|--paginate|--jq|.[] | [(.user.id|tostring), .content, .created_at] | @tsv|
-api|repos/acme/backlog/issues/611|" "$("$real_cat" "$glog")"
+api|repos/acme/backlog/issues/611|
+$CTLINE" "$("$real_cat" "$glog")"
 
 for c in '+1' heart hooray rocket; do
   desc="reacted pass: the reviewer App's issue, a maintainer's $c"
@@ -493,12 +517,110 @@ o="$(newout)"
 FX_RX="$RXF" run fetch 611 "$o"
 stop_is unreacted "$o"
 
-desc="unreacted: the second copy's updated_at moved past the reaction"
+desc="unreacted: the second copy's content time moved past the reaction (a never-edited issue created at its updated_at)"
 mkrx "$RXF" "$RX_GOOD"
 mkissue2 'dev[bot]' 200 '"NONE"' - 2026-10-17T20:10:46Z
 o="$(newout)"
 FX_RX="$RXF" FX_ISSUE2="$tmp/issue2.json" run fetch 611 "$o"
 stop_is unreacted "$o"
+
+# -- the content time (#890): a comment, a label or a milestone change moves updated_at, not the content time
+mkissue 'dev[bot]' 200 '"NONE"'
+mkissue2 'dev[bot]' 200 '"NONE"' - 2026-10-17T20:10:46Z '"second title"' '"second body"'
+mkrx "$RXF" "$RX_GOOD"
+desc="reacted pass: updated_at after the reaction, content time before it (a comment, a label or a milestone change)"
+mkct 2026-10-17T20:00:00Z 2026-10-17T20:10:46Z null
+o="$(newout)"
+FX_RX="$RXF" FX_ISSUE2="$tmp/issue2.json" FX_CT="$tmp/ct.json" run fetch 611 "$o"
+assert_eq "$desc (line)" "ok B=acme/backlog BASE=main VERDICT=reacted ASSOC=NONE" "$out"
+assert_eq "$desc (issue.json is the second copy)" yes "$(cmp -s "$tmp/issue2.json" "$o/issue.json" && echo yes || echo no)"
+
+desc="reacted pass: an earlier body edit and an earlier rename"
+mkct 2026-10-17T20:00:00Z 2026-10-17T20:10:46Z '"2026-10-17T20:05:00Z"' 2026-10-17T20:08:00Z
+o="$(newout)"
+FX_RX="$RXF" FX_ISSUE2="$tmp/issue2.json" FX_CT="$tmp/ct.json" run fetch 611 "$o"
+assert_eq "$desc (line)" "ok B=acme/backlog BASE=main VERDICT=reacted ASSOC=NONE" "$out"
+
+desc="unreacted: a body edit after the reaction"
+mkct 2026-10-17T20:00:00Z 2026-10-17T20:10:46Z '"2026-10-17T20:10:46Z"'
+o="$(newout)"
+FX_RX="$RXF" FX_ISSUE2="$tmp/issue2.json" FX_CT="$tmp/ct.json" run fetch 611 "$o"
+stop_is unreacted "$o"
+
+desc="unreacted: a body edit after the reaction, with an older rename (the latest time wins, not the last read)"
+mkct 2026-10-17T20:00:00Z 2026-10-17T20:10:46Z '"2026-10-17T20:10:46Z"' 2026-10-17T20:08:00Z
+o="$(newout)"
+FX_RX="$RXF" FX_ISSUE2="$tmp/issue2.json" FX_CT="$tmp/ct.json" run fetch 611 "$o"
+stop_is unreacted "$o"
+
+desc="unreacted: a title rename after the reaction"
+mkct 2026-10-17T20:00:00Z 2026-10-17T20:10:46Z null 2026-10-17T20:10:46Z
+o="$(newout)"
+FX_RX="$RXF" FX_ISSUE2="$tmp/issue2.json" FX_CT="$tmp/ct.json" run fetch 611 "$o"
+stop_is unreacted "$o"
+
+desc="unreacted: a content time equal to the reaction's time (a body edit)"
+mkct 2026-10-17T20:00:00Z 2026-10-17T20:10:46Z '"2026-10-17T20:10:39Z"'
+o="$(newout)"
+FX_RX="$RXF" FX_ISSUE2="$tmp/issue2.json" FX_CT="$tmp/ct.json" run fetch 611 "$o"
+stop_is unreacted "$o"
+
+desc="unreacted: a content time equal to the reaction's time (a rename)"
+mkct 2026-10-17T20:00:00Z 2026-10-17T20:10:46Z null 2026-10-17T20:10:39Z
+o="$(newout)"
+FX_RX="$RXF" FX_ISSUE2="$tmp/issue2.json" FX_CT="$tmp/ct.json" run fetch 611 "$o"
+stop_is unreacted "$o"
+
+desc="a failed content-time query is unreachable"
+o="$(newout)"
+FX_RX="$RXF" FX_ISSUE2="$tmp/issue2.json" FX_CT_FAIL=1 run fetch 611 "$o"
+stop_is unreachable "$o"
+
+CTOK='"createdAt":"2026-10-17T20:00:00Z","updatedAt":"2026-10-17T20:10:46Z"'
+n=0
+for v in \
+  'an errors key|{"errors":[{"message":"x"}],"data":{"repository":{"issue":{'"$CTOK"',"lastEditedAt":null,"timelineItems":{"nodes":[]}}}}}' \
+  'a null issue|{"data":{"repository":{"issue":null}}}' \
+  'a missing data key|{}' \
+  'an absent lastEditedAt|{"data":{"repository":{"issue":{'"$CTOK"',"timelineItems":{"nodes":[]}}}}}' \
+  'a malformed lastEditedAt|{"data":{"repository":{"issue":{'"$CTOK"',"lastEditedAt":"2026-10-17 20:00:00","timelineItems":{"nodes":[]}}}}}' \
+  'a numeric lastEditedAt|{"data":{"repository":{"issue":{'"$CTOK"',"lastEditedAt":5,"timelineItems":{"nodes":[]}}}}}' \
+  'a missing nodes key|{"data":{"repository":{"issue":{'"$CTOK"',"lastEditedAt":null,"timelineItems":{}}}}}' \
+  'a nodes object|{"data":{"repository":{"issue":{'"$CTOK"',"lastEditedAt":null,"timelineItems":{"nodes":{}}}}}}' \
+  'a null nodes|{"data":{"repository":{"issue":{'"$CTOK"',"lastEditedAt":null,"timelineItems":{"nodes":null}}}}}' \
+  'a node without createdAt|{"data":{"repository":{"issue":{'"$CTOK"',"lastEditedAt":null,"timelineItems":{"nodes":[{}]}}}}}' \
+  'a node with a malformed createdAt|{"data":{"repository":{"issue":{'"$CTOK"',"lastEditedAt":null,"timelineItems":{"nodes":[{"createdAt":"yesterday"}]}}}}}' \
+  'two nodes|{"data":{"repository":{"issue":{'"$CTOK"',"lastEditedAt":null,"timelineItems":{"nodes":[{"createdAt":"2026-10-17T20:01:00Z"},{"createdAt":"2026-10-17T20:02:00Z"}]}}}}}' \
+  'an updatedAt unequal to the second copy|{"data":{"repository":{"issue":{"createdAt":"2026-10-17T20:00:00Z","updatedAt":"2026-10-17T20:10:47Z","lastEditedAt":null,"timelineItems":{"nodes":[]}}}}}' \
+  'a malformed createdAt|{"data":{"repository":{"issue":{"createdAt":"x","updatedAt":"2026-10-17T20:10:46Z","lastEditedAt":null,"timelineItems":{"nodes":[]}}}}}' \
+  'a missing createdAt|{"data":{"repository":{"issue":{"updatedAt":"2026-10-17T20:10:46Z","lastEditedAt":null,"timelineItems":{"nodes":[]}}}}}' \
+  'a non-string updatedAt|{"data":{"repository":{"issue":{"createdAt":"2026-10-17T20:00:00Z","updatedAt":5,"lastEditedAt":null,"timelineItems":{"nodes":[]}}}}}' \
+  'a response that is not JSON|'"$MARK"' not json {'; do
+  n=$((n + 1))
+  desc="content-time response with ${v%%|*} is unreadable"
+  printf '%s\n' "${v#*|}" >"$tmp/ct.json"
+  o="$(newout)"
+  FX_RX="$RXF" FX_ISSUE2="$tmp/issue2.json" FX_CT="$tmp/ct.json" run fetch 611 "$o"
+  stop_is unreadable "$o"
+done
+
+# a maintainer's issue and a legacy issue make no content-time query
+setyml "$tmp/map.yml"
+mkissue maint 100 '"OWNER"'
+desc="no content-time query for a declared maintainer's issue"
+o="$(newout)"
+run fetch 611 "$o"
+assert_eq "$desc (line)" "ok B=acme/backlog BASE=main VERDICT=trusted ASSOC=OWNER" "$out"
+assert_eq "$desc (no graphql call)" 0 "$(grep -c graphql "$glog" || true)"
+setyml "$tmp/legacy.yml"
+desc="no content-time query under identities: null"
+o="$(newout)"
+run fetch 611 "$o"
+assert_eq "$desc (line)" "ok B=acme/backlog BASE=main VERDICT=legacy ASSOC=OWNER" "$out"
+assert_eq "$desc (no graphql call)" 0 "$(grep -c graphql "$glog" || true)"
+setyml "$tmp/map.yml"
+mkissue 'dev[bot]' 200 '"NONE"'
+mkrx "$RXF" "$RX_GOOD"
 
 desc="unreacted: the reviewer App's own +1 on its issue"
 mkissue 'rev[bot]' 300 '"NONE"'
@@ -1029,6 +1151,8 @@ assert_eq "$desc (stop line)" "stopped: no word" "$("$real_cat" "$tmp/snip.err")
 
 # -- every gh call is a GET; the marker never reaches the script's streams -----------------------
 assert_eq "gh calls were made" yes "$([ -s "$gall" ] && echo yes || echo no)"
-assert_eq "every gh call is a GET" 0 "$(grep -c -e '|-X|' -e '|--method|' -e '|-f|' -e '|-F|' -e '|--field|' -e '|--raw-field|' -e '|--input|' -e 'graphql' "$gall" || true)"
+# the one exception is the read-only content-time query's exact argv (#890), and nothing else
+assert_eq "the content-time query was made" yes "$(grep -qxF -e "$CTLINE" "$gall" && echo yes || echo no)"
+assert_eq "every gh call is a GET, but the one content-time query" 0 "$(grep -vxF -e "$CTLINE" "$gall" | grep -c -e '|-X|' -e '|--method|' -e '|-f|' -e '|-F|' -e '|--field|' -e '|--raw-field|' -e '|--input|' -e 'graphql' || true)"
 
 exit "$fail"

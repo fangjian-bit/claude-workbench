@@ -23,7 +23,8 @@
 #   repo-mismatch  the default branch's project.yml `.repo` is not the origin's repository
 #   bad-backlog    `backlog.repo` (null or absent means the origin's repository) is not owner/name
 #   bad-base       `pr_base` is empty, begins with `-` or holds an unusual character
-#   unreachable    the backlog's `.permissions` read or the issue fetch failed
+#   unreachable    the backlog's `.permissions` read or the issue fetch failed, or (App-filed path) the
+#                  reactions read, the second fetch or the content-time query failed
 #   not-an-issue   the response has a `pull_request` key
 #   loop-identity  the author is `orchestration.loop_identity`, before any trust check
 #   untrusted      the author is not trusted (`gh-identity.sh task-author`: not a declared maintainer,
@@ -31,8 +32,8 @@
 #                  could not judge (exit 2: a malformed `identities`, an id declared twice), so the
 #                  word can mean a broken config, not only a hostile author.
 #   unreacted      the author is the declared dev or reviewer App (`agent`, WB-D32, #664) and no
-#                  declared maintainer has reacted approvingly to the issue strictly after its last
-#                  update (spec-reaction.sh, the rule spec comments follow)
+#                  declared maintainer has reacted approvingly to the issue strictly after the time its
+#                  content last changed (spec-reaction.sh, the rule spec comments follow; #890)
 #   hidden         an `agent` author's reacted title or body carries text a reader of the rendered
 #                  issue cannot see: an opener, a character reference, a link definition line or a
 #                  default-ignorable character (see below)
@@ -62,7 +63,8 @@
 # piped into a predicate: it is captured to a file first and a failed call stops before the
 # predicate runs (the rule invariants check 11 enforces in skills; it does not scan bin/, so this
 # header states it as part of the script's contract). `gh api` is GET only: no -X, -f, -F, --field,
-# --raw-field or --input, and no graphql.
+# --raw-field or --input, and no graphql -- except the one content-time query below (#890), a read-only
+# GraphQL query that `gh` sends as a POST with -f/-F variables.
 #
 # The App-filed path (WB-D32, #664). `gh-identity.sh task-author` says `trusted` for a declared
 # maintainer, `legacy` under `identities: null` (`legacy` as before; `trusted` now first needs
@@ -76,15 +78,26 @@
 #      and task-author checks are re-run on that copy, which must name the same login and id, and
 #      its `updated_at`, `title` and `body` must have the shapes a string-or-null field has;
 #   3. the maintainer ids are read from the default branch's copy, as spec-comment.sh reads them;
-#   4. `spec-reaction.sh` says `approved` for the second copy's `updated_at` (else `unreacted`);
+#   4. `spec-reaction.sh` says `approved` for the issue's content time (else `unreacted`): the latest
+#      of its creation time, its body's last edit (GraphQL `lastEditedAt`, null when never edited) and
+#      its newest title rename (a `RenamedTitleEvent`), read by one GraphQL query after the second
+#      copy and checked to carry the second copy's `updated_at`, so the time and the kept text are
+#      one state (#890; a change between the two reads stops `unreadable`, and a rerun judges afresh). A failed
+#      call, which includes a response `gh` reports as an error, stops `unreachable`; a null issue or
+#      any other shape stops `unreadable`;
 #   5. the second copy's title and body are screened for text a reader of the rendered issue
 #      cannot see (else `hidden`);
 #   6. the second copy is the one renamed to `issue.json`, and `ASSOC` is taken from it.
-# The reactions are read FIRST, so an edit after that read moves `updated_at` past the reaction and
-# reads `unreacted`. Measured on 2026-10-17 (scratch issue #706): adding a reaction does not move an
-# issue's `updated_at` (a reaction at 20:10:39 left it at 20:10:28, on two reads); a body edit moved
-# it (20:10:46) and so did a title edit (20:10:52). plan-anchor.sh's header records the same for
-# comments (#498). The `hidden` screen decodes the JSON first (`yq -p=json` into a file, matched with
+# The reactions are read FIRST, so an edit to the title or body after that read moves the content time
+# past the reaction and reads `unreacted`. A comment, a label or a milestone change moves `updated_at`
+# but not the content time, so it leaves the reaction standing. Measured on 2026-10-17 (scratch issue
+# #706): adding a reaction does not move an issue's `updated_at` (a reaction at 20:10:39 left it at
+# 20:10:28, on two reads); a body edit moved it (20:10:46) and so did a title edit (20:10:52).
+# Measured on 2026-10-22 (scratch issue #909): a comment, a label add and a milestone set each moved
+# `updated_at` and left the content time at the creation time; a body edit moved `lastEditedAt` and
+# the content time (14:09:45, then 14:09:50), a title edit moved the rename event's time and the
+# content time (14:09:55); deleting an earlier body revision in the browser changed neither. plan-anchor.sh's
+# header records the same for comments (#498). The `hidden` screen decodes the JSON first (`yq -p=json` into a file, matched with
 # `awk` under LC_ALL=C, the patterns passed through ENVIRON), so a JSON escape cannot hide a match. It
 # refuses an opener (`<!` or `<?`, an HTML comment, declaration, CDATA section or processing instruction opener, or a `<` and a
 # slash followed by a character that is not an ASCII letter or by the end of the line, a bogus closing tag), a CR that is not the last character of its line (a browser-edited
@@ -335,6 +348,47 @@ agent_path() {
   [ -n "$maint_ids" ] || stop unreadable
   m_good="$(printf '%s' "$maint_ids" | awk -F, '{print NF}')" || stop unreadable
   [ "$m_good" = "$m_total" ] || stop unreadable
+  # 3b. the content time (#890, WB-D32): the latest of the issue's creation, its body's last edit and its
+  # newest title rename, so a comment, a label or a milestone change leaves a reaction standing
+  gh api graphql -f query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){createdAt updatedAt lastEditedAt timelineItems(itemTypes:[RENAMED_TITLE_EVENT],last:1){nodes{... on RenamedTitleEvent{createdAt}}}}}}' -f owner="${backlog%%/*}" -f name="${backlog#*/}" -F number="$n" >"$tmp/ct.json" 2>/dev/null || stop unreachable
+  CT() { yq -p=json -o=yaml "$1" "$tmp/ct.json" 2>/dev/null; }
+  ct_ts() {
+    case "$1" in
+      [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) : ;;
+      *) stop unreadable ;;
+    esac
+  }
+  [ "$(CT 'has("errors")')" = false ] || stop unreadable
+  [ "$(CT '.data.repository.issue | tag')" = '!!map' ] || stop unreadable
+  [ "$(CT '.data.repository.issue | has("lastEditedAt")')" = true ] || stop unreadable
+  [ "$(CT '.data.repository.issue.timelineItems.nodes | tag')" = '!!seq' ] || stop unreadable
+  ct_created="$(CT '.data.repository.issue.createdAt')" || stop unreadable
+  ct_upd="$(CT '.data.repository.issue.updatedAt')" || stop unreadable
+  [ "$(CT '[(.data.repository.issue.createdAt | tag), (.data.repository.issue.updatedAt | tag)] | join(",")')" = '!!str,!!str' ] || stop unreadable
+  ct_ts "$ct_created"
+  ct_ts "$ct_upd"
+  [ "$ct_upd" = "$i_updated" ] || stop unreadable
+  ct_time="$ct_created"
+  case "$(CT '.data.repository.issue.lastEditedAt | tag')" in
+    '!!null') : ;;
+    '!!str')
+      ct_edit="$(CT '.data.repository.issue.lastEditedAt')" || stop unreadable
+      ct_ts "$ct_edit"
+      ct_time="$(printf '%s\n%s\n' "$ct_time" "$ct_edit" | LC_ALL=C awk '$0 > m { m = $0 } END { print m }')" || stop unreadable
+      ;;
+    *) stop unreadable ;;
+  esac
+  case "$(CT '.data.repository.issue.timelineItems.nodes | length')" in
+    0) : ;;
+    1)
+      [ "$(CT '.data.repository.issue.timelineItems.nodes[0].createdAt | tag')" = '!!str' ] || stop unreadable
+      ct_ren="$(CT '.data.repository.issue.timelineItems.nodes[0].createdAt')" || stop unreadable
+      ct_ts "$ct_ren"
+      ct_time="$(printf '%s\n%s\n' "$ct_time" "$ct_ren" | LC_ALL=C awk '$0 > m { m = $0 } END { print m }')" || stop unreadable
+      ;;
+    *) stop unreadable ;;
+  esac
+  i_updated="$ct_time"
   # 4. the approval
   if got="$(sh "$sr" "$i_updated" "$maint_ids" <"$tmp/reactions.tsv" 2>/dev/null)" && [ "$got" = approved ]; then
     :

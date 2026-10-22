@@ -939,8 +939,8 @@ if want 18; then
 # bin/spec-post.sh, which the skill must name as `spec-post.sh post`, and that script must exist.
 # In it, lines whose first non-blank character is `#` are dropped BEFORE wrapped lines are joined (a
 # shell comment never continues, except a `#` line right after a backslash-ended line, which the shell joins), and after that every line matching those same write patterns must
-# equal, trimmed, one of three exact lines, compared as fixed strings: the viewer read, the comment
-# POST and the label POST its `escalate` mode makes (#746). Each appears exactly once, and no line contains `eval` as a word. It is a static check on prose
+# equal, trimmed, one of four exact lines, compared as fixed strings: the viewer read, the content-time
+# query (#890), the comment POST and the label POST its `escalate` mode makes (#746). Each appears exactly once, and no line contains `eval` as a word. It is a static check on prose
 # and a script, not a proof about a model's behaviour: a write through a function wrapper or
 # `"$GH"` is outside it, and tests/spec-post.test.sh is the control for those. A tree with no
 # spec-task skill or no spec-post.sh fails: a check that cannot look must not pass (#243's stance).
@@ -991,8 +991,9 @@ if [ -n "$spectask_hits" ]; then
     "The skill carries no gh issue/pr write, gh label or gh api write. See docs/decisions.md WB-D29."
 fi
 
-# The three exact lines spec-post.sh may carry, compared as fixed strings after trimming blanks.
+# The four exact lines spec-post.sh may carry, compared as fixed strings after trimming blanks.
 spectask_viewer='gh api --hostname github.com graphql -f query='\''{ viewer { login databaseId } }'\'' --jq '\''[.data.viewer.login, .data.viewer.databaseId] | @tsv'\'' >"$tmp/viewer" 2>/dev/null || held actor-unreadable'
+spectask_ctime='gh api --hostname github.com graphql -f query='\''query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){createdAt updatedAt lastEditedAt timelineItems(itemTypes:[RENAMED_TITLE_EVENT],last:1){nodes{... on RenamedTitleEvent{createdAt}}}}}}'\'' -f owner="${backlog%%/*}" -f name="${backlog#*/}" -F number="$n" >"$tmp/ct.json" 2>/dev/null || stop unreachable'
 spectask_post='gh api --hostname github.com --method POST "repos/$backlog/issues/$n/comments" -F body=@- <"$tmp/body.md" >"$tmp/resp.json" 2>/dev/null || stop post-unknown'
 spectask_label='gh api --hostname github.com --method POST "repos/$backlog/issues/$n/labels" -f '\''labels[]=status/needs-human'\'' </dev/null >/dev/null 2>&1 || lbl=label-failed'
 spectask_posts_seen=0
@@ -1008,7 +1009,7 @@ for f in plugins/*/bin/spec-post.sh; do
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     t=$(printf '%s' "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-    if [ "$t" != "$spectask_viewer" ] && [ "$t" != "$spectask_post" ] && [ "$t" != "$spectask_label" ]; then
+    if [ "$t" != "$spectask_viewer" ] && [ "$t" != "$spectask_ctime" ] && [ "$t" != "$spectask_post" ] && [ "$t" != "$spectask_label" ]; then
       odd+="$f: $t"$'\n'
     fi
   done <<EOF_WRITES
@@ -1016,15 +1017,16 @@ $writes
 EOF_WRITES
   # `sort -u` above collapses a repeated line, so each pinned line is counted on the joined text.
   n_viewer=$(printf '%s\n' "$joined" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | grep -cxF -e "$spectask_viewer" || true)
+  n_ctime=$(printf '%s\n' "$joined" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | grep -cxF -e "$spectask_ctime" || true)
   n_post=$(printf '%s\n' "$joined" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | grep -cxF -e "$spectask_post" || true)
   n_label=$(printf '%s\n' "$joined" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | grep -cxF -e "$spectask_label" || true)
-  [ -z "$odd" ] || report "spec-post.sh carries a gh write line other than the three pinned ones (#661, #746)" \
+  [ -z "$odd" ] || report "spec-post.sh carries a gh write line other than the four pinned ones (#661, #746, #890)" \
     "$odd" \
-    "Only the viewer read, the one comment POST and the one label POST are allowed, spelled exactly. See docs/decisions.md WB-D29."
-  if [ "$n_viewer" -ne 1 ] || [ "$n_post" -ne 1 ] || [ "$n_label" -ne 1 ]; then
-    report "spec-post.sh must carry each pinned gh line exactly once (#661, #746)" \
-      "$f: viewer read x$n_viewer, comment POST x$n_post, label POST x$n_label" \
-      "The viewer read, the comment POST and the label POST each appear exactly once, spelled exactly. See docs/decisions.md WB-D29."
+    "Only the viewer read, the content-time query, the one comment POST and the one label POST are allowed, spelled exactly. See docs/decisions.md WB-D29."
+  if [ "$n_viewer" -ne 1 ] || [ "$n_ctime" -ne 1 ] || [ "$n_post" -ne 1 ] || [ "$n_label" -ne 1 ]; then
+    report "spec-post.sh must carry each pinned gh line exactly once (#661, #746, #890)" \
+      "$f: viewer read x$n_viewer, content-time query x$n_ctime, comment POST x$n_post, label POST x$n_label" \
+      "The viewer read, the content-time query, the comment POST and the label POST each appear exactly once, spelled exactly. See docs/decisions.md WB-D29."
   fi
   ev=$(printf '%s\n' "$joined" | grep -nE '(^|[^A-Za-z0-9_])eval([^A-Za-z0-9_]|$)' || true)
   [ -z "$ev" ] || report "spec-post.sh uses eval (#661)" \

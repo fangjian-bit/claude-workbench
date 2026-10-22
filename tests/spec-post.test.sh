@@ -75,6 +75,16 @@ if [ "$1 $2" = "repo view" ]; then
   exit 0
 fi
 case "$*" in
+  *lastEditedAt*)
+    # the content-time query (#890): FX_CT is the response; by default a never-edited issue created at the
+    # served copy's updated_at, so its content time is that updated_at
+    [ -z "${FX_CT_FAIL:-}" ] || fail_with
+    if [ -n "${FX_CT:-}" ]; then "$FX_CAT" "$FX_CT"; exit 0; fi
+    src="$FX_ISSUE"
+    [ -z "${FX_ISSUE2:-}" ] || src="$FX_ISSUE2"
+    u="$(sed -n 's/.*"updated_at":"\([^"]*\)".*/\1/p' "$src")"
+    printf '{"data":{"repository":{"issue":{"createdAt":"%s","updatedAt":"%s","lastEditedAt":null,"timelineItems":{"nodes":[]}}}}}\n' "$u" "$u"
+    ;;
   *graphql*)
     [ -z "${FX_VIEWER_FAIL:-}" ] || fail_with
     printf '%s\t%s\n' "$FX_VLOGIN" "$FX_VID"
@@ -278,11 +288,11 @@ reset_fx() {
   FX_NWO=acme/repo FX_DEF=main FX_ISSUE="$tmp/issue.json" FX_RESP="$tmp/resp.json"
   FX_VLOGIN='dev[bot]' FX_VID=200
   FX_VIEW_FAIL= FX_ISSUE_FAIL= FX_VIEWER_FAIL= FX_POST_FAIL= FX_HOOK=
-  FX_RX= FX_RX_FAIL= FX_ISSUE2= FX_ISSUE2_FAIL=
+  FX_RX= FX_RX_FAIL= FX_ISSUE2= FX_ISSUE2_FAIL= FX_CT= FX_CT_FAIL=
   FX_LABELS="$tmp/labels.txt" FX_LBLR_FAIL= FX_LBLW_FAIL=
   export FX_LABELS FX_LBLR_FAIL FX_LBLW_FAIL
   export FX_NWO FX_DEF FX_ISSUE FX_RESP FX_VLOGIN FX_VID FX_VIEW_FAIL FX_ISSUE_FAIL FX_VIEWER_FAIL FX_POST_FAIL FX_HOOK
-  export FX_RX FX_RX_FAIL FX_ISSUE2 FX_ISSUE2_FAIL
+  export FX_RX FX_RX_FAIL FX_ISSUE2 FX_ISSUE2_FAIL FX_CT FX_CT_FAIL
   printf 'bug\nstatus/needs-human\n' >"$tmp/labels.txt"
   mkissue maint 100 '"OWNER"'
   mkresp 777 'dev[bot]' 200 661
@@ -295,8 +305,23 @@ calls() { # calls <log> -- the number of lines
   while IFS= read -r _; do n=$((n + 1)); done <"$1"
   echo "$n"
 }
-writes() { # every gh call that is not a known read (repo view, the issue GET, its reactions GET, the exact viewer query)
-  grep -vc -e '^repo|view|' -e '^api|--hostname|github.com|repos/[^|]*/issues/[0-9]*|$' -e '^api|--hostname|github.com|repos/[^|]*/issues/[0-9]*/reactions|--paginate|--jq|' -e '^api|--hostname|github.com|graphql|-f|query={ viewer { login databaseId } }|--jq|' -e '^api|--hostname|github.com|repos/[^|]*/labels?per_page=100|--paginate|--jq|.\[\].name|' "$glog" || true
+writes() { # every gh call that is not a known read (repo view, the issue GET, its reactions GET, the exact viewer query, the exact content-time query)
+  grep -vxF -e "$CTLINE" "$glog" | grep -vc -e '^repo|view|' -e '^api|--hostname|github.com|repos/[^|]*/issues/[0-9]*|$' -e '^api|--hostname|github.com|repos/[^|]*/issues/[0-9]*/reactions|--paginate|--jq|' -e '^api|--hostname|github.com|graphql|-f|query={ viewer { login databaseId } }|--jq|' -e '^api|--hostname|github.com|repos/[^|]*/labels?per_page=100|--paginate|--jq|.\[\].name|' || true
+}
+# the content-time query text, read back from the script, and the argv line the stub logs for it
+CTQ="$(sed -n "s/^  gh api --hostname github.com graphql -f query='\(.*\)' -f owner=.*/\1/p" "$script")"
+assert_eq "the script carries one content-time query line" yes "$([ -n "$CTQ" ] && [ "$(printf '%s\n' "$CTQ" | wc -l)" -eq 1 ] && echo yes || echo no)"
+CTLINE="api|--hostname|github.com|graphql|-f|query=$CTQ|-f|owner=acme|-f|name=backlog|-F|number=661|"
+# the same text in spec-issue.sh: the two scripts query the content time identically
+ISSUE_CTQ="$(sed -n "s/^  gh api graphql -f query='\(.*\)' -f owner=.*/\1/p" "$bindir/spec-issue.sh")"
+assert_eq "the content-time query text is equal in spec-issue.sh and spec-post.sh" "$CTQ" "$ISSUE_CTQ"
+# mkct <created> <updated> <lastEditedAt-json> [rename-createdAt ...] -- the query's response, to $tmp/ct.json
+mkct() {
+  _c="$1"; _u="$2"; _e="$3"; shift 3
+  _nodes=
+  for _n in "$@"; do _nodes="${_nodes:+$_nodes,}{\"createdAt\":\"$_n\"}"; done
+  printf '{"data":{"repository":{"issue":{"createdAt":"%s","updatedAt":"%s","lastEditedAt":%s,"timelineItems":{"nodes":[%s]}}}}}\n' \
+    "$_c" "$_u" "$_e" "$_nodes" >"$tmp/ct.json"
 }
 lblcalls() { # lblcalls <read|write> -- the number of label reads or label writes in the gh log
   case "$1" in
@@ -878,6 +903,7 @@ mkissue someone 7 '"COLLABORATOR"'
 o="$(newdir)"
 post "$dr/draft.md" "$o"
 held_is no-identities "$o"
+assert_eq "$desc (no content-time query)" 0 "$(grep -c lastEditedAt "$glog" || true)"
 desc="legacy: a CONTRIBUTOR author is untrusted"
 mkissue someone 7 '"CONTRIBUTOR"'
 o="$(newdir)"
@@ -1095,6 +1121,7 @@ repo|view|$ourl|--json|defaultBranchRef|--jq|.defaultBranchRef.name // \"\"|
 api|--hostname|github.com|repos/acme/backlog/issues/661|
 api|--hostname|github.com|repos/acme/backlog/issues/661/reactions|--paginate|--jq|.[] | [(.user.id|tostring), .content, .created_at] | @tsv|
 api|--hostname|github.com|repos/acme/backlog/issues/661|
+$CTLINE
 api|--hostname|github.com|graphql|-f|query={ viewer { login databaseId } }|--jq|[.data.viewer.login, .data.viewer.databaseId] | @tsv|
 api|--hostname|github.com|--method|POST|repos/acme/backlog/issues/661/comments|-F|body=@-|" "$("$real_cat" "$glog")"
 
@@ -1161,13 +1188,111 @@ o="$(newdir)"
 FX_RX="$RXF" post "$dr2/draft.md" "$o"
 stop_is unreacted
 
-desc="unreacted: the second copy's updated_at moved past the reaction"
+desc="unreacted: the second copy's content time moved past the reaction (a never-edited issue created at its updated_at)"
 mkrx "$RXF" "$RX_GOOD"
 mkissue2 'dev[bot]' 200 '"NONE"' open false - 2026-10-17T20:10:46Z
 mkissue 'dev[bot]' 200 '"NONE"'
 o="$(newdir)"
 FX_RX="$RXF" FX_ISSUE2="$tmp/issue2.json" post "$dr2/draft.md" "$o"
 stop_is unreacted
+
+# -- the content time (#890): a comment, a label or a milestone change moves updated_at, not the content time
+ctissues() { # the App-filed issue and its second copy; every run resets the fixture to a maintainer's issue
+  mkissue 'dev[bot]' 200 '"NONE"'
+  mkissue2 'dev[bot]' 200 '"NONE"' open false - 2026-10-17T20:10:46Z '"second title"' '"second body"'
+}
+ctissues
+desc="reacted pass: updated_at after the reaction, content time before it, the comment is posted"
+mkct 2026-10-17T20:00:00Z 2026-10-17T20:10:46Z null
+ctissues
+o="$(newdir)"
+FX_RX="$RXF" FX_ISSUE2="$tmp/issue2.json" FX_CT="$tmp/ct.json" post "$dr2/draft.md" "$o"
+assert_eq "$desc (line)" "posted 777 dev[bot] https://github.com/acme/backlog/issues/661#issuecomment-777" "$out"
+
+desc="reacted pass: an earlier body edit and an earlier rename"
+mkct 2026-10-17T20:00:00Z 2026-10-17T20:10:46Z '"2026-10-17T20:05:00Z"' 2026-10-17T20:08:00Z
+ctissues
+o="$(newdir)"
+FX_RX="$RXF" FX_ISSUE2="$tmp/issue2.json" FX_CT="$tmp/ct.json" post "$dr2/draft.md" "$o"
+assert_eq "$desc (line)" "posted 777 dev[bot] https://github.com/acme/backlog/issues/661#issuecomment-777" "$out"
+
+desc="unreacted: a body edit after the reaction"
+mkct 2026-10-17T20:00:00Z 2026-10-17T20:10:46Z '"2026-10-17T20:10:46Z"'
+ctissues
+o="$(newdir)"
+FX_RX="$RXF" FX_ISSUE2="$tmp/issue2.json" FX_CT="$tmp/ct.json" post "$dr2/draft.md" "$o"
+stop_is unreacted
+assert_eq "$desc (no write)" 0 "$(writes)"
+
+desc="unreacted: a body edit after the reaction, with an older rename (the latest time wins, not the last read)"
+mkct 2026-10-17T20:00:00Z 2026-10-17T20:10:46Z '"2026-10-17T20:10:46Z"' 2026-10-17T20:08:00Z
+ctissues
+o="$(newdir)"
+FX_RX="$RXF" FX_ISSUE2="$tmp/issue2.json" FX_CT="$tmp/ct.json" post "$dr2/draft.md" "$o"
+stop_is unreacted
+
+desc="unreacted: a title rename after the reaction"
+mkct 2026-10-17T20:00:00Z 2026-10-17T20:10:46Z null 2026-10-17T20:10:46Z
+ctissues
+o="$(newdir)"
+FX_RX="$RXF" FX_ISSUE2="$tmp/issue2.json" FX_CT="$tmp/ct.json" post "$dr2/draft.md" "$o"
+stop_is unreacted
+
+desc="unreacted: a content time equal to the reaction's time (a body edit)"
+mkct 2026-10-17T20:00:00Z 2026-10-17T20:10:46Z '"2026-10-17T20:10:39Z"'
+ctissues
+o="$(newdir)"
+FX_RX="$RXF" FX_ISSUE2="$tmp/issue2.json" FX_CT="$tmp/ct.json" post "$dr2/draft.md" "$o"
+stop_is unreacted
+
+desc="unreacted: a content time equal to the reaction's time (a rename)"
+mkct 2026-10-17T20:00:00Z 2026-10-17T20:10:46Z null 2026-10-17T20:10:39Z
+ctissues
+o="$(newdir)"
+FX_RX="$RXF" FX_ISSUE2="$tmp/issue2.json" FX_CT="$tmp/ct.json" post "$dr2/draft.md" "$o"
+stop_is unreacted
+
+desc="a failed content-time query is unreachable"
+ctissues
+o="$(newdir)"
+FX_RX="$RXF" FX_ISSUE2="$tmp/issue2.json" FX_CT_FAIL=1 post "$dr2/draft.md" "$o"
+stop_is unreachable
+
+CTOK='"createdAt":"2026-10-17T20:00:00Z","updatedAt":"2026-10-17T20:10:46Z"'
+for v in \
+  'an errors key|{"errors":[{"message":"x"}],"data":{"repository":{"issue":{'"$CTOK"',"lastEditedAt":null,"timelineItems":{"nodes":[]}}}}}' \
+  'a null issue|{"data":{"repository":{"issue":null}}}' \
+  'a missing data key|{}' \
+  'an absent lastEditedAt|{"data":{"repository":{"issue":{'"$CTOK"',"timelineItems":{"nodes":[]}}}}}' \
+  'a malformed lastEditedAt|{"data":{"repository":{"issue":{'"$CTOK"',"lastEditedAt":"2026-10-17 20:00:00","timelineItems":{"nodes":[]}}}}}' \
+  'a numeric lastEditedAt|{"data":{"repository":{"issue":{'"$CTOK"',"lastEditedAt":5,"timelineItems":{"nodes":[]}}}}}' \
+  'a missing nodes key|{"data":{"repository":{"issue":{'"$CTOK"',"lastEditedAt":null,"timelineItems":{}}}}}' \
+  'a nodes object|{"data":{"repository":{"issue":{'"$CTOK"',"lastEditedAt":null,"timelineItems":{"nodes":{}}}}}}' \
+  'a null nodes|{"data":{"repository":{"issue":{'"$CTOK"',"lastEditedAt":null,"timelineItems":{"nodes":null}}}}}' \
+  'a node without createdAt|{"data":{"repository":{"issue":{'"$CTOK"',"lastEditedAt":null,"timelineItems":{"nodes":[{}]}}}}}' \
+  'a node with a malformed createdAt|{"data":{"repository":{"issue":{'"$CTOK"',"lastEditedAt":null,"timelineItems":{"nodes":[{"createdAt":"yesterday"}]}}}}}' \
+  'two nodes|{"data":{"repository":{"issue":{'"$CTOK"',"lastEditedAt":null,"timelineItems":{"nodes":[{"createdAt":"2026-10-17T20:01:00Z"},{"createdAt":"2026-10-17T20:02:00Z"}]}}}}}' \
+  'an updatedAt unequal to the second copy|{"data":{"repository":{"issue":{"createdAt":"2026-10-17T20:00:00Z","updatedAt":"2026-10-17T20:10:47Z","lastEditedAt":null,"timelineItems":{"nodes":[]}}}}}' \
+  'a malformed createdAt|{"data":{"repository":{"issue":{"createdAt":"x","updatedAt":"2026-10-17T20:10:46Z","lastEditedAt":null,"timelineItems":{"nodes":[]}}}}}' \
+  'a missing createdAt|{"data":{"repository":{"issue":{"updatedAt":"2026-10-17T20:10:46Z","lastEditedAt":null,"timelineItems":{"nodes":[]}}}}}' \
+  'a non-string updatedAt|{"data":{"repository":{"issue":{"createdAt":"2026-10-17T20:00:00Z","updatedAt":5,"lastEditedAt":null,"timelineItems":{"nodes":[]}}}}}' \
+  'a response that is not JSON|'"$MARK"' not json {'; do
+  desc="content-time response with ${v%%|*} is unreadable"
+  printf '%s\n' "${v#*|}" >"$tmp/ct.json"
+  ctissues
+  o="$(newdir)"
+  FX_RX="$RXF" FX_ISSUE2="$tmp/issue2.json" FX_CT="$tmp/ct.json" post "$dr2/draft.md" "$o"
+  stop_is unreadable
+  assert_eq "$desc (no write)" 0 "$(writes)"
+done
+
+desc="no content-time query for a declared maintainer's issue"
+setyml "$tmp/map.yml"
+mkissue maint 100 '"OWNER"'
+o="$(newdir)"
+post "$dr2/draft.md" "$o"
+assert_eq "$desc (posted)" "posted 777 dev[bot] https://github.com/acme/backlog/issues/661#issuecomment-777" "$out"
+assert_eq "$desc (no content-time query)" 0 "$(grep -c lastEditedAt "$glog" || true)"
 
 # failed reads stop unreachable, never unreacted
 mkissue 'dev[bot]' 200 '"NONE"'

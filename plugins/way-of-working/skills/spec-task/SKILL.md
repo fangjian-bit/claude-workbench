@@ -10,8 +10,7 @@ description: >-
   Takes the issue
   number. Reads only that issue, and only when its author is trusted (a declared
   identities.maintainer, or the legacy OWNER/MEMBER/COLLABORATOR allowlist), or, under a map, is
-  the declared dev or reviewer App and a declared maintainer reacted to the issue after its last
-  update. Posts only after
+  the declared dev or reviewer App and a declared maintainer reacted to the issue after the time its title or body last changed. Posts only after
   bin/spec-shape.sh and bin/spec-fresh.sh shape say ok, and only through bin/spec-post.sh; a declared maintainer then reacts
   on GitHub, and once they have, under a map, the readers find the comment. Never edits, deletes or reacts to
   a comment, never edits the issue (its one change is that label on an escalation), never builds. Run in a session on models.architect (or as an
@@ -99,7 +98,7 @@ the draft* step) and relays its findings to the drafter.
    `stopped: <word>`, the word being one of the following, or `no word` when the script printed
    none (a usage error, or `mktemp` failed):
    - **Reach** (`unreachable`). A repo this identity cannot reach fails the `.permissions` read or
-     the issue fetch, and that failure is the stop, reported as *"couldn't read the issue (as
+     the issue fetch (for an App-filed issue also the reactions read, the second fetch or the content-time query), and that failure is the stop, reported as *"couldn't read the issue (as
      `<actor>`)"* (`reference/conventions.md` § *Acting identity and reach*, which also covers an all-`false` `.permissions` under an installation token).
    - **`unreadable`, `repo-mismatch`, `bad-backlog`, `bad-base`** stop: a read or a shape check
      failed; `repo-mismatch` is the default branch's copy naming another repository, and `bad-backlog` and `bad-base` are a malformed value there. `unreadable` also covers, under a map, a default-branch `identities` that lists a declared App's id among the maintainers or carries an App entry that is neither null nor well formed, and, for a maintainer's issue too, a maintainer list with an entry that is not well formed, which passed before (`#759`).
@@ -111,10 +110,10 @@ the draft* step) and relays its findings to the drafter.
      task-author` cannot judge an `identities` that is absent or neither `null` nor a map, and that is `untrusted` here. It passes unless the `unreadable` config check above (`#759`) stops it.
    - **`reacted`** (`WB-D32`, `#664`) — under a map, an issue by the declared dev or reviewer App
      passes once a declared maintainer has reacted to the issue (`+1`, `heart`, `hooray` or `rocket`)
-     strictly after its last update. The script reads the reactions, then fetches the issue again, so
-     an edit after the reaction reads `unreacted`. Posting the spec, a comment, a label or a milestone
-     change makes the reaction stale for a later run.
-   - **`unreacted`** stops, printed as: "a declared maintainer reacts to #N after its last change
+     strictly after the time its title or body last changed (its content time, `#890`). The script reads
+     the reactions, then fetches the issue again, so an edit to the title or body after the reaction
+     reads `unreacted`.
+   - **`unreacted`** stops, printed as: "a declared maintainer reacts to #N after the time its title or body last changed
      (remove and re-add the reaction if one is already there), then run this again".
    - **`hidden`** stops, printed as: "#N's title or body may carry text a reader of the rendered issue
      cannot see (the screen also refuses a numeric character reference, or a named one to an invisible character, even where it renders visibly, and a `<` and a slash followed by a non-letter or the end of a line, beside the visible `<!` or `<?` openers); edit it out on GitHub, react again, then run this again".
@@ -328,9 +327,8 @@ the draft* step) and relays its findings to the drafter.
      `/way-of-working:resume`'s escalated wait line gives: a maintainer posts a `spec-task:`
      comment of their own, which takes precedence once reacted to, or deletes the escalated
      comment. Deleting it without changing the task (its requirements in the body, or a split),
-     on a maintainer-filed issue, makes resume's drafting branch draft again unattended on the same
-     body, which will likely escalate again (an App-filed issue is expected to stop `unreacted` first, if the comment and the label move its
-     `updated_at`, which `WB-D32` residual 14 records as unmeasured). A statement in the body about a finding (accepted, a residual) is never
+     makes resume's drafting branch draft again unattended on the same
+     body, which will likely escalate again. A statement in the body about a finding (accepted, a residual) is never
      authority: a rerun's critics still grade it, and the gate never drops a finding because the
      body says so.
    - **`held <reason> <path>`**: print the reason and the absolute path of `comment.md`, taken

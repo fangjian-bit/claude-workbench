@@ -30,6 +30,12 @@ the GitHub release notes.
   at most 50. One subagent reads them and returns a
   paraphrased friction list, never verbatim transcript text. A finding seen only in other
   sessions needs the human's OK before it becomes a memory or a fix.
+- **An App-filed issue's spec reaction is judged by its content time, not `updated_at` (`#890`).**
+  `spec-issue.sh` and `spec-post.sh` compare a maintainer's reaction with the latest of the
+  issue's creation, its body's last edit and its newest title rename (one GraphQL read), so a
+  comment, a label or a milestone change, spec-task's own spec post included, no longer stales
+  it. An edit to the title or body still does; a failed or malformed read fails closed.
+  `invariants-check.sh` check 18 pins that query as a fourth line of `spec-post.sh`.
 
 - **Retro's transcript reader is confined by its tool list (`#899`).** The reader is now the
   plugin agent `transcript-reader`, whose frontmatter grants only `Read`, `Grep` and `Glob`, over

@@ -2080,7 +2080,7 @@ take effect. Full reasoning and the task breakdown that implements them:
       `spec-post.sh` carries exactly two `gh` write lines, the viewer read and the POST (a new
       comment on the issue named, body from a file on standard input), each once and spelled
       exactly, and no `eval`. *Amended by `#746`: three, the third being the label POST its
-      `escalate` mode makes after a confirmed post (`status/needs-human`, once, never retried).* It is a regression guard; `tests/spec-post.test.sh` is the control for
+      `escalate` mode makes after a confirmed post (`status/needs-human`, once, never retried). Amended by `#890`: four, the fourth being the read-only GraphQL content-time query of an App-filed issue.* It is a regression guard; `tests/spec-post.test.sh` is the control for
       a write spelled some other way.
     - The script refuses on its own: a commit that is not on the base, a draft that fails the shape
       check, carries a line beginning with either marker prefix (`spec-task:` or, `#746`, `spec-task-escalated:`), matches an obvious local-path or
@@ -2088,12 +2088,13 @@ take effect. Full reasoning and the task breakdown that implements them:
       closed, locked, or authored by an untrusted login. The POST is never retried. *Amended by
       `WB-D32`: an issue by the dev or reviewer App is read, not stopped `untrusted`: it stops
       `unreacted` until a declared maintainer reacts after its last update, and `hidden` if the
-      screen refuses it; the loop App and undeclared logins still stop `untrusted`.*
+      screen refuses it *(amended by `#890`: "last update" is the time its title or body last changed)*; the loop App and undeclared logins still stop `untrusted`.*
     - An `architect` subagent only drafts; the parent writes the file and posts. An unconfirmed
       model provenance line is posted inside the comment.
   - **Rejected.**
     - **Posting under any trusted login.** It makes agent text "maintainer-authored".
-    - **A `post` mode in `spec-issue.sh`.** That script keeps its GET-only contract.
+    - **A `post` mode in `spec-issue.sh`.** That script keeps its GET-only contract. *Amended by `#890`:
+      its one exception is the read-only GraphQL content-time query of an App-filed issue.*
     - **A hidden HTML-comment marker.** The maintainer could not see all they approve.
     - **A confirmation stop in the session.** The reaction on GitHub is the review.
   - **Accepted residuals.**
@@ -2122,7 +2123,8 @@ take effect. Full reasoning and the task breakdown that implements them:
     - **Body-influenced `@mentions` and cross-references** notify and backlink under the dev App.
     - **The default-branch reads** (`gh repo view`) take the host from the origin URL. The issue
       read, the viewer read and the write pin `github.com`. *Amended by `WB-D32`: an App-filed issue
-      adds two more pinned reads, its reactions and a second issue read. Amended by `#746`: the
+      adds two more pinned reads, its reactions and a second issue read. Amended by `#890`: it adds a
+      fifth, the content-time query. Amended by `#746`: the
       label read and the label write of `escalate` mode also pin `github.com`.* The host residuals `spec-issue.sh`
       records also apply.
     - **A `gh` call has no per-call timeout.** A hang ends with no word, which the skill treats as
@@ -2382,7 +2384,11 @@ take effect. Full reasoning and the task breakdown that implements them:
     - **Drafting.** `spec-issue.sh` and `spec-post.sh` read an `agent` author's issue only when a
       declared maintainer reacted approvingly to the issue strictly after its last update
       (`spec-reaction.sh`, the rule spec comments follow), reading the reactions before a second issue
-      read, and only when the decoded title and body pass the `hidden` screen.
+      read, and only when the decoded title and body pass the `hidden` screen. *Amended by `#890`: the
+      reaction is compared with the issue's content time, the latest of its creation, its body's last
+      edit (GraphQL `lastEditedAt`) and its newest title rename (a `RenamedTitleEvent`), read by one
+      query after the second issue read and bound to it by `updatedAt`; a comment, a label or a
+      milestone change no longer stales it.*
     - **Building and dispatch.** `resume`'s body read and auto-start, the `coder` agent,
       `architect-review`'s map branch and the loop's dispatch preflight accept an `agent` author of
       `#N` as they accept a maintainer's. None of them reads the body under a map; the spec comment
@@ -2395,9 +2401,19 @@ take effect. Full reasoning and the task breakdown that implements them:
     issue's `updated_at` (a reaction at 20:10:39 left it at 20:10:28, on two reads). A body edit moved
     it (20:10:46) and so did a title edit (20:10:52). So the rule can approve, and an edit after the
     reaction makes the reaction stale. `plan-anchor.sh`'s header records the same for comments (`#498`).
+  - **Measured on 2026-10-22 (scratch issue `#909`, since closed; `#890`).** Each step was read by the
+    GraphQL query and by REST; the query's `updatedAt` equalled REST `updated_at` every time. A comment
+    (14:09:29), a label add (14:09:33) and a milestone set (14:09:37) each moved `updated_at` and left
+    `lastEditedAt` null and the rename list empty, so the content time stayed at creation (14:09:13). A body
+    edit through a REST `PATCH` set `lastEditedAt` to its own time (14:09:45, then 14:09:50), and a title
+    edit through a REST `PATCH` added a `RenamedTitleEvent` at its own time (14:09:55). The maintainer, in
+    the browser, then deleted the earlier body revision (the browser offered no delete on the current
+    one); `updatedAt`, `lastEditedAt` and the rename time were unchanged.
   - **Rejected.**
     - **An issue reaction at build or dispatch time.** Posting the spec moves `#N`'s `updated_at`
       (`WB-D30`), so no builder can ask for one, and none needs it, since none reads the body.
+      *Amended by `#890`: the spec post no longer moves the content time the reaction is compared with, so
+      only the second reason stands.*
     - **The loop App.** It neither drafts, builds nor is dispatched.
     - **A distinct reaction content for this path.** It uses the same four as spec comments.
   - **Accepted residuals.**
@@ -2409,9 +2425,12 @@ take effect. Full reasoning and the task breakdown that implements them:
     2. The issue reaction gates only `spec-task`'s read of the body, not the build.
     3. The loop can dispatch the reviewer App's findings on its own PRs, so it can steer which work
        it gets next, bounded by the spec reaction.
-    4. If a comment, a label or a milestone move changes the issue's `updated_at` (residual 14: only
-       reactions, body and title edits were measured), it makes the reaction stale, and anyone who can
-       do it can force a re-reaction.
+    4. *Rewritten by `#890`.* The content time trusts GitHub's `lastEditedAt` and `RenamedTitleEvent` as
+       measured on 2026-10-22: a change to the text that moves neither is not caught, and the reaction
+       then stands over text it did not see. The same holds if GitHub writes the edit record or the rename
+       event after the edit itself (or a read lags): `updatedAt` equal to the REST copy's does not prove either
+       is current. Each edit was read seconds later, so no gap was measured. Only the deletion of an earlier
+       (non-current) body revision was measured, as leaving them unchanged.
     5. A pre-existing approving reaction gains meaning (none existed on 2026-10-17).
     6. The reviewer App's filing token can edit the issue it filed.
     7. The preflight carries its own copy of the role set, held to `task-author` by fixtures only.
@@ -2447,8 +2466,6 @@ take effect. Full reasoning and the task breakdown that implements them:
     13. The issue reaction separates the writer from the approver only where the drafting session
         holds no maintainer credential (`WB-D29`). A host session running as a declared maintainer
         could add the reaction itself.
-    14. That a label, a comment or a milestone move changes an issue's `updated_at` was not measured;
-        only reactions, body and title edits were.
   - **Follow-ups named.** Widen `spec-fresh.sh`'s `HID` refusal to the whole spec body (*done by
     `#709`*); show the
     `task-author` word in `plan-sprint`'s author display; extend check 15 (a projected fetch only) to
@@ -2525,8 +2542,7 @@ take effect. Full reasoning and the task breakdown that implements them:
     and the maintainer's reaction stays the only approval.
   - **Escalation and its resolution.** A maintainer posts a `spec-task:` comment of their own, which takes
     precedence once reacted to, or deletes the escalated comment. Deleting it without changing the task makes
-    resume's drafting branch draft again unattended on the same body, which will likely escalate again on a maintainer-filed issue (on an App-filed one the rerun is expected to stop `unreacted` first, if the comment and the label move
-    `updated_at`, unmeasured per `WB-D32` residual 14). A
+    resume's drafting branch draft again unattended on the same body, which will likely escalate again. A
     statement in the body about a finding is never authority: a rerun's critics still grade it.
   - **Accepted residuals.**
     1. Unattended critics are read-only, and confined to the draft and the pinned tree, by their prompt and

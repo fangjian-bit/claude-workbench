@@ -5,7 +5,8 @@
 # spec-comment.sh, for a comment by any author under an identities map (#660, #678), spec-find.sh
 # (#662), the loop's dispatch preflight (#666), and spec-issue.sh and spec-post.sh, which ask it
 # the same question of a task issue the dev or reviewer App filed (#664, WB-D32): there the
-# "comment" is the issue and its `updated_at` is the issue's, which a reaction does not move.
+# "comment" is the issue and the time passed is its content time (the latest of its creation, its
+# body's last edit and its newest title rename, #890), which a reaction does not move.
 # Before this, plan-anchor.sh carried the rule inline and /way-of-working:architect-review could only say
 # "approval not re-verified".
 #

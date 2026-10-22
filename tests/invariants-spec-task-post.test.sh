@@ -1,6 +1,6 @@
 #!/bin/sh
 # Fixture tests for scripts/invariants-check.sh's check 18: the spec-task skill carries no posting
-# form, and its writes are the three pinned `gh` lines of bin/spec-post.sh (#611, #661, #746, WB-D29).
+# form, and its writes are the four pinned `gh` lines of bin/spec-post.sh (#611, #661, #746, WB-D29).
 #
 # Each case mutates a COPY of the real tree and asserts the check fires (or stays silent), so
 # a check that only passes on the real tree cannot hide. Only check 18's own message is
@@ -21,7 +21,7 @@ fail=0
 MSG="the spec-task skill contains a posting form"
 MSG_NAME="the spec-task skill does not name spec-post.sh post"
 MSG_MISSING="plugins/*/bin/spec-post.sh is missing"
-MSG_ODD="spec-post.sh carries a gh write line other than the three pinned"
+MSG_ODD="spec-post.sh carries a gh write line other than the four pinned"
 MSG_ONCE="spec-post.sh must carry each pinned gh line exactly once"
 MSG_EVAL="spec-post.sh uses eval"
 
@@ -58,7 +58,8 @@ skill() { ls "$1"/plugins/*/skills/spec-task/SKILL.md; }
 spost() { ls "$1"/plugins/*/bin/spec-post.sh; }
 pinned_post() { grep -F -e '--method POST' "$1" | grep -F -e '/comments"' | head -n 1; }
 pinned_label() { grep -F -e '--method POST' "$1" | grep -F -e '/labels"' | head -n 1; }
-pinned_viewer() { grep -F -e 'graphql' "$1" | head -n 1; }
+pinned_viewer() { grep -F -e 'graphql' "$1" | grep -F -e 'viewer' | head -n 1; }
+pinned_ctime() { grep -F -e 'graphql' "$1" | grep -F -e 'lastEditedAt' | head -n 1; }
 
 # Control: the real tree is clean.
 sel=
@@ -186,7 +187,7 @@ d="$(tree noscript)"
 rm -f "$(spost "$d")"
 assert_fires "a missing spec-post.sh fires" "$d" "$MSG_MISSING"
 
-# In the script: the three pinned lines, exactly once each, spelled exactly.
+# In the script: the four pinned lines, exactly once each, spelled exactly.
 d="$(tree twopost)"
 pinned_post "$(spost "$d")" >>"$(spost "$d")"
 assert_fires "a second POST line fires" "$d" "$MSG_ONCE"
@@ -202,6 +203,18 @@ assert_fires "a script with no label line fires" "$d" "$MSG_ONCE"
 d="$(tree twoviewer)"
 pinned_viewer "$(spost "$d")" >>"$(spost "$d")"
 assert_fires "a second viewer line fires" "$d" "$MSG_ONCE"
+
+d="$(tree twoctime)"
+pinned_ctime "$(spost "$d")" >>"$(spost "$d")"
+assert_fires "a second content-time query line fires" "$d" "$MSG_ONCE"
+
+d="$(tree noctime)"
+sed -i '/lastEditedAt/d' "$(spost "$d")"
+assert_fires "a script with no content-time query line fires" "$d" "$MSG_ONCE"
+
+d="$(tree editctime)"
+sed -i '/lastEditedAt/ s/last:1/last:2/' "$(spost "$d")"
+assert_fires "an altered content-time query line fires" "$d" "$MSG_ODD"
 
 d="$(tree nopost)"
 sed -i '/--method POST.*\/comments"/d' "$(spost "$d")"
@@ -235,7 +248,7 @@ for edit in \
 done
 
 d="$(tree editviewer)"
-sed -i '/graphql/ s/databaseId } }/databaseId } } extra/' "$(spost "$d")"
+sed -i '/viewer {/ s/databaseId } }/databaseId } } extra/' "$(spost "$d")"
 assert_fires "an altered viewer line fires" "$d" "$MSG_ODD"
 
 d="$(tree extrapost)"
