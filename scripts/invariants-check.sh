@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# The regression gate: the invariants that have already been got wrong, in prose.
+# The regression gate: the invariants that have already been got wrong, in prose (and check 24).
 #
 # This repo's skills describe MECHANICAL procedures in English, and English has no
-# compiler. Every check below exists because the described procedure shipped wrong at
+# compiler. Nearly every check below exists because the described procedure shipped wrong at
 # least once -- twice, in the first case -- and nothing in `lint` or `coupling` could
 # have caught it. A grep cannot prove a procedure is right; it can stop a specific
 # known-wrong form from coming back, which is exactly what happened here.
 #
-# Adding a check: it must correspond to a defect that actually shipped. Speculative
+# Adding a check: it must correspond to a defect that actually shipped (check 24 is an
+# exception: it guards the gate's own wholeness). Speculative
 # invariants belong in the skill's own prose, not in a gate.
 set -euo pipefail
 
@@ -30,7 +31,7 @@ report() {
 # the tests/invariants-*.test.sh fixtures, which copy the tree and look for one check's message.
 # It is an argument on purpose, never an environment variable, so nothing ambient can narrow a
 # gate run; the gate (CI, release, gates.green) never passes it.
-ALL_IDS=(1 2 2b 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23)
+ALL_IDS=(1 2 2b 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24)
 only=
 only_set=0
 usage() {
@@ -1327,10 +1328,52 @@ if [ -n "$parklanes_hits" ]; then
 fi
 fi
 
+# --- 24. The gate runs the checker with no argument (#874) -----------------------------------
+if want 24; then
+#
+# Unlike the checks above, this one matches no shipped defect: no call has shipped with an
+# argument. It guards the gate's own wholeness. `--only` narrows a run, and a narrowed call looks
+# exactly like a gate that passed, so a required check could stay green while running some of the
+# checks. Three places run the checker: the `invariants` job in ci.yml, the verify job in
+# release.yml and `gates.green` in .ai/project.yml. In every workflow file and .ai/project.yml, after whole-line
+# comments are dropped and CRs stripped, every line that names scripts/invariants-check.sh is a
+# call, and the text after the path's first occurrence may hold only whitespace, one closing quote,
+# one closing `}` (the gates.green flow-map entry) and a trailing ` #` comment. Anything else
+# (an argument, `--only=`, a backslash continuation, `&&`, `;`, a pipe, a redirect) is a hit.
+# Line by line, on the text after the path: a call that reaches the checker through another
+# script, text before the path, another spelling of the path, an argument on the next line of a
+# multi-line scalar, and a step that is removed or skipped are outside it. A tree with no workflow file or no project.yml
+# fails, as checks 13 and 23 do.
+gateargs_hits=""
+gateargs_wf=0
+for f in .github/workflows/*.yml .github/workflows/*.yaml .ai/project.yml; do
+  [ -f "$f" ] || continue
+  case "$f" in .github/workflows/*) gateargs_wf=1 ;; esac
+  while IFS= read -r gateargs_l; do
+    gateargs_n=${gateargs_l%%:*}
+    gateargs_t=${gateargs_l#*:}
+    case "$gateargs_t" in *[![:space:]]*) ;; *) continue ;; esac
+    gateargs_first=${gateargs_t#"${gateargs_t%%[![:space:]]*}"}
+    case "$gateargs_first" in '#'*) continue ;; esac
+    gateargs_rest=${gateargs_t#*scripts/invariants-check.sh}
+    gateargs_rest=$(printf '%s\n' "$gateargs_rest" | sed -E 's/[[:space:]]#.*$//')
+    printf '%s\n' "$gateargs_rest" | grep -qE "^[[:space:]]*[\"']?[[:space:]]*\}?[[:space:]]*$" \
+      || gateargs_hits+="  $f:$gateargs_n:$gateargs_t"$'\n'
+  done < <(tr -d '\r' <"$f" | grep -nF 'scripts/invariants-check.sh' || true)
+done
+[ "$gateargs_wf" -eq 1 ] || gateargs_hits+="  (no .github/workflows/*.yml or *.yaml found)"$'\n'
+[ -f .ai/project.yml ] || gateargs_hits+="  (no .ai/project.yml found)"$'\n'
+if [ -n "$gateargs_hits" ]; then
+  report "the gate's call to scripts/invariants-check.sh carries an argument (#874)" \
+    "$gateargs_hits" \
+    "The gate (CI, release, gates.green) runs the checker bare; --only is for the tests/invariants-*.test.sh fixtures."
+fi
+fi
+
 if [ "$fail" -ne 0 ]; then
   cat >&2 <<'EOF'
 
-One or more shipped-defect invariants regressed. Each check above corresponds to a
+One or more invariants regressed. Nearly every check above corresponds to a
 real defect this repo has already released at least once. If a check is wrong rather
 than the code, fix the check deliberately and say so in the commit -- do not weaken it
 to make a diff pass.

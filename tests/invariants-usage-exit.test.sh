@@ -5,7 +5,7 @@
 # assert_silent case pass without running a check (#837). Each such file now leaves a marker
 # on status 2 and fails at its end.
 #
-# One case per target: a scratch copy of plugins/, scripts/ and the target, every
+# One case per target: a scratch copy of plugins/, scripts/, .github/, .ai/project.yml and the target, every
 # `sel="--only N"` line rewritten to id 0 (no checker id), run, and asserted to fail with the
 # guard's line. A glob that finds no target fails too.
 #
@@ -34,6 +34,9 @@ for f in "$root_dir"/tests/invariants-*.test.sh; do
   mkdir -p "$d/tests"
   cp -R "$root_dir/plugins" "$d/plugins"
   cp -R "$root_dir/scripts" "$d/scripts"
+  cp -R "$root_dir/.github" "$d/.github"
+  mkdir -p "$d/.ai"
+  cp "$root_dir/.ai/project.yml" "$d/.ai/project.yml"
   sed 's/^sel="--only .*/sel="--only 0"/' "$f" >"$d/tests/$name"
   rc=0
   out="$(cd "$d" && sh "tests/$name" 2>&1)" || rc=$?

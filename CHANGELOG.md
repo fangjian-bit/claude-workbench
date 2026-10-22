@@ -28,6 +28,9 @@ the GitHub release notes.
   `architect-review` gate fails a head whose latest review reads `changes-needed`. The verdict reaches
   a posted review only through a host launcher installed at or after this change; `review.ci_gate.header`
   drops the word HITL (`#852`). `WB-D38`.
+- **Invariants check 24 fails a gate call that carries an argument (`#874`).** A tree where a workflow
+  or the project file puts an argument after `scripts/invariants-check.sh` now fails, so
+  a narrowed `--only` call written that way cannot stand in for the gate.
 
 ### Fixed
 
