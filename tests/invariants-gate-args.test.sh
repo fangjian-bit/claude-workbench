@@ -10,6 +10,8 @@
 # holding a quote is a hit; a whole-line comment counts only after
 # ASCII spaces and tabs.
 #
+# The two U+2003 cases need a working C.UTF-8 and skip loudly without it.
+#
 # Every case but the first control runs just check 24 (`--only 24`); that control runs the full checker.
 #
 # Permitted toolset: POSIX sh. No jq, no yq, no python.
@@ -124,13 +126,24 @@ d="$(tree qhash2)"
 printf '%s\n' 'jobs:' '  x:' '    steps:' '      - run: |' "          bash scripts/invariants-check.sh ' #' || bash scripts/invariants-check.sh --only 1" >"$d/.github/workflows/new.yml"
 assert_fires "a single-quoted space-hash then a narrowed call fires" "$d"
 
-d="$(tree emhash)"
-printf '%s\n' 'jobs:' '  x:' '    steps:' '      - run: |' "          bash scripts/invariants-check.sh${em}# || true" >"$d/.github/workflows/new.yml"
-( LC_ALL=C.UTF-8; export LC_ALL; assert_fires "a hash after U+2003 then || true fires" "$d"; [ "$fail" -eq 0 ] ) || fail=1
+# Under a missing C.UTF-8 the tools fall back to C, where [[:space:]] never matches U+2003 and the
+# pre-#917 checker fires on both lines too: the fixtures would guard nothing. Probe the two matchers
+# the old code used (sed's bracket class, the bash glob) under the same locale before relying on them.
+if (
+  LC_ALL=C.UTF-8; export LC_ALL
+  [ "$(printf 'a%s#b\n' "$em" | sed -E 's/[[:space:]]#.*$//')" = a ] &&
+    bash -c 'case "$1" in [[:space:]]) exit 0 ;; *) exit 1 ;; esac' _ "$em"
+) 2>/dev/null; then
+  d="$(tree emhash)"
+  printf '%s\n' 'jobs:' '  x:' '    steps:' '      - run: |' "          bash scripts/invariants-check.sh${em}# || true" >"$d/.github/workflows/new.yml"
+  ( LC_ALL=C.UTF-8; export LC_ALL; assert_fires "a hash after U+2003 then || true fires" "$d"; [ "$fail" -eq 0 ] ) || fail=1
 
-d="$(tree emfirst)"
-printf '%s\n' 'jobs:' '  x:' '    steps:' '      - run: |' "          ${em}#|| true; bash scripts/invariants-check.sh --only 1" >"$d/.github/workflows/new.yml"
-( LC_ALL=C.UTF-8; export LC_ALL; assert_fires "a line starting with U+2003 then a hash fires" "$d"; [ "$fail" -eq 0 ] ) || fail=1
+  d="$(tree emfirst)"
+  printf '%s\n' 'jobs:' '  x:' '    steps:' '      - run: |' "          ${em}#|| true; bash scripts/invariants-check.sh --only 1" >"$d/.github/workflows/new.yml"
+  ( LC_ALL=C.UTF-8; export LC_ALL; assert_fires "a line starting with U+2003 then a hash fires" "$d"; [ "$fail" -eq 0 ] ) || fail=1
+else
+  echo "skip - U+2003 fixtures (emhash, emfirst): [[:space:]] does not match U+2003 under LC_ALL=C.UTF-8 on this host (the locale is missing or does not class U+2003 as space)"
+fi
 
 [ ! -e "$tmp/usage-exit" ] || { echo "FAIL - the checker exited 2 (usage) in at least one case" >&2; fail=1; }
 
