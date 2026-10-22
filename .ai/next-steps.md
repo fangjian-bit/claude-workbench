@@ -1,15 +1,30 @@
 # Cursor — claude-workbench
 
-**Now:** **Sprint 17** (cursor id `sprint-17`). Status: **planning**. No milestone picked yet.
+**Now:** **Sprint 17** (cursor id `sprint-17`) on [milestone 24, *Green gate in parallel*](https://github.com/glunk-works/claude-workbench/milestone/24). Status: **implementing**. Live lanes: `lane-state.sh list`.
 
-**Just done:** sprint-16 (milestone 19, *Identity M4: claude-workbench cutover*) archived after `791c0ff` (PR #906, its done entry in `docs/decisions.md`). v0.23.0 is released and pinned, and #398 passes in full. The final ledger is in `.ai/archive/sprint-16-next-steps.md` (git-ignored).
+**Just done (2026-10-21 to 22, driver session in the container, opus):**
+- **Sprint 16 closed:** milestone 19 (*Identity M4*) was closed, and sprint-16 was archived after its done entry merged (PR #906, `791c0ff`).
+  - `v0.23.0` was released (PR #888) and pinned (PR #889). The container install was rotated and verified by commit.
+  - #398 passes in full: the resume test of 2026-10-22 is written up in PR #887.
+- **The verdict gate (WB-D38) works live.** On PR #897 a `changes-needed` review turned `architect-review` red, and the `pass` review turned it green.
+  - The follow-up that drops the no-verdict form is #905. Every home's launcher must be reinstalled first, `603id-identity` included.
+- **The retro now mines the repo's other sessions** (#895, PR #897).
+  - Critic pass: architect, security-critic and docs-consistency converged after 3 rounds. Then 2 more architect rounds on the fix from the fresh-session review, which converged at round 5, the cap.
+  - The retro filed #890–#894, #896, #898 and #905. Those reviews filed the follow-ups #899, #900, #903, #904 and #901 (fixed).
+- **plan-sprint** rewrote M24's and M22's build orders live through `milestone-desc.sh`, checked by hash, and placed #823–#825 on M22.
 
-**Milestone close:** closed — milestone 19, *Identity M4: claude-workbench cutover* (0 open, 130 closed; `verify --plan` matched).
+**Next:** on **opus** (driver). Start no build here; `next_action` holds the lane loop. M24's build order names the tracks and their shared files. Tracks that can start in parallel:
+- the CI track: #808, then #866, #877 and #881. It includes a host-side `ci.yml` push.
+- #878, then #879.
+- #882.
+- #890 (needs security-critic).
+- #862.
+- #891, then #894.
+- the retro follow-ups: #899 (with #903 folded in), then #900, then #904.
+- #898.
+- #896.
+- #905, once every home is reinstalled.
 
-plan-sprint (2026-10-22) triaged the backlog. #824, #823 and #825 went to M22. Six issues were left unmilestoned, each with a dated reason: #223, #334, #790, #791, #792 and #827. Two build orders were rewritten live through `milestone-desc.sh` and checked by hash: M24 now lists 27 items and M22 lists 22. The M24 record is on #896.
+**HITL Gate: OPEN** — first anchor for milestone 24: the maintainer confirms sprint-17 works from milestone 24
 
-**Next:** pick sprint-17's milestone on **opus** (architect). M24 (*Green gate in parallel*, due 2026-11-20) leads by due date, and its build order shows the lanes by shared files. A `/way-of-working:handoff` then anchors the chosen milestone.
-
-**HITL Gate: NONE OPEN** — next gate: plan the next unit
-
-**Pointers:** [docs/decisions.md](../docs/decisions.md) · [.ai/parked/](parked/)
+**Pointers:** [docs/decisions.md](../docs/decisions.md) · [milestone 24](https://github.com/glunk-works/claude-workbench/milestone/24) · [milestone 22](https://github.com/glunk-works/claude-workbench/milestone/22) · [.ai/parked/](parked/)
