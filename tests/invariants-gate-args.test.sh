@@ -23,15 +23,22 @@ script="$root_dir/scripts/invariants-check.sh"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
+# One read of the checkout per run: every fixture copies from this, never from the root.
+pristine="$tmp/.pristine"
+mkdir -p "$pristine/.ai"
+cp -R "$root_dir/plugins" "$pristine/plugins"
+cp -R "$root_dir/.github" "$pristine/.github"
+cp "$root_dir/.ai/project.yml" "$pristine/.ai/project.yml"
+
 fail=0
 MSG="carries an argument (#874)"
 
 tree() {
   d="$tmp/$1"
   mkdir -p "$d/.ai"
-  cp -R "$root_dir/plugins" "$d/plugins"
-  cp -R "$root_dir/.github" "$d/.github"
-  cp "$root_dir/.ai/project.yml" "$d/.ai/project.yml"
+  cp -R "$pristine/plugins" "$d/plugins"
+  cp -R "$pristine/.github" "$d/.github"
+  cp "$pristine/.ai/project.yml" "$d/.ai/project.yml"
   echo "$d"
 }
 

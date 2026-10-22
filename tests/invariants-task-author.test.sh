@@ -18,15 +18,22 @@ script="$root_dir/scripts/invariants-check.sh"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
+# One read of the checkout per run: every fixture copies from this, never from the root.
+pristine="$tmp/.pristine"
+mkdir -p "$pristine"
+cp -R "$root_dir/plugins" "$pristine/plugins"
+mkdir -p "$pristine/scripts/loop"
+cp "$root_dir/scripts/loop/preflight.sh" "$pristine/scripts/loop/preflight.sh"
+
 fail=0
 MSG="a task-issue author reader is on the old verb, or a reader is missing"
 
 tree() {
   d="$tmp/$1"
   mkdir -p "$d"
-  cp -R "$root_dir/plugins" "$d/plugins"
+  cp -R "$pristine/plugins" "$d/plugins"
   mkdir -p "$d/scripts/loop"
-  cp "$root_dir/scripts/loop/preflight.sh" "$d/scripts/loop/preflight.sh"
+  cp "$pristine/scripts/loop/preflight.sh" "$d/scripts/loop/preflight.sh"
   echo "$d"
 }
 

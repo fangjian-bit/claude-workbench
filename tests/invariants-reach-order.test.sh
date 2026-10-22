@@ -27,6 +27,11 @@ script="$root_dir/scripts/invariants-check.sh"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
+# One read of the checkout per run: every fixture copies from this, never from the root.
+pristine="$tmp/.pristine"
+mkdir -p "$pristine"
+cp -R "$root_dir/plugins" "$pristine/plugins"
+
 fail=0
 
 ORDER_MSG="/resume checks the ruleset before establishing reach"
@@ -37,7 +42,7 @@ REACH_LINE='gh api repos/{repo} --jq .permissions'
 tree() {
   d="$tmp/$1"
   mkdir -p "$d"
-  cp -R "$root_dir/plugins" "$d/plugins"
+  cp -R "$pristine/plugins" "$d/plugins"
   echo "$d"
 }
 

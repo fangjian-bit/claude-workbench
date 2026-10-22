@@ -59,7 +59,7 @@ jobs:
         run: bash scripts/invariants-check.sh
       # The one guard that the review-match program in architect-review-gate.yml and its
       # copy in scripts/identity/wow-review (decide_already) stay identical (#866); `tests`
-      # is not a required check, this job is.
+      # is not a required check (nor are its shard jobs, `tests (1)` and `tests (2)`), this job is.
       - name: review-match program and its copy agree
         run: sh tests/review-verdict.test.sh
 
@@ -69,22 +69,42 @@ jobs:
   # (see issue #53 -- a gate that stops gating looks exactly like a gate that passed, so
   # its fail-closed behaviour is pinned by fixtures too), and for the App-mode review
   # image's entrypoint, outbox reader, Dockerfile and build context (#634).
-  # Split in three parallel jobs (#808): this one runs every tests/*.test.sh through
-  # scripts/test-all.sh (files run concurrently; a failed file's log is printed) except
-  # the two launcher suites, which `tests-launchers` and `tests-review-launcher` run
-  # alone, so each file runs in one of the three (review-verdict also runs in
-  # `invariants`). A new tests/X.test.sh needs no edit here.
+  # Split in four parallel jobs (#808, #936): the two `tests` shards run every tests/*.test.sh
+  # through scripts/test-all.sh (files run concurrently; a failed file's log is printed)
+  # except the two launcher suites, which `tests-launchers` and `tests-review-launcher` run
+  # alone. The shards split the sorted glob minus those two: numbered from 0 in glob order,
+  # shard 1 owns the even positions and shard 2 the odd ones, and each leaves the other's
+  # files out with -x. So each file runs in exactly one of the four (review-verdict also runs
+  # in `invariants`), and a new tests/X.test.sh needs no edit here (it can move later files
+  # to the other shard). The shard check runs are named `tests (1)` and `tests (2)`, the
+  # names a required-checks list would have to carry.
   # Not yet in {ruleset.required_checks} -- see the PR that added this job. The same
   # goes for the two launcher jobs.
   tests:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Every suite except the two launcher suites
-        run: bash scripts/test-all.sh -x identity-launchers.test.sh -x identity-review.test.sh
+      - name: This shard's suites, none of the launcher suites
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          case "$SHARD" in 1 | 2) ;; *) echo "SHARD must be 1 or 2, not '$SHARD'" >&2; exit 1 ;; esac
+          args=(-x identity-launchers.test.sh -x identity-review.test.sh)
+          i=0
+          # ls sorts under C collation, which fixes the order; the suites keep the runner's locale.
+          while IFS= read -r name; do
+            case "$name" in identity-launchers.test.sh | identity-review.test.sh) continue ;; esac
+            if [ $((i % 2)) -ne $((SHARD - 1)) ]; then args+=(-x "$name"); fi
+            i=$((i + 1))
+          done < <(cd tests && LC_ALL=C ls -1d -- *.test.sh)
+          bash scripts/test-all.sh "${args[@]}"
 
   tests-launchers:
     runs-on: ubuntu-latest

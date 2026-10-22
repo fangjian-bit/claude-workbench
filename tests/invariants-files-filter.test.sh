@@ -21,6 +21,11 @@ script="$root_dir/scripts/invariants-check.sh"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
+# One read of the checkout per run: every fixture copies from this, never from the root.
+pristine="$tmp/.pristine"
+mkdir -p "$pristine"
+cp -R "$root_dir/plugins" "$pristine/plugins"
+
 fail=0
 MSG="does not read the endpoint's page (#698)"
 GOOD='.[] | {f: .filename, p: (.previous_filename // null), s: .status}'
@@ -28,7 +33,7 @@ GOOD='.[] | {f: .filename, p: (.previous_filename // null), s: .status}'
 tree() {
   d="$tmp/$1"
   mkdir -p "$d"
-  cp -R "$root_dir/plugins" "$d/plugins"
+  cp -R "$pristine/plugins" "$d/plugins"
   echo "$d"
 }
 
