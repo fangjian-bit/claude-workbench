@@ -1,5 +1,5 @@
 #!/bin/sh
-# Static checks for issue #899: /way-of-working:retro's transcript reader is a plugin agent
+# Static checks for issues #899 and #900: /way-of-working:retro's transcript reader is a plugin agent
 # confined by its frontmatter tool list, not by a prose instruction.
 # Permitted toolset: POSIX sh, grep, sed.
 set -eu
@@ -19,6 +19,9 @@ else
 fi
 grep -q 'way-of-working:transcript-reader' "$skill" || bad "$skill: does not name way-of-working:transcript-reader"
 if grep -q 'runs only `jq`' "$skill"; then bad "$skill: still says the reader runs only jq"; fi
+grep -qF 'path match only, not confirmed to be this repo' "$skill" || bad "$skill: no caveat text"
+grep -q 'confirms in this session' "$skill" || bad "$skill: no confirmation wording ('confirms in this session')"
+if grep -qF 'is filed or surfaced, never written to memory' "$skill"; then bad "$skill: old filing rule is back"; fi
 
 [ "$fail" = 0 ] && echo "retro-reader: ok"
 exit "$fail"

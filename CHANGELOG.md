@@ -28,8 +28,9 @@ the GitHub release notes.
   path under `lanes.dir`, changed since the reviewed sprint began (from the newest
   `.ai/archive/` snapshot, else the last 7 days, or a window the human names), newest first and
   at most 50. One subagent reads them and returns a
-  paraphrased friction list, never verbatim transcript text. A finding seen only in other
-  sessions needs the human's OK before it becomes a memory or a fix.
+  paraphrased friction list, never verbatim transcript text. Anything drawn from other
+  sessions carries a path-match caveat and needs the human's OK before it is filed, becomes a
+  memory or becomes a fix (`#900`).
 - **An App-filed issue's spec reaction is judged by its content time, not `updated_at` (`#890`).**
   `spec-issue.sh` and `spec-post.sh` compare a maintainer's reaction with the latest of the
   issue's creation, its body's last edit and its newest title rename (one GraphQL read), so a
