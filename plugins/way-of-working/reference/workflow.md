@@ -376,6 +376,7 @@ description and cannot be mistaken for the human's approval.
   **stops**; the approval the base requires is the gate, never an agent's merge.
 - **`/way-of-working:pr-checks`** — report a PR's required checks and an explicit
   merge-ready verdict **without merging**; decodes the skipped/blocked/conflict traps.
-- **`/way-of-working:retro`** — a session-end look at *how the session worked*: friction
+- **`/way-of-working:retro`** — a session-end look at *how the session worked*, and at the
+  repo's other recent sessions (lane, spec, earlier driver ones): friction
   that recurred or cost rework, each finding routed to its existing home (a backlog item,
   a memory, a small doc edit). Not for code diffs, and never a new parallel doc.

@@ -21,6 +21,16 @@ the GitHub release notes.
 
 ## [Unreleased]
 
+### Changed
+
+- **`/way-of-working:retro` also mines the repo's other recent sessions (`#895`).** A new step
+  selects the host's top-level Claude Code transcripts whose `cwd` is the main worktree or a
+  path under `lanes.dir`, changed since the reviewed sprint began (from the newest
+  `.ai/archive/` snapshot, else the last 7 days, or a window the human names), newest first and
+  at most 50. One subagent confined to `jq`, `ls` and `stat` reads them and returns a
+  paraphrased friction list, never verbatim transcript text. A finding seen only in other
+  sessions needs the human's OK before it becomes a memory or a fix.
+
 ## [0.23.0] — 2026-10-22
 
 **⚠️ Migration** — on a repo whose reviews post through the host launcher (`wow-review`), reinstall
