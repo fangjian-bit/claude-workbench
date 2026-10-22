@@ -22,7 +22,8 @@
 #                the review image's build context into bin/review/ from the table in the script,
 #                refuses an uncommitted change (in any source directory) or a HEAD not on origin/main, and
 #                creates tokens/<repo>;
-#                register-broker-task.ps1 -WhatIf points the task at bin and installs nothing
+#                register-broker-task.ps1 -WhatIf points the task at bin and installs nothing (skipped, loudly,
+#                where New-ScheduledTaskAction is not available)
 #   no tool on PATH  with PATH holding only an empty directory and no -Sh, register-broker-task, broker
 #                and install-host-tools each reach their own "no POSIX sh found" / "git not found" message,
 #                never a null .Source error; broker never calls mint.sh and install creates no bin
@@ -314,14 +315,19 @@ git -C "$src" reset -q --hard "$head"
 
 
 rm -rf "$home/bin"
-reg=$(pwsh -NoProfile -NonInteractive -File "$(wp "$root_dir/scripts/identity/register-broker-task.ps1")" \
-  -WowHome "$(wp "$home")\\" -Sh "$sh_path" -SourceRepo "$(wp "$src")" -TaskName "wow-broker-test-$$" -WhatIf 2>&1) || reg="failed: $reg"
-case "$reg" in
-  *'-File "'*'bin\broker.ps1" -WowHome "'*'\home" -Sh'*) ok "register: runs the installed copy, trailing backslash trimmed" ;;
-  *) bad "register: command line was $reg" ;;
-esac
-case "$reg" in *WindowsApps\\Microsoft.PowerShell_*) bad "register: version-pinned Store pwsh path recorded" ;; *) ok "register: no version-pinned Store pwsh path" ;; esac
-check "register: -WhatIf installs nothing" test ! -e "$home/bin"
+# The -WhatIf run needs the Task Scheduler cmdlets, which pwsh off Windows lacks.
+if pwsh -NoProfile -NonInteractive -Command 'if (Get-Command New-ScheduledTaskAction -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }' >/dev/null 2>&1; then
+  reg=$(pwsh -NoProfile -NonInteractive -File "$(wp "$root_dir/scripts/identity/register-broker-task.ps1")" \
+    -WowHome "$(wp "$home")\\" -Sh "$sh_path" -SourceRepo "$(wp "$src")" -TaskName "wow-broker-test-$$" -WhatIf 2>&1) || reg="failed: $reg"
+  case "$reg" in
+    *'-File "'*'bin\broker.ps1" -WowHome "'*'\home" -Sh'*) ok "register: runs the installed copy, trailing backslash trimmed" ;;
+    *) bad "register: command line was $reg" ;;
+  esac
+  case "$reg" in *WindowsApps\\Microsoft.PowerShell_*) bad "register: version-pinned Store pwsh path recorded" ;; *) ok "register: no version-pinned Store pwsh path" ;; esac
+  check "register: -WhatIf installs nothing" test ! -e "$home/bin"
+else
+  echo "SKIP - New-ScheduledTaskAction not available; the register -WhatIf case (command line, Store pwsh path, installs nothing) did not run" >&2
+fi
 
 # --- an MSYS-form WowHome (#789) -------------------------------------------------------------
 # Windows only: Git Bash rewrites a /-leading argument into Windows form when it starts pwsh, so
