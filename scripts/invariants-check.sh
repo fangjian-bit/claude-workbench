@@ -1336,13 +1336,18 @@ if want 24; then
 # exactly like a gate that passed, so a required check could stay green while running some of the
 # checks. Three places run the checker: the `invariants` job in ci.yml, the verify job in
 # release.yml and `gates.green` in .ai/project.yml. In every workflow file and .ai/project.yml, after whole-line
-# comments are dropped and CRs stripped, every line that names scripts/invariants-check.sh is a
+# comments (a `#` after only ASCII spaces and tabs) are dropped and CRs stripped, every line that names scripts/invariants-check.sh is a
 # call, and the text after the path's first occurrence may hold only whitespace, one closing quote,
-# one closing `}` (the gates.green flow-map entry) and a trailing ` #` comment. Anything else
+# one closing `}` (the gates.green flow-map entry) and a trailing comment that starts with an ASCII
+# space or tab then `#` and holds no quote character. Anything else
 # (an argument, `--only=`, a backslash continuation, `&&`, `;`, a pipe, a redirect) is a hit.
 # Line by line, on the text after the path: a call that reaches the checker through another
 # script, text before the path, another spelling of the path, an argument on the next line of a
-# multi-line scalar, and a step that is removed or skipped are outside it. A tree with no workflow file or no project.yml
+# multi-line scalar, and a step that is removed or skipped are outside it. A trailing comment
+# holding a quote is a hit even where YAML or bash would read it as a comment. Also outside it: a
+# quote spanning lines, a lone CR or a Unicode line break joining YAML lines, a `${{ }}` expression
+# after the hash, a YAML escape that decodes to a quote after the hash, and an invalid byte on the
+# call line or a NUL byte anywhere in the file (grep drops the line or the file). A tree with no workflow file or no project.yml
 # fails, as checks 13 and 23 do.
 gateargs_hits=""
 gateargs_wf=0
@@ -1353,10 +1358,14 @@ for f in .github/workflows/*.yml .github/workflows/*.yaml .ai/project.yml; do
     gateargs_n=${gateargs_l%%:*}
     gateargs_t=${gateargs_l#*:}
     case "$gateargs_t" in *[![:space:]]*) ;; *) continue ;; esac
-    gateargs_first=${gateargs_t#"${gateargs_t%%[![:space:]]*}"}
+    gateargs_first=${gateargs_t#"${gateargs_t%%[!$' \t']*}"}
     case "$gateargs_first" in '#'*) continue ;; esac
     gateargs_rest=${gateargs_t#*scripts/invariants-check.sh}
-    gateargs_rest=$(printf '%s\n' "$gateargs_rest" | sed -E 's/[[:space:]]#.*$//')
+    if printf '%s\n' "$gateargs_rest" | grep -qE "[ "$'\t'"]#.*[\"']"; then
+      gateargs_hits+="  $f:$gateargs_n:$gateargs_t"$'\n'
+      continue
+    fi
+    gateargs_rest=$(printf '%s\n' "$gateargs_rest" | sed -E "s/[ "$'\t'"]#.*$//")
     printf '%s\n' "$gateargs_rest" | grep -qE "^[[:space:]]*[\"']?[[:space:]]*\}?[[:space:]]*$" \
       || gateargs_hits+="  $f:$gateargs_n:$gateargs_t"$'\n'
   done < <(tr -d '\r' <"$f" | grep -nF 'scripts/invariants-check.sh' || true)

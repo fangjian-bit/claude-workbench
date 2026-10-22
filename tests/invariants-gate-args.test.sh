@@ -6,6 +6,10 @@
 # a check that only passes on the real tree cannot hide. Only check 24's own message is
 # asserted, never the script's overall exit.
 #
+# A trailing comment after the path starts only at an ASCII space or tab then `#`, and one
+# holding a quote is a hit; a whole-line comment counts only after
+# ASCII spaces and tabs.
+#
 # Every case but the first control runs just check 24 (`--only 24`); that control runs the full checker.
 #
 # Permitted toolset: POSIX sh. No jq, no yq, no python.
@@ -109,6 +113,24 @@ assert_fires "a copy with no workflows fires" "$d"
 d="$(tree noyml)"
 rm -f "$d/.ai/project.yml"
 assert_fires "a copy with no project.yml fires" "$d"
+
+em="$(printf '\342\200\203')"
+
+d="$(tree qhash)"
+printf '%s\n' 'jobs:' '  x:' '    steps:' '      - run: |' '          bash scripts/invariants-check.sh " #" || true' >"$d/.github/workflows/new.yml"
+assert_fires "a quoted space-hash then || true fires" "$d"
+
+d="$(tree qhash2)"
+printf '%s\n' 'jobs:' '  x:' '    steps:' '      - run: |' "          bash scripts/invariants-check.sh ' #' || bash scripts/invariants-check.sh --only 1" >"$d/.github/workflows/new.yml"
+assert_fires "a single-quoted space-hash then a narrowed call fires" "$d"
+
+d="$(tree emhash)"
+printf '%s\n' 'jobs:' '  x:' '    steps:' '      - run: |' "          bash scripts/invariants-check.sh${em}# || true" >"$d/.github/workflows/new.yml"
+( LC_ALL=C.UTF-8; export LC_ALL; assert_fires "a hash after U+2003 then || true fires" "$d"; [ "$fail" -eq 0 ] ) || fail=1
+
+d="$(tree emfirst)"
+printf '%s\n' 'jobs:' '  x:' '    steps:' '      - run: |' "          ${em}#|| true; bash scripts/invariants-check.sh --only 1" >"$d/.github/workflows/new.yml"
+( LC_ALL=C.UTF-8; export LC_ALL; assert_fires "a line starting with U+2003 then a hash fires" "$d"; [ "$fail" -eq 0 ] ) || fail=1
 
 [ ! -e "$tmp/usage-exit" ] || { echo "FAIL - the checker exited 2 (usage) in at least one case" >&2; fail=1; }
 
