@@ -15,8 +15,8 @@
 # root with stdout and stderr together in one log under a mktemp -d directory.
 # tests/identity-review.test.sh is the longest suite (its own header's Runtime note: about 26 s
 # alone in the dev container), so it is the first suite started, with the pool, and takes one of
-# the -j slots. Two suites are held out of the pool and started one at a time after it has
-# drained (identity-review included), in this order, each with nothing else running:
+# the -j slots. Two suites are held out of the pool and started one at a time after the pool,
+# identity-review included, has drained, in this order, each with nothing else running:
 # tests/ai-cursor-banner.test.sh and tests/loop-critic.test.sh assert wall-clock upper bounds
 # that a loaded pool can trip. A held-out file the glob does not find is skipped. No glob match
 # prints `no tests found` and exits 1.

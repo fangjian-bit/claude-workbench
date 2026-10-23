@@ -25,11 +25,14 @@
 # isolated `timeout 5 true` costs 62.2 ms with uutils against 0.8 ms with GNU in a 100-call loop
 # (a 61.4 ms difference; the figure varies with load, and the suite's effective overhead is
 # higher, about 90 ms per call). The other uutils tools' share was not measured. The 300 s overrun seen while #710
-# was built was not reproduced on the GNU build. Run it alone, in its own Bash call, with the
+# was built was not reproduced on the GNU build. When run directly, run it alone, in its own Bash call, with the
 # tool timeout at least 52 s (twice the 26 s). On a container whose `timeout` is uutils the bound
 # is about 1550 s: run it in the background, or stop and ask the maintainer to remove a uutils
-# copy from ~/.local/bin or recreate the container (DEV-CONTAINER.md, Lanes). `scripts/test-all.sh`
-# starts this suite with its pool.
+# copy from ~/.local/bin or recreate the container (DEV-CONTAINER.md, Lanes). CI runs this suite
+# alone (both `tests` shards in ci.yml leave it out with -x, and the `tests-review-launcher` job runs
+# it on its own), while the local green gate has `scripts/test-all.sh` start it with its pool, under
+# load; a failure seen only in the local gate is most likely a timing problem, so rerun the suite
+# alone before treating it as a launcher bug.
 set -u
 
 root_dir="$(cd "$(dirname "$0")/.." && pwd)"
@@ -238,8 +241,7 @@ case $cmd in
         name=$(last "$@")
         cat >"$S/inject-stdin"
         mkdir -p "$S/logs"
-        [ ! -e "$S/inject.delay" ] || "$REAL_SLEEP" "$(cat "$S/inject.delay")"
-        [ -e "$S/inject.noup" ] || echo "inject up" >"$S/logs/$name"
+        [ -e "$S/inject.noup" ] || [ -e "$S/inject.after" ] || echo "inject up" >"$S/logs/$name"
         exit 0 ;;
     esac
     name=$(last "$@")
@@ -274,7 +276,11 @@ case $cmd in
   logs)
     name=$(last "$@")
     echo "docker-logs $(kind_of "$name")" >>"$S/events"
-    if [ "$(kind_of "$name")" = session ]; then cat "$S/session-log" 2>/dev/null; else cat "$S/logs/$name" 2>/dev/null; fi
+    if [ "$(kind_of "$name")" = session ]; then cat "$S/session-log" 2>/dev/null
+    elif [ "$(kind_of "$name")" = inject ] && [ -e "$S/inject.after" ]; then
+      # inject.after holds N: "inject up" shows from the Nth injector poll on (this call's line is already in events).
+      [ "$(grep -c '^docker-logs inject$' "$S/events")" -lt "$(cat "$S/inject.after")" ] || echo "inject up"
+    else cat "$S/logs/$name" 2>/dev/null; fi
     exit 0 ;;
   ps)
     flt= q=0 fmt=
@@ -1542,11 +1548,11 @@ run o/r 7
 assert_eq "an injector that never says 'inject up': exit 1" 1 "$rc"
 assert_eq "an injector that never says 'inject up': the session was not created" 0 "$(ev_count 'docker-create wow-review-session')"
 n=$(ev_count 'docker-logs inject'); check "an injector that never says 'inject up': more than ten checks, at most fifty" sh -c '[ "$1" -gt 10 ] && [ "$1" -le 50 ]' x "$n"
-new_case; printf '0.7\n' >"$STUB/inject.delay"
+new_case; printf '3\n' >"$STUB/inject.after"
 run o/r 7
 assert_eq "a late injector: exit 0" 0 "$rc"
 assert_eq "a late injector: the session was created" 1 "$(ev_count 'docker-create wow-review-session')"
-n=$(ev_count 'docker-logs inject'); check "a late injector: polled at least three times" sh -c '[ "$1" -ge 3 ]' x "$n"
+assert_eq "a late injector: polled exactly three times" 3 "$(ev_count 'docker-logs inject')"
 new_case; : >"$STUB/start.fail"
 run o/r 7
 assert_eq "docker start failing before the session ran: exit 1" 1 "$rc"
