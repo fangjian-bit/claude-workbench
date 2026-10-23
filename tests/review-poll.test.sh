@@ -351,6 +351,8 @@ done
 # the poller is installed beside wow-review
 check "install-host-tools.ps1's table names wow-review-poll" has "$root_dir/scripts/identity/install-host-tools.ps1" "@('scripts/identity/wow-review-poll', 'wow-review-poll')"
 
+check "register-review-poll-task.ps1 builds the action as conhost --headless" has "$root_dir/scripts/identity/register-review-poll-task.ps1" '$conArg = "--headless `"$pwsh`" $arg"'
+check "register-review-poll-task.ps1 registers conhost as the executable" has "$root_dir/scripts/identity/register-review-poll-task.ps1" 'New-ScheduledTaskAction -Execute $conhost -Argument $conArg'
 check "register-review-poll-task.ps1 writes WOW_HOME with forward slashes" has "$root_dir/scripts/identity/register-review-poll-task.ps1" "WOW_HOME = '\$(\$WowHome.Replace('\\', '/'))'"
 
 [ "$fail" = 0 ] && echo "all review-poll fixtures passed"

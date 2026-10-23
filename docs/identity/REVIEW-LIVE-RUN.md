@@ -196,7 +196,7 @@ Once every item above has passed or been accepted by the maintainer as unanswere
 `wow-review` for open PR heads without a human. Create `$WOW_HOME/review-poll.json`, shaped
 `{"repos": ["owner/name"]}`, then run `scripts/identity/register-review-poll-task.ps1` from a
 PowerShell 7.2+ prompt (`-IntervalMinutes` 2 to 60, default 5; pass `-Sh` as Git for Windows' `bin\sh.exe`, never `usr\bin\sh.exe`). Its decisions are in
-`$WOW_HOME/review-poll.log`. To stop it, run the same script with `-Unregister`.
+`$WOW_HOME/review-poll.log`. The task starts pwsh through `conhost.exe --headless`, so a tick opens no window; running the script again brings an older registration up to date. To stop it, run the same script with `-Unregister`.
 
 ### A second home's poller (#815)
 

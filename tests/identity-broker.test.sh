@@ -22,7 +22,7 @@
 #                the review image's build context into bin/review/ from the table in the script,
 #                refuses an uncommitted change (in any source directory) or a HEAD not on origin/main, and
 #                creates tokens/<repo>;
-#                register-broker-task.ps1 -WhatIf points the task at bin and installs nothing (skipped, loudly,
+#                register-broker-task.ps1 -WhatIf points the task at bin, runs pwsh through conhost --headless and installs nothing (skipped, loudly,
 #                where New-ScheduledTaskAction is not available)
 #   no tool on PATH  with PATH holding only an empty directory and no -Sh, register-broker-task, broker
 #                and install-host-tools each reach their own "no POSIX sh found" / "git not found" message,
@@ -322,6 +322,10 @@ if pwsh -NoProfile -NonInteractive -Command 'if (Get-Command New-ScheduledTaskAc
   case "$reg" in
     *'-File "'*'bin\broker.ps1" -WowHome "'*'\home" -Sh'*) ok "register: runs the installed copy, trailing backslash trimmed" ;;
     *) bad "register: command line was $reg" ;;
+  esac
+  case "$reg" in
+    *'conhost.exe --headless "'*'" -NoProfile -NonInteractive -WindowStyle Hidden -File "'*) ok "register: task runs pwsh through conhost --headless" ;;
+    *) bad "register: no conhost --headless form in $reg" ;;
   esac
   case "$reg" in *WindowsApps\\Microsoft.PowerShell_*) bad "register: version-pinned Store pwsh path recorded" ;; *) ok "register: no version-pinned Store pwsh path" ;; esac
   check "register: -WhatIf installs nothing" test ! -e "$home/bin"

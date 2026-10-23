@@ -12,7 +12,8 @@ that serves the host's git credential (see Hazards that remain).
 ## How it gets its token
 
 - The host broker (`scripts/identity/broker.ps1`) keeps `~/.config/glunk-identity/tokens/claude-workbench/dev-token`
-  current: the token on line 1, its `expires_at` on line 2.
+  current: the token on line 1, its `expires_at` on line 2. The broker's scheduled task starts pwsh through
+  `conhost.exe --headless`, so it opens no window; re-running `register-broker-task.ps1` brings an older registration up to date.
 - `devcontainer.json` bind-mounts that **directory**, read-only, at `/run/glunk-identity/dev`. A
   single-file mount would keep showing the file the broker replaced by atomic rename. Nothing else
   under the host's `glunk-identity` directory is mounted. The mount source names the GitHub repo

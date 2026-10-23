@@ -23,8 +23,8 @@
 
   Run it from a PowerShell 7.2+ prompt on the host, once. The sh it records is resolved now (or
   -Sh), because a task does not search the same PATH an interactive shell does; openssl, curl
-  and jq must be on the user's PATH. -Unregister removes the task. -WhatIf shows what would be
-  registered.
+  and jq must be on the user's PATH. The task runs pwsh through conhost.exe --headless, so no window opens
+  on a tick. -Unregister removes the task. -WhatIf shows what would be registered.
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
@@ -72,7 +72,12 @@ if ($pwsh -like '*\WindowsApps\Microsoft.PowerShell_*') {
 }
 
 $arg = "-NoProfile -NonInteractive -WindowStyle Hidden -File `"$broker`" -WowHome `"$WowHome`" -Sh `"$Sh`""
-$action = New-ScheduledTaskAction -Execute $pwsh -Argument $arg
+# pwsh.exe is a console program: started directly, Windows opens its console window before -WindowStyle Hidden can hide it.
+# conhost --headless runs it with no window. The system directory is .NET's, never a PATH lookup.
+$conhost = Join-Path ([Environment]::SystemDirectory) 'conhost.exe'
+if (-not (Test-Path -LiteralPath $conhost -PathType Leaf)) { throw "conhost.exe not found at $conhost; the task cannot start headless" }
+$conArg = "--headless `"$pwsh`" $arg"
+$action = New-ScheduledTaskAction -Execute $conhost -Argument $conArg
 
 $user = [Security.Principal.WindowsIdentity]::GetCurrent().Name
 $logon = New-ScheduledTaskTrigger -AtLogOn -User $user
@@ -102,7 +107,7 @@ if (-not $WhatIfPreference -and -not (Test-Path -LiteralPath $broker -PathType L
   throw "the installer did not leave $broker; not registering a task for a missing file"
 }
 
-if ($PSCmdlet.ShouldProcess($TaskName, "Register scheduled task running: $pwsh $arg")) {
+if ($PSCmdlet.ShouldProcess($TaskName, "Register scheduled task running: $conhost $conArg")) {
   Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger @($logon, $wake, $every) `
     -Settings $settings -Principal $principal -Force | Out-Null
   Start-ScheduledTask -TaskName $TaskName
