@@ -21,6 +21,15 @@ the GitHub release notes.
 
 ## [Unreleased]
 
+### Added
+
+- **`bin/lane-groups.sh` prints which open tasks on a milestone can run as parallel lanes (`#896`).**
+  For each open issue it shows the spec state, the paths its approved spec lists under *Files
+  touched* (an issue without one is unknown, never guessed), the open issues it shares a path with
+  and the ones it waits for from the Build order, then the groups that can start together now.
+  It is display only: the driver still writes the Lanes line through `milestone-desc.sh`. A new
+  `spec-fresh.sh paths` mode prints the checked paths, so there is one parser.
+
 ### Changed
 
 - **archive-sprint offers a retro at every sprint close (`#898`).**

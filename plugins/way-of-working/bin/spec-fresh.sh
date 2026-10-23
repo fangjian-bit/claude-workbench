@@ -4,15 +4,19 @@
 # A spec is drafted on one commit (the `sha=` of its `spec-task:` marker) and the base moves on.
 # Before a build uses a found spec, the paths the spec lists under its *Files touched* section
 # are compared between that commit and the current tip of the base. If any changed, the spec is
-# stale and the build does not use it. Callers: /way-of-working:resume's map body read (and its stale branch's re-run) and the
+# stale and the build does not use it. A `paths` mode prints those checked paths and makes no git
+# call. Callers: /way-of-working:resume's map body read (and its stale branch's re-run) and the
 # coder agent's, each after `spec-comment.sh check` says `ok` and before `spec-comment.sh body`;
-# /way-of-working:spec-task runs the `shape` mode on a draft before posting it.
+# /way-of-working:spec-task runs the `shape` mode on a draft before posting it; bin/lane-groups.sh
+# runs `check` and `paths`, in its own clause: after its own `.id` and `.updated_at` compare, not
+# after `spec-comment.sh check`.
 #
 # Usage: spec-fresh.sh check <comment.json> <issue> <project.yml>
+#        spec-fresh.sh paths <comment.json> <issue> <project.yml>
 #        spec-fresh.sh shape <draft.md>
 #
 #   <comment.json>  the caller's own fetch of the ONE spec comment, to a file (the same file
-#                   spec-comment.sh reads), never piped in
+#                   spec-comment.sh reads, for `check`), never piped in
 #   <issue>         the task issue number, digits with no leading zero
 #   <project.yml>   the DEFAULT branch's committed copy (the callers' $DEF_YML_FILE)
 #   <draft.md>      a plain markdown file: no marker, no git. `shape` runs only the CR strip and
@@ -27,9 +31,15 @@
 #                   section has a shape this check cannot read
 #   bad-sha      -- the marker's commit is not a commit, or not an ancestor of the base tip
 #   unreadable   -- a config value, the JSON, a fetch or a git read failed
+# `paths` runs the Config, Body, Marker and Shape stages exactly as `check` does and prints one line:
+#   paths [<path>...]  -- `paths` and the checked paths the Shape stage wrote (the set `check`
+#                         compares: (append) bullets skipped except under .github/), space-separated;
+#                         `paths` alone when that set is empty
+# or `bad-marker`, `bad-shape` or `unreadable`, as `check` does. It makes no git call.
 # It exits 2, with a usage line on stderr and nothing on stdout, for a bad argument (the wrong
 # count, an unknown mode, an issue with a leading zero or non-digits), a missing file, or a
-# slash-less $0. It never prints the body, a path or git's output. Every git and yq call's
+# slash-less $0. It never prints the body or git's output; only `paths` prints paths, and only
+# ones that passed the Shape stage's path rule. Every git and yq call's
 # stderr goes to /dev/null. Nothing is evaluated; the body is data.
 #
 # Stages, in this order:
@@ -77,13 +87,13 @@ LC_ALL=C
 export LC_ALL
 
 usage() {
-  echo "usage: spec-fresh.sh check <comment.json> <issue> <project.yml> | spec-fresh.sh shape <draft.md>" >&2
+  echo "usage: spec-fresh.sh check|paths <comment.json> <issue> <project.yml> | spec-fresh.sh shape <draft.md>" >&2
   exit 2
 }
 [ "$#" -ge 1 ] || usage
 mode="$1"
 case "$mode" in
-  check) [ "$#" -eq 4 ] || usage ;;
+  check | paths) [ "$#" -eq 4 ] || usage ;;
   shape) [ "$#" -eq 2 ] || usage ;;
   *) usage ;;
 esac
@@ -91,7 +101,7 @@ case "$0" in
   */*) : ;;
   *) echo "spec-fresh.sh: must be run by path" >&2; exit 2 ;;
 esac
-if [ "$mode" = check ]; then
+if [ "$mode" != shape ]; then
   cj="$2" issue="$3" yml="$4"
   case "$issue" in '' | 0* | *[!0-9]*) echo "spec-fresh.sh: issue must be digits with no leading zero" >&2; exit 2 ;; esac
   [ -f "$cj" ] || { echo "spec-fresh.sh: no such comment file" >&2; exit 2; }
@@ -213,6 +223,13 @@ sha="$parsed"
 
 # --- Shape -------------------------------------------------------------------------------
 shape_stage "$tmp/body" "$tmp/paths" || out bad-shape
+
+if [ "$mode" = paths ]; then
+  list="$(tr '\n' ' ' <"$tmp/paths" 2>/dev/null)" || out unreadable
+  list="${list% }"
+  if [ -n "$list" ]; then out "paths $list"; fi
+  out paths
+fi
 
 # --- Fetch -------------------------------------------------------------------------------
 top="$(git rev-parse --show-toplevel 2>/dev/null)" || out unreadable

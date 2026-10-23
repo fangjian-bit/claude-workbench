@@ -549,6 +549,42 @@ expect "unreadable: a null body" "unreadable"
 nc; printf '{"body": 7}' >"$D/c.json"; run
 expect "unreadable: a non-string body" "unreadable"
 
+# --- paths mode -------------------------------------------------------------------------
+runp() { # the paths mode in the scratch repo; it makes no git call
+  rc=0
+  : >"$LOG"
+  out="$(cd "$R" && PATH="$fakebin:$PATH" FX_LOG="$LOG" FX_REAL_GIT="$real_git" sh "$script" paths "$D/c.json" "$ISSUE" "$D/project.yml" 2>"$D/err" </dev/null)" || rc=$?
+  err="$(cat "$D/err")"
+}
+nc; mk "$(marker)" '- `f1`
+- `dir/`
+- `doc.md` **(append)**
+- `.github/wf.yml` **(append)**'; runp
+expect "paths: the checked paths, append skipped except under .github/" "paths f1 dir .github/wf.yml"
+assert_eq "paths: no git call" "0" "$(wc -l <"$LOG" | tr -d ' ')"
+
+nc; mk "$(marker)" '- `doc.md` **(append)**'; runp
+expect "paths: every bullet append prints paths alone" "paths"
+
+nc; mk "$(marker)" '- `f1`
+- `f1`'; runp
+expect "paths: a repeated path is listed once" "paths f1"
+
+nc; mk "$(marker 999)" "$S1"; runp
+expect "paths: bad-marker for another issue" "bad-marker"
+
+nc; mk "$(marker)" '- `../f1`'; runp
+expect "paths: bad-shape for a dot-dot segment" "bad-shape"
+
+nc; printf '{"id": 5}' >"$D/c.json"; runp
+expect "paths: unreadable with no body" "unreadable"
+
+nc; mk "$(marker)" "$S1"
+rc=0; out="$(cd "$R" && sh "$script" paths "$D/c.json" 2>/dev/null)" || rc=$?
+assert_eq "exit 2: paths with a wrong argument count" "|2" "$out|$rc"
+rc=0; out="$(cd "$R" && sh "$script" paths "$D/c.json" 0663 "$D/project.yml" 2>/dev/null)" || rc=$?
+assert_eq "exit 2: paths with a leading-zero issue" "|2" "$out|$rc"
+
 # --- exit 2, nothing on stdout -----------------------------------------------------------
 nc; mk "$(marker)" "$S1"
 rc=0; out="$(cd "$R" && sh "$script" check "$D/c.json" 0663 "$D/project.yml" 2>/dev/null)" || rc=$?
