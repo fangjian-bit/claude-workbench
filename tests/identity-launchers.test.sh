@@ -24,6 +24,12 @@
 #                   lanes directory and a scratch container clone), both happy paths, base-moved and kept
 #                   worktrees, and the static shape of the three scripts and both message templates
 #
+#
+# Concurrency (#937): the sections run at once, each in a subshell with its own scratch world
+# (setup_world: its own tmp, stub directory, clones, WowHome and STUB_* exports), so no case reads state
+# another section wrote. Each section's output goes to files that are replayed in section order; the
+# suite fails if any section reports a FAIL through `check` or exits non-zero.
+#
 # Permitted toolset: POSIX sh, its standard utilities, pwsh, git, yq and jq (skipped, loudly, if any is absent).
 set -eu
 
@@ -36,8 +42,8 @@ for t in pwsh git yq jq; do
   fi
 done
 
-tmp="$(cd "$(mktemp -d)" && pwd -P)"
-trap 'rm -rf "$tmp"' EXIT
+tmp_root="$(cd "$(mktemp -d)" && pwd -P)"
+trap 'rm -rf "$tmp_root"' EXIT
 
 # Native pwsh wants native paths; under MSYS that is cygpath -m, elsewhere the path as is.
 wp() { cygpath -m "$1" 2>/dev/null || printf '%s' "$1"; }
@@ -45,9 +51,6 @@ norm() { printf '%s' "$1" | tr 'A-Z/\\' 'a-z//' | sed 's,/*$,,'; }
 
 pwsh_abs=$(command -v pwsh)
 real_git=$(command -v git)
-stubdir="$tmp/stub" ; mkdir "$stubdir"
-home="$tmp/home" ; mkdir -p "$home/bin"
-STUB_DIR="$stubdir"; export STUB_DIR
 STUB_SESSION_EXIT=7; export STUB_SESSION_EXIT
 REAL_GIT=$real_git; export REAL_GIT
 
@@ -81,6 +84,13 @@ mklink_dir() {
   else ln -s "$2" "$1" 2>/dev/null && [ -L "$1" ]; fi
 }
 skip() { echo "SKIP - $1" >&2; }
+
+# setup_world <name>: a private scratch world for one section, set in the calling shell.
+setup_world() {
+  tmp="$tmp_root/$1"; mkdir "$tmp"
+  stubdir="$tmp/stub" ; mkdir "$stubdir"
+  home="$tmp/home" ; mkdir -p "$home/bin"
+  STUB_DIR="$stubdir"; export STUB_DIR
 cat >"$tmp/docker.body" <<'STUB'
 #!/bin/sh
 d=$STUB_DIR
@@ -182,6 +192,12 @@ install_to() { # install_to <bin dir>: the three scripts and a MANIFEST in insta
 }
 install_to "$home/bin"; install_to "$tmp/other/bin"
 STUB_RECORD="$home/driver/wb-driver.json"; export STUB_RECORD
+  # A file symlink for the cases that need one, and the clone paths the sections pass to the launchers.
+  echo x >"$tmp/link-target"; ln -s "$tmp/link-target" "$tmp/probe-link" 2>/dev/null || :
+C=$(wp "$clone"); R=$(wp "$ref"); H=$(wp "$home")
+# The -Clone path as the launcher passes it on: Get-FinalPath's form, backslashes on Windows.
+if [ -n "$msys" ]; then CF=$(printf '%s' "$C" | tr / '\\'); else CF=$C; fi
+}
 
 # --- running the launcher ------------------------------------------------------------------------
 PATH_BASE=$PATH
@@ -229,6 +245,44 @@ exec_line="docker exec -it -u app -e GIT_TERMINAL_PROMPT=0 -w /workspace $ID1 /u
 
 running1() { reset; echo "$ID1 running" >"$stubdir/ps.vol.1"; }
 
+# Helpers more than one section uses.
+no_dc_exec() { ! calls | grep -q '^devcontainer exec'; }
+no_canary() { ! { calls; glog; } | grep -q CANARY; }
+# --- wow-lane.ps1 ------------------------------------------------------------------------------------
+run_lane() { run_with "$home/bin/wow-lane.ps1" -Clone "$(wp "$clone")" -Reference "$(wp "$ref")" -WowHome "$(wp "$home")" "$@"; }
+LANE_CONTAINER_STAGE=
+LHASH=$ID1   # any 64 lowercase hex digits are a valid -Hash
+no_app_exec() { ! calls | grep -q ' -u app '; }
+no_banned() { ! calls | grep -q '[&|^%"]'; }
+it_line() { calls | grep ' -it '; }
+app_execs() { calls | grep ' -u app ' | grep -v ' -it '; }
+# app_execs_pinned <n>: exactly n non-interactive -u app execs, each carrying GIT_NO_REPLACE_OBJECTS=1
+app_execs_pinned() { [ "$(app_execs | wc -l | tr -d ' ')" -eq "$1" ] && [ "$(app_execs | grep -c -e '-e GIT_NO_REPLACE_OBJECTS=1')" -eq "$1" ]; }
+no_effort() { ! it_line | grep -q -e '--effort'; }
+exec_shape() { non_ps | awk '{print $2, $3, $4}' | tr '\n' ,; }
+# lane_setup: one running recorded container, a fresh scratch lanes directory with lane 5 prepared (a linked
+# worktree of the container clone, and a prompt file), and the container clone's worktree list pruned.
+lane_setup() {
+  reset; echo "$ID1 running" >"$stubdir/ps.vol.1"; write_record "$ID1" "$c2" "$(json_clone)"
+  rm -rf "$lanes" "$tmp/otherwt" "$stubdir/moved-wt"; $real_git -C "$crepo" worktree prune
+  mkdir "$lanes"; chmod 700 "$lanes" # not mkdir -m: MSYS fails it under its /tmp
+  printf '%s exited /elsewhere/CANARY-LABEL\n' "$ID3" >"$stubdir/ps.label"
+  $real_git -C "$crepo" worktree add -q --detach "$lanes/5" "$c2"
+  printf 'CANARY-PROMPT: do things\n' >"$lanes/5-prompt.md"
+  PH=$(sha256sum <"$lanes/5-prompt.md" | cut -d' ' -f1)
+  cp "$home/driver/wb-driver.json" "$tmp/rec-snap"
+}
+lane_refuses() { # lane_refuses <label>: exit 1, a reason, no interactive exec
+  check "wow-lane refuses ($1): exit 1" test "$rc" -eq 1
+  check "wow-lane refuses ($1): says why on stderr" test -s "$tmp/err"
+  check "wow-lane refuses ($1): no -it exec" no_it
+  [ -z "${LANE_CONTAINER_STAGE:-}" ] || check "wow-lane refuses ($1): no in-container script ran" no_app_exec
+  check "wow-lane refuses ($1): the record is not written" sh -c "[ ! -e '$home/driver/wb-driver.json' ] || cmp -s '$tmp/rec-snap' '$home/driver/wb-driver.json'"
+}
+
+
+# --- section: not installed ---
+sec_notinst() {
 # --- not installed -----------------------------------------------------------------------------
 reset
 run_with "$root_dir/scripts/identity/wow-driver.ps1" -Clone "$(wp "$clone")" -Reference "$(wp "$ref")" -WowHome "$(wp "$home")"
@@ -256,6 +310,11 @@ if mklink_dir "$tmp/homelink" "$home"; then
   check "not installed: a script run through the link passes the bin check" test "$rc" -ne 1 -o -s "$stubdir/calls.log"
 else skip "a directory link cannot be made here; the -WowHome link fixtures did not run"; fi
 
+  :
+}
+
+# --- section: bad arguments ---
+sec_badargs() {
 # --- bad arguments -----------------------------------------------------------------------------
 bad_arg() { # bad_arg <label> <args...>: exit 2, a usage line, no stub or git call
   l=$1; shift; reset
@@ -264,9 +323,6 @@ bad_arg() { # bad_arg <label> <args...>: exit 2, a usage line, no stub or git ca
   check "bad argument: $l prints usage" err_has 'usage: wow-driver.ps1'
   check "bad argument: $l makes no external call" none_called
 }
-C=$(wp "$clone"); R=$(wp "$ref"); H=$(wp "$home")
-# The -Clone path as the launcher passes it on: Get-FinalPath's form, backslashes on Windows.
-if [ -n "$msys" ]; then CF=$(printf '%s' "$C" | tr / '\\'); else CF=$C; fi
 bad_arg 'a missing -Clone' -Reference "$R" -WowHome "$H"
 bad_arg 'a missing -Reference' -Clone "$C" -WowHome "$H"
 bad_arg 'a relative -Clone' -Clone wb-driver -Reference "$R" -WowHome "$H"
@@ -303,6 +359,11 @@ for v in '-x' 'a..b' '/x' 'x/' 'a//b' 'a b' 'a"b' 'a;b'; do
   bad_arg "a bad -Base ($v)" -Clone "$C" -Reference "$R" -WowHome "$H" -Base "$v"
 done
 
+  :
+}
+
+# --- section: start of day, the record and the .devcontainer/ mismatch ---
+sec_start() {
 # --- start of day ------------------------------------------------------------------------------
 start_ok() { # start_ok <label>: the sequence, the record, the exec, the exit code
   check "$1: exits with the session's code" test "$rc" -eq 7
@@ -315,8 +376,6 @@ $exec_line"
   check "$1: no devcontainer exec" no_dc_exec
   check "$1: nothing from the clone, the listings or up reaches an argv" no_canary
 }
-no_dc_exec() { ! calls | grep -q '^devcontainer exec'; }
-no_canary() { ! { calls; glog; } | grep -q CANARY; }
 printf '%s exited /elsewhere/CANARY-LABEL\n' "$ID3" >"$stubdir/ps.label"
 for st in none exited created; do
   reset
@@ -353,8 +412,7 @@ else mismatch 'a case variant of a committed file' sh -c "cp '$clone/.devcontain
 mismatch 'a near-duplicate name (soft hyphen)' sh -c "cp '$clone/.devcontainer/Dockerfile' \"$clone/.devcontainer/Docker\$(printf '\\302\\255')file\"; echo evil >>'$clone/.devcontainer/Dockerfile'"
 mismatch 'a missing file' rm "$clone/.devcontainer/sub/x.sh"
 mismatch 'a CRLF checkout' sh -c "sed 's/\$/\r/' '$seed/.devcontainer/sub/x.sh' >'$clone/.devcontainer/sub/x.sh'"
-echo x >"$tmp/link-target"
-if ln -s "$tmp/link-target" "$tmp/probe-link" 2>/dev/null && [ -L "$tmp/probe-link" ]; then
+if [ -L "$tmp/probe-link" ]; then
   mismatch 'a link under it' sh -c "rm '$clone/.devcontainer/sub/x.sh' && ln -s '$tmp/link-target' '$clone/.devcontainer/sub/x.sh'"
 else skip "a file symlink cannot be made here; the link-under-it fixture did not run"; fi
 dc_as_link() { mv "$clone/.devcontainer" "$tmp/dc-moved" && mklink_dir "$clone/.devcontainer" "$tmp/dc-moved"; }
@@ -363,6 +421,11 @@ if mklink_dir "$tmp/probe-dlink" "$tmp/refs"; then
 else skip "a directory link cannot be made here; the link-as-the-directory fixture did not run"; fi
 rm -rf "$tmp/dc-moved"
 
+  :
+}
+
+# --- section: refusals by label, after up, edit after up ---
+sec_startb() {
 # containers found only by label, or on the Reference
 reset; echo "$ID1 running $(wp "$clone")" >"$stubdir/ps.label.1"
 run_drv
@@ -417,6 +480,11 @@ run_drv
 check "edit after up: still only the validated exec" test "$rc" -eq 7 -a "$(non_ps | tail -1)" = "$exec_line"
 check "edit after up: nothing from the file in any argv" no_canary
 
+  :
+}
+
+# --- section: attach ---
+sec_attach() {
 # --- attach ------------------------------------------------------------------------------------
 reset; echo "$ID1 running" >"$stubdir/ps.vol.1"; write_record "$ID1" "$c2" "$(json_clone)"
 run_drv
@@ -491,37 +559,11 @@ check "missing tool: yq off PATH exits 1" test "$rc" -eq 1
 check "missing tool: ...naming yq" err_has 'yq not found'
 check "missing tool: ...before any docker call" none_called
 
-# --- wow-lane.ps1 ------------------------------------------------------------------------------------
-run_lane() { run_with "$home/bin/wow-lane.ps1" -Clone "$(wp "$clone")" -Reference "$(wp "$ref")" -WowHome "$(wp "$home")" "$@"; }
-LHASH=$ID1   # any 64 lowercase hex digits are a valid -Hash
-no_app_exec() { ! calls | grep -q ' -u app '; }
-no_banned() { ! calls | grep -q '[&|^%"]'; }
-it_line() { calls | grep ' -it '; }
-app_execs() { calls | grep ' -u app ' | grep -v ' -it '; }
-# app_execs_pinned <n>: exactly n non-interactive -u app execs, each carrying GIT_NO_REPLACE_OBJECTS=1
-app_execs_pinned() { [ "$(app_execs | wc -l | tr -d ' ')" -eq "$1" ] && [ "$(app_execs | grep -c -e '-e GIT_NO_REPLACE_OBJECTS=1')" -eq "$1" ]; }
-no_effort() { ! it_line | grep -q -e '--effort'; }
-exec_shape() { non_ps | awk '{print $2, $3, $4}' | tr '\n' ,; }
-# lane_setup: one running recorded container, a fresh scratch lanes directory with lane 5 prepared (a linked
-# worktree of the container clone, and a prompt file), and the container clone's worktree list pruned.
-lane_setup() {
-  reset; echo "$ID1 running" >"$stubdir/ps.vol.1"; write_record "$ID1" "$c2" "$(json_clone)"
-  rm -rf "$lanes" "$tmp/otherwt" "$stubdir/moved-wt"; $real_git -C "$crepo" worktree prune
-  mkdir "$lanes"; chmod 700 "$lanes" # not mkdir -m: MSYS fails it under its /tmp
-  printf '%s exited /elsewhere/CANARY-LABEL\n' "$ID3" >"$stubdir/ps.label"
-  $real_git -C "$crepo" worktree add -q --detach "$lanes/5" "$c2"
-  printf 'CANARY-PROMPT: do things\n' >"$lanes/5-prompt.md"
-  PH=$(sha256sum <"$lanes/5-prompt.md" | cut -d' ' -f1)
-  cp "$home/driver/wb-driver.json" "$tmp/rec-snap"
-}
-lane_refuses() { # lane_refuses <label>: exit 1, a reason, no interactive exec
-  check "wow-lane refuses ($1): exit 1" test "$rc" -eq 1
-  check "wow-lane refuses ($1): says why on stderr" test -s "$tmp/err"
-  check "wow-lane refuses ($1): no -it exec" no_it
-  [ -z "${LANE_CONTAINER_STAGE:-}" ] || check "wow-lane refuses ($1): no in-container script ran" no_app_exec
-  check "wow-lane refuses ($1): the record is not written" sh -c "[ ! -e '$home/driver/wb-driver.json' ] || cmp -s '$tmp/rec-snap' '$home/driver/wb-driver.json'"
+  :
 }
 
+# --- section: wow-lane: not installed and bad arguments ---
+sec_lanea() {
 # not installed
 reset; rm -f "$tmp/rec-snap"
 run_with "$root_dir/scripts/identity/wow-lane.ps1" -Clone "$(wp "$clone")" -Reference "$(wp "$ref")" -WowHome "$(wp "$home")" -Issue 5 -Hash "$LHASH"
@@ -571,6 +613,11 @@ bad_lane 'a -Clone equal to -Reference' -Clone "$R" -Reference "$R" -WowHome "$H
 bad_lane 'a bad -Remote' -Clone "$C" -Reference "$R" -WowHome "$H" -Spec 7 -Remote 'a b'
 bad_lane 'a bad -Base' -Clone "$C" -Reference "$R" -WowHome "$H" -Spec 7 -Base 'a"b'
 
+  :
+}
+
+# --- section: wow-lane: container, record and probe refusals ---
+sec_laneb() {
 # container and record refusals: no interactive exec, no in-container script, no record written
 LANE_CONTAINER_STAGE=1
 lane_setup; : >"$stubdir/ps.vol.1"; run_lane -Issue 5 -Hash "$PH"
@@ -618,6 +665,11 @@ if [ -L "$tmp/probe-link" ]; then
 else skip "a file symlink cannot be made here; the prompt-link and worktree-link fixtures did not run"; fi
 lane_setup; run_lane -Issue 5 -Hash "$(echo "$PH" | tr 0-9a-f 1-9a-f0)"; probe_refuses 'a hash mismatch' 'does not hash'
 
+  :
+}
+
+# --- section: wow-lane: happy paths, kept worktrees and static shape ---
+sec_lanec() {
 # lane happy path
 lane_setup; run_lane -Issue 5 -Hash "$PH"
 lane_msg="In one Bash call, run: T=\$(mktemp -d); cp /tmp/lanes/5-prompt.md \$T/p.md; sha256sum \$T/p.md; echo \$T/p.md. Stop unless that call printed the hash $PH. If it did, read only that copy and follow it."
@@ -715,6 +767,11 @@ for tpl in LaneMessage SpecMessage; do
   check "static: the $tpl template holds none of & | ^ % or a double quote" clean_line "$(tpl_line $tpl)"
 done
 
+  :
+}
+
+# --- section: model, declared values and the helper ---
+sec_misc() {
 # --- model -------------------------------------------------------------------------------------
 push_yml() { # push_yml <architect value>
   printf 'models:\n  architect: %s\n  coder: sonnet\ncanary: CANARY-YML\n' "$1" >"$seed/.ai/project.yml"
@@ -754,6 +811,11 @@ if mklink_dir "$tmp/clones-link" "$tmp/clones"; then
   check "helper: Get-FinalPath follows a link in a parent" test "$(norm "$out")" = "$(norm "$(wp "$clone")")"
 else skip "a directory link cannot be made here; the Get-FinalPath link fixture did not run"; fi
 
+  :
+}
+
+# --- section: ConvertFrom-MsysDrivePath ---
+sec_msys() {
 # --- ConvertFrom-MsysDrivePath (#789, #842): the platform flag is passed, so these run on any host -------
 # A stub sh in its own directory logs its arguments and answers from sh.out and sh.code. It is written directly,
 # not with mkstub: on MSYS mkstub's .cmd shim runs `sh` by name, so a shim named sh would run itself. There the
@@ -849,6 +911,26 @@ check "msys: flag false leaves /c/x unchanged" test "$rc" -eq 0 -a "$out" = '/c/
 for f in wow-driver.ps1 wow-lane.ps1; do
   check "msys: $f converts -WowHome before resolving it" grep -qF "Resolve-LaunchDir '-WowHome' (ConvertFrom-MsysDrivePath '-WowHome' \$WowHome) -Plain" "$root_dir/scripts/identity/$f"
 done
+  :
+}
 
-[ "$fail" -eq 0 ] || { echo "identity-launchers: FAILED" >&2; exit 1; }
+# Run every section at once; replay each one's output in order.
+sections="notinst badargs start startb attach lanea laneb lanec misc msys"
+pids=
+# An interrupt stops the section subshells and removes the scratch tree (a signal skips the EXIT trap);
+# a pwsh run already in flight ends on its own, as test-all.sh's header allows.
+stop_sections() { kill $pids 2>/dev/null || :; rm -rf "$tmp_root" || :; exit "$1"; }
+trap 'stop_sections 129' HUP; trap 'stop_sections 130' INT; trap 'stop_sections 143' TERM
+for n in $sections; do
+  ( setup_world "$n"; "sec_$n"; [ "$fail" -eq 0 ] ) >"$tmp_root/$n.out" 2>"$tmp_root/$n.err" &
+  eval "pid_$n=$!"; pids="$pids $!"
+done
+all_ok=1
+for n in $sections; do
+  eval "p=\$pid_$n"; src=0; wait "$p" || src=$?
+  cat "$tmp_root/$n.out"; cat "$tmp_root/$n.err" >&2
+  [ "$src" -eq 0 ] || { echo "FAIL - section $n exited $src" >&2; all_ok=0; }
+done
+
+[ "$all_ok" -eq 1 ] || { echo "identity-launchers: FAILED" >&2; exit 1; }
 echo "identity-launchers: all passed"
