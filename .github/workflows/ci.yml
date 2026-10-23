@@ -113,6 +113,16 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # The suite exits 0 with a SKIP line when a tool is missing; this step turns that into a
+      # failure here. The list is the suite's own skip loop in tests/identity-launchers.test.sh.
+      - name: launcher fixture tools present
+        run: |
+          for t in pwsh git yq jq; do
+            if ! command -v "$t" >/dev/null 2>&1; then
+              echo "$t not on PATH; the launcher fixtures would skip instead of run"
+              exit 1
+            fi
+          done
       - name: host driver launcher fixtures
         run: sh tests/identity-launchers.test.sh
 
