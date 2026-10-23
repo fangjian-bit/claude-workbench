@@ -20,7 +20,16 @@
 # The shapes run in this order, and the first that matches any line wins, whatever its line order:
 # the six of spec-post.sh's leak filter (drive, users, home, appdata, pem, token), copied byte for
 # byte and pinned by tests/leak-screen.test.sh, then anthropic (an sk-ant- key, the fragment
-# review-outbox.sh's secret check uses) and tilde (a home-relative path). It runs under the
+# review-outbox.sh's secret check uses), tilde (a home-relative path) and abspath (slash-led text with
+# a second slash, the usual form of an absolute path, or any text holding three slashes in a row after a colon, which also drops a non-file URL with an empty host). Abspath is a
+# filter on that one shape, not a guarantee. Known misses: a single-segment path, a path with a space
+# in its first segment, a path written straight after a name character, dot, underscore, star, hyphen
+# or slash (so a home path written as a bare environment variable), or, under a UTF-8 locale, an invalid
+# byte, or a first segment holding one, a file URL with a host, a relative climb, a backslash path with
+# no drive letter. Known false drops: any line with a slash not
+# written straight after one of those, then non-slash non-space text, then a second slash (a
+# site-relative link, an API route, a URL query with a slash after an equals sign, a path segment in
+# braces or brackets, two slash commands joined by a slash). It runs under the
 # caller's locale, as spec-post.sh does.
 #
 # Permitted toolset: POSIX sh, grep, sed, cut, mktemp, rm.
@@ -82,5 +91,6 @@ leak pem -F -e '-----BEGIN'
 leak token -E -e '(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}' -e 'github_pat_[A-Za-z0-9]{20,}'
 leak anthropic -E -e 'sk-ant-[A-Za-z0-9_-]{20,}'
 leak tilde -F -e '~/'
+leak abspath -E -e '(^|[^A-Za-z0-9._*/-])/[^/[:space:]]+/' -e ':///'
 
 stop ok

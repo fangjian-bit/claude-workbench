@@ -48,6 +48,18 @@ case_ "token classic" "leak 1 token" 1 "t ghp""_$body"
 case_ "token fine-grained" "leak 1 token" 1 "t github""_pat_$body"
 case_ "anthropic" "leak 1 anthropic" 1 "k sk-""ant-$body"
 case_ "tilde" "leak 1 tilde" 1 "see ~/.aws/x"
+case_ "abspath pass" "ok" 0 \
+  "run /way-of-working:retro now" "see https://example.com/a/b/c." \
+  "edit plugins/way-of-working/bin/leak-screen.sh" "plugins/*/bin/" "tests/*.test.sh" "**/x/y" \
+  "../x/y" "./a/b" "// foo/bar" "pass / fail" "read/write" "10/23/2026" "/" "/tmp"
+case_ "abspath staging dir" "leak 1 abspath" 1 "under /tmp/stage/x"
+case_ "abspath backticks" "leak 1 abspath" 1 "\`/var/lib/x\`"
+case_ "abspath parens" "leak 1 abspath" 1 "(/opt/x/y)"
+case_ "abspath sentence end" "leak 1 abspath" 1 "end /tmp/stage."
+case_ "abspath climb" "leak 1 abspath" 1 "climb /tmp/stage/../../etc/passwd"
+case_ "abspath host colon" "leak 1 abspath" 1 "host:/etc/x"
+case_ "abspath file url" "leak 1 abspath" 1 "url file:///etc/passwd"
+case_ "abspath quoted" "leak 1 abspath" 1 '"/srv/a/b"'
 case_ "later line" "leak 3 home" 1 "a" "b" "/home/x"
 case_ "order wins over line order" "leak 2 home" 1 "ghp""_$body" "/home/x"
 
