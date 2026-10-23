@@ -94,14 +94,18 @@ for d in none nohead nobullet; do
 done
 
 # --- an area outside the scope grammar fails closed ------------------------
-for shape_name in Alpha a_b a.b a/b "a b"; do
+# Each bad name carries the token zqxw, which no message of the script contains, so the
+# no-echo check greps for it and survives a rewording. The e-acute name pins that a
+# non-ASCII area fails closed.
+eacute="$(printf '\303\251')"
+for shape_name in zqxwA zqxw_a zqxw.a zqxw/a "zqxw a" "zqxw$eacute"; do
   d="$tmp/bad-$(printf '%s' "$shape_name" | od -An -tx1 | tr -d ' \n')"
   mkdir -p "$d"
   printf '# t\n\n## Areas\n\n- `alpha` — a\n- `%s` — b\n' "$shape_name" >"$d/CLAUDE.md"
   assert "bad area [$shape_name]: no scope fails closed" 1 "not a valid scope" "$d" 'x: s'
   assert "bad area [$shape_name]: scope fails closed" 1 "not a valid scope" "$d" 'x(alpha): s'
   out="$( cd "$d" && bash "$script" 'x(alpha): s' 2>&1 )" || true
-  if printf '%s' "$out" | grep -qF -- "$shape_name"; then
+  if printf '%s' "$out" | grep -qF -- zqxw; then
     echo "FAIL - bad area [$shape_name]: output echoes the area: $out" >&2
     fail=1
   else
