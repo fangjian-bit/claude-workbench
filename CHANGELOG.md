@@ -30,6 +30,10 @@ the GitHub release notes.
   that applies to the review poll task's reinstall as well, though its registration is unchanged and it ends no process. The task's
   repeating trigger runs every minute and the `-RestartCount` settings are gone, since conhost exits 0
   when the broker is killed and the restart never fired.
+- **`/way-of-working:archive-sprint` gives the pin-bump note in the same message as the retro offer (`#1003`).**
+  Step 7 said the *Consider bumping the plugin pin* step "follows on any answer", which read as
+  waiting for a reply to the offer, so with no reply the note was never given. The note now goes
+  before the offer in the same message, and retro runs only on a yes typed later.
 - **`bin/lane-groups.sh` prints only `unreadable` when its final pass fails (`#1009`).**
   Before, a failure partway left some rows on stdout followed by `unreadable`.
 
