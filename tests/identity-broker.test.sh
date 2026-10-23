@@ -29,7 +29,7 @@
 #                lines (any letter case) and not another home, a bin.old path or an empty line; an empty -File "" is no span;
 #                Stop-FileArgProcess under strict mode with stubbed cmdlets (no match, one, two, a survivor throws); static checks that the
 #                broker trigger repeats every minute with no RestartCount, both stop paths call Stop-FileArgProcess, and
-#                the install disables and re-enables the task (#1016)
+#                the install disables and re-enables the task (#1016), passing neither cmdlet -Confirm or -WhatIf
 #   no tool on PATH  with PATH holding only an empty directory and no -Sh, register-broker-task, broker
 #                and install-host-tools each reach their own "no POSIX sh found" / "git not found" message,
 #                never a null .Source error; broker never calls mint.sh and install creates no bin
@@ -437,6 +437,44 @@ check "register: no RestartCount" test "$(grep -c 'RestartCount' "$reg_ps")" -eq
 check "register: dot-sources task-process.ps1 and calls Stop-FileArgProcess" sh -c 'grep -q "task-process.ps1" "$1" && grep -q "Stop-FileArgProcess" "$1"' sh "$reg_ps"
 check "install: dot-sources task-process.ps1 and calls Stop-FileArgProcess" sh -c 'grep -q "task-process.ps1" "$1" && grep -q "Stop-FileArgProcess" "$1"' sh "$inst_ps"
 check "install: disables and re-enables the task" sh -c 'grep -q "Disable-ScheduledTask" "$1" && grep -q "Enable-ScheduledTask" "$1"' sh "$inst_ps"
+# Disable-/Enable-ScheduledTask take no -Confirm or -WhatIf (they do not support ShouldProcess); passing one fails the
+# install on the host. Read through the parser, so a continuation, an abbreviation or a splat counts and a comment does not.
+cat >"$tmp/noconfirm.ps1" <<'PS1'
+# A file it cannot read or parse, or no file at all, is exit 2: ParseFile reports those as parse errors, never a throw.
+if (-not $args) { [Console]::Error.WriteLine('no files given'); exit 2 }
+$bad = foreach ($p in $args) {
+  $errs = $null
+  $ast = [System.Management.Automation.Language.Parser]::ParseFile($p, [ref]$null, [ref]$errs)
+  if ($errs) { [Console]::Error.WriteLine("${p}: $($errs[0].Message)"); exit 2 }
+  $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -match '^(Dis|En)able-ScheduledTask$' }, $true) |
+    Where-Object { $_.CommandElements | Where-Object {
+      ($_ -is [System.Management.Automation.Language.CommandParameterAst] -and
+        ('confirm'.StartsWith($_.ParameterName, 'OrdinalIgnoreCase') -or 'whatif'.StartsWith($_.ParameterName, 'OrdinalIgnoreCase') -or $_.ParameterName -in 'cf', 'wi')) -or
+      ($_ -is [System.Management.Automation.Language.VariableExpressionAst] -and $_.Splatted) } } |
+    ForEach-Object { '{0}:{1}' -f $p, $_.Extent.StartLineNumber }
+}
+if ($bad) { $bad; exit 1 }
+PS1
+noconfirm() { pwsh -NoProfile -NonInteractive -File "$(wp "$tmp/noconfirm.ps1")" "$@"; }
+noconfirm_fails() { # fails with a file:line finding, not just any non-zero exit
+  if out=$(noconfirm "$@"); then return 1; fi
+  case $out in *.ps1:[0-9]*) ;; *) return 1 ;; esac
+}
+noconfirm_identity() { # every scripts/identity/*.ps1, as native paths
+  set --; for f in "$root_dir"/scripts/identity/*.ps1; do set -- "$@" "$(wp "$f")"; done
+  noconfirm "$@"
+}
+printf '%s\n' '# Disable-ScheduledTask takes no -Confirm' 'Disable-ScheduledTask -TaskName x' >"$tmp/nc-ok.ps1"
+printf '%s\n' 'Enable-ScheduledTask -TaskName x `' '  -Confirm:$false' >"$tmp/nc-cont.ps1"
+printf '%s\n' '$a = @{ Confirm = $false }' 'Disable-ScheduledTask -TaskName x @a' >"$tmp/nc-splat.ps1"
+printf '%s\n' 'Disable-ScheduledTask -TaskName x -wi' >"$tmp/nc-abbr.ps1"
+check "no-confirm check: a comment and a plain call pass" noconfirm "$(wp "$tmp/nc-ok.ps1")"
+check "no-confirm check: a continued -Confirm fails" noconfirm_fails "$(wp "$tmp/nc-cont.ps1")"
+check "no-confirm check: a splat fails" noconfirm_fails "$(wp "$tmp/nc-splat.ps1")"
+check "no-confirm check: an abbreviated -WhatIf fails" noconfirm_fails "$(wp "$tmp/nc-abbr.ps1")"
+check "no-confirm check: an unreadable path fails" sh -c '! "$@" 2>/dev/null' sh pwsh -NoProfile -NonInteractive -File "$(wp "$tmp/noconfirm.ps1")" "$(wp "$tmp/nc-missing.ps1")"
+check "no-confirm check: no file fails" sh -c '! "$@" 2>/dev/null' sh pwsh -NoProfile -NonInteractive -File "$(wp "$tmp/noconfirm.ps1")"
+check "identity scripts: no -Confirm or -WhatIf on Disable-/Enable-ScheduledTask" noconfirm_identity
 
 # --- config ----------------------------------------------------------------------------------
 reset

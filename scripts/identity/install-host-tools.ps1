@@ -172,7 +172,7 @@ if ($PSCmdlet.ShouldProcess($bin, "Install $($table.Count) host files from commi
       $taskWasEnabled = [bool]$stopFound[0].Settings.Enabled
       . (Join-Path $PSScriptRoot 'task-process.ps1')
       $stopSpan = Get-FileArgSpan (@($stopFound[0].Actions)[0].Arguments)
-      $null = Disable-ScheduledTask -TaskName $StopTask -Confirm:$false
+      $null = Disable-ScheduledTask -TaskName $StopTask
     }
   }
   try {
@@ -226,7 +226,7 @@ if ($PSCmdlet.ShouldProcess($bin, "Install $($table.Count) host files from commi
   } finally {
     # A failed enable must not replace the install's own error: warn loudly and let that error through.
     if ($taskWasEnabled) {
-      try { $null = Enable-ScheduledTask -TaskName $StopTask -Confirm:$false }
+      try { $null = Enable-ScheduledTask -TaskName $StopTask }
       catch { Write-Warning "could not enable task $StopTask again ($($_.Exception.Message)); it stays disabled until the register script runs" }
     }
   }
