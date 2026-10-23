@@ -188,6 +188,9 @@ Explicitly reject:
      `transcript-reader report dropped: screen did not say ok`. The screen is a filter on obvious
      shapes, not a boundary: a secret in any form other than the raw shape passes, and a
      report that names a path matching a shape for an innocent reason is dropped.
+     The transcript reader's own instructions say it writes repo paths repo-relative and describes
+     any other path in words, so a drop on the `drive`, `users`, `home` or `tilde` shape most likely
+     means the reader broke that rule; the drop stands.
    - **When it cannot run.** No transcript matching the rule, no file reporting `ok` (every file
      `empty` or `failed`), a spawn of
      that agent that fails, or a read of the staging directory the human declines when the

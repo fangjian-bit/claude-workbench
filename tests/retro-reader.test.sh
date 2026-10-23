@@ -1,5 +1,5 @@
 #!/bin/sh
-# Static checks for issues #899, #900, #904, #914 and #916: /way-of-working:retro's transcript reader is a plugin agent
+# Static checks for issues #899, #900, #904, #914, #916, #957 and #961: /way-of-working:retro's transcript reader is a plugin agent
 # confined by its frontmatter tool list, not by a prose instruction.
 # Permitted toolset: POSIX sh, grep, sed.
 set -eu
@@ -16,6 +16,15 @@ else
   [ "$(sed -n '2,/^---$/p' "$agent" | grep -c '^tools:')" = 1 ] || bad "$agent: not exactly one tools line in the frontmatter"
   sed -n '2,/^---$/p' "$agent" | grep -qx 'tools: Read, Grep, Glob' || bad "$agent: tools line is not exactly 'Read, Grep, Glob'"
   grep -q '^model: ' "$agent" || bad "$agent: no model line"
+  [ "$(grep -c 'never write an absolute path' "$agent")" = 1 ] || bad "$agent: not exactly one 'never write an absolute path' line"
+  rule_line="$(grep -n 'never write an absolute path' "$agent" | sed -n '1s/:.*//p')"
+  how_line="$(grep -n '^## How to work$' "$agent" | sed -n '1s/:.*//p')"
+  report_line="$(grep -n '^## Report back$' "$agent" | sed -n '1s/:.*//p')"
+  if [ -z "$rule_line" ] || [ -z "$how_line" ] || [ -z "$report_line" ] || [ "$rule_line" -le "$how_line" ] || [ "$rule_line" -ge "$report_line" ]; then
+    bad "$agent: the path rule is not between '## How to work' and '## Report back'"
+  fi
+  grep -qF 'repo-relative' "$agent" || bad "$agent: no 'repo-relative' wording"
+  grep -qF 'credential-shaped text' "$agent" || bad "$agent: no 'credential-shaped text' wording"
 fi
 grep -q 'way-of-working:transcript-reader' "$skill" || bad "$skill: does not name way-of-working:transcript-reader"
 if grep -q 'runs only `jq`' "$skill"; then bad "$skill: still says the reader runs only jq"; fi
@@ -24,6 +33,7 @@ grep -q 'confirms in this session' "$skill" || bad "$skill: no confirmation word
 if grep -qF 'is filed or surfaced, never written to memory' "$skill"; then bad "$skill: old filing rule is back"; fi
 grep -qF 'POSIX-only' "$skill" || bad "$skill: no POSIX-only statement for the cross-session path match"
 
+grep -qF 'the reader broke that rule' "$skill" || bad "$skill: no reader-broke-the-rule sentence"
 grep -qF "leak-screen.sh" "$skill" || bad "$skill: does not name leak-screen.sh"
 grep -qF "transcript-reader report dropped" "$skill" || bad "$skill: no drop line text"
 grep -qF "\`empty\`" "$skill" || bad "$skill: no backticked empty status word"
