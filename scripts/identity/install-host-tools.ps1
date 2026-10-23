@@ -19,8 +19,11 @@
        remote-tracking ref): reviewed, merged code, not a worktree or an unpushed branch. HEAD is
        resolved once, and that commit is what is exported and recorded. Every table entry must
        exist at that commit.
-    3. Only then (and only past -WhatIf / -Confirm) stops the scheduled task named by -StopTask,
-       if given, so a refusal above never leaves the broker down.
+    3. Only then (and only past -WhatIf / -Confirm) disables the scheduled task named by -StopTask,
+       if it exists, stops it and ends the processes running its -File path (stopping the task ends
+       conhost, not the pwsh it started), waiting for them, so a refusal above never leaves the broker
+       down. The task is enabled again after the swap, on failure too, if it was enabled before; a run
+       killed between the disable and that re-enable leaves it disabled until the register script runs.
     4. Exports the files from that commit (git cat-file blob: the stored bytes, so no working-tree
        edit and no CRLF conversion) into $WowHome\bin.new, writes MANIFEST there (the commit, the
        install time, each file's sha256 and destination path relative to bin, so the human can
@@ -58,7 +61,8 @@
   The git checkout to install from. Default: the repository containing this script.
 
 .PARAMETER StopTask
-  A scheduled task to stop just before the swap (register-broker-task.ps1 passes its own).
+  A scheduled task to disable and stop just before the swap, with the processes running its -File path
+  ended and waited for, then enabled again after it (register-broker-task.ps1 passes its own).
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
@@ -158,48 +162,72 @@ $bin = Join-Path $WowHome 'bin'
 $new = Join-Path $WowHome 'bin.new'
 $old = Join-Path $WowHome 'bin.old'
 if ($PSCmdlet.ShouldProcess($bin, "Install $($table.Count) host files from commit $($head.Substring(0, 12))")) {
-  if ($StopTask) { Stop-ScheduledTask -TaskName $StopTask -ErrorAction SilentlyContinue }
-
-  # A crash mid-swap leaves bin.old and no bin: that is the last good copy, so put it back first.
-  if (-not (Test-Path -LiteralPath $bin) -and (Test-Path -LiteralPath $old)) { Move-Item -LiteralPath $old -Destination $bin }
-  if (Test-Path -LiteralPath $new) { Remove-Item -LiteralPath $new -Recurse -Force }
-  $null = New-Item -ItemType Directory -Path $new
-  foreach ($e in $table) {
-    $dst = Join-Path $new $e[1]
-    $null = New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dst)
-    Export-Blob "$($head):$($e[0])" $dst
+  # Disabled across the swap so the broker task's one-minute trigger cannot start the old broker between the stop and the swap.
+  $taskWasEnabled = $false
+  $stopSpan = $null
+  if ($StopTask) {
+    $stopFound = @(Get-ScheduledTask -TaskName $StopTask -ErrorAction SilentlyContinue)
+    if ($stopFound.Count -gt 1) { throw "expected one task named $StopTask, found $($stopFound.Count)" }
+    if ($stopFound.Count -eq 1) {
+      $taskWasEnabled = [bool]$stopFound[0].Settings.Enabled
+      . (Join-Path $PSScriptRoot 'task-process.ps1')
+      $stopSpan = Get-FileArgSpan (@($stopFound[0].Actions)[0].Arguments)
+      $null = Disable-ScheduledTask -TaskName $StopTask -Confirm:$false
+    }
   }
-
-  $lines = @("commit $head", "installed $([DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ'))")
-  foreach ($e in $table) {
-    $p = Join-Path $new $e[1]
-    if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { throw "$($e[1]) missing after export" }
-    $lines += '{0}  {1}' -f (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant(), $e[1]
-  }
-  [IO.File]::WriteAllText((Join-Path $new 'MANIFEST'), (($lines -join "`n") + "`n"))
-
-  if (Test-Path -LiteralPath $old) { Remove-Item -LiteralPath $old -Recurse -Force } # a stale backup, bin is intact
-  $hadBin = Test-Path -LiteralPath $bin
   try {
-    if ($hadBin) { Move-Item -LiteralPath $bin -Destination $old }
-    Move-Item -LiteralPath $new -Destination $bin
-  } catch {
-    if ($hadBin -and -not (Test-Path -LiteralPath $bin) -and (Test-Path -LiteralPath $old)) { Move-Item -LiteralPath $old -Destination $bin }
-    throw
-  }
-  if (Test-Path -LiteralPath $old) {
-    try { Remove-Item -LiteralPath $old -Recurse -Force } catch { Write-Warning "could not remove $old ($($_.Exception.Message)); the next run will" }
-  }
+    if ($StopTask) {
+      Stop-ScheduledTask -TaskName $StopTask -ErrorAction SilentlyContinue
+      if ($stopSpan) { Stop-FileArgProcess $stopSpan }
+    }
 
-  $cfg = Join-Path $WowHome 'broker.json'
-  if (Test-Path -LiteralPath $cfg -PathType Leaf) {
+    # A crash mid-swap leaves bin.old and no bin: that is the last good copy, so put it back first.
+    if (-not (Test-Path -LiteralPath $bin) -and (Test-Path -LiteralPath $old)) { Move-Item -LiteralPath $old -Destination $bin }
+    if (Test-Path -LiteralPath $new) { Remove-Item -LiteralPath $new -Recurse -Force }
+    $null = New-Item -ItemType Directory -Path $new
+    foreach ($e in $table) {
+      $dst = Join-Path $new $e[1]
+      $null = New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dst)
+      Export-Blob "$($head):$($e[0])" $dst
+    }
+
+    $lines = @("commit $head", "installed $([DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ'))")
+    foreach ($e in $table) {
+      $p = Join-Path $new $e[1]
+      if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { throw "$($e[1]) missing after export" }
+      $lines += '{0}  {1}' -f (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant(), $e[1]
+    }
+    [IO.File]::WriteAllText((Join-Path $new 'MANIFEST'), (($lines -join "`n") + "`n"))
+
+    if (Test-Path -LiteralPath $old) { Remove-Item -LiteralPath $old -Recurse -Force } # a stale backup, bin is intact
+    $hadBin = Test-Path -LiteralPath $bin
     try {
-      foreach ($r in @((Get-Content -LiteralPath $cfg -Raw | ConvertFrom-Json).repos)) {
-        if ($r -is [string] -and $r -match '\A[A-Za-z0-9._-]+\z' -and $r -notmatch '\A[-.]' -and $r -notmatch '\.\z') {
-          $null = New-Item -ItemType Directory -Force -Path (Join-Path $WowHome "tokens/$r")
+      if ($hadBin) { Move-Item -LiteralPath $bin -Destination $old }
+      Move-Item -LiteralPath $new -Destination $bin
+    } catch {
+      if ($hadBin -and -not (Test-Path -LiteralPath $bin) -and (Test-Path -LiteralPath $old)) { Move-Item -LiteralPath $old -Destination $bin }
+      throw
+    }
+    if (Test-Path -LiteralPath $old) {
+      try { Remove-Item -LiteralPath $old -Recurse -Force } catch { Write-Warning "could not remove $old ($($_.Exception.Message)); the next run will" }
+    }
+
+    $cfg = Join-Path $WowHome 'broker.json'
+    if (Test-Path -LiteralPath $cfg -PathType Leaf) {
+      try {
+        foreach ($r in @((Get-Content -LiteralPath $cfg -Raw | ConvertFrom-Json).repos)) {
+          if ($r -is [string] -and $r -match '\A[A-Za-z0-9._-]+\z' -and $r -notmatch '\A[-.]' -and $r -notmatch '\.\z') {
+            $null = New-Item -ItemType Directory -Force -Path (Join-Path $WowHome "tokens/$r")
+          }
         }
-      }
-    } catch { Write-Warning "broker.json unreadable ($($_.Exception.Message)); tokens/<repo> not created" }
+      } catch { Write-Warning "broker.json unreadable ($($_.Exception.Message)); tokens/<repo> not created" }
+    }
+    "installed commit $head into $bin"
+  } finally {
+    # A failed enable must not replace the install's own error: warn loudly and let that error through.
+    if ($taskWasEnabled) {
+      try { $null = Enable-ScheduledTask -TaskName $StopTask -Confirm:$false }
+      catch { Write-Warning "could not enable task $StopTask again ($($_.Exception.Message)); it stays disabled until the register script runs" }
+    }
   }
-  "installed commit $head into $bin"
 }

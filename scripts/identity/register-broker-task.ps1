@@ -8,7 +8,7 @@
   the user's own $WowHome, never elevation), that starts broker.ps1:
     - at logon,
     - on wake from sleep (Power-Troubleshooter event 1),
-    - every 30 minutes, which restarts a broker that died; a running one is left alone,
+    - every minute, which restarts a broker that died whatever conhost reports; a running one is left alone,
   with "run as soon as possible after a missed start" on, no run-time limit, no stop on battery,
   and a second start ignored while one runs. The broker itself loops and refreshes a dev token
   whenever 30 minutes or less remain, so a missed or late start costs at most the gap until the
@@ -24,7 +24,8 @@
   Run it from a PowerShell 7.2+ prompt on the host, once. The sh it records is resolved now (or
   -Sh), because a task does not search the same PATH an interactive shell does; openssl, curl
   and jq must be on the user's PATH. The task runs pwsh through conhost.exe --headless, so no window opens
-  on a tick. -Unregister removes the task. -WhatIf shows what would be registered.
+  on a tick. -Unregister removes the task and ends the broker process it started (stopping conhost does not).
+  -WhatIf shows what would be registered.
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
@@ -41,8 +42,15 @@ if ($TaskName -notmatch '^[A-Za-z0-9._-]+$') { throw "TaskName must be letters, 
 
 if ($Unregister) {
   if ($PSCmdlet.ShouldProcess($TaskName, 'Unregister scheduled task')) {
+    # Read the task first: its action carries the -File span that finds the broker pwsh, which outlives conhost.
+    $found = @(Get-ScheduledTask -TaskName $TaskName)
+    if ($found.Count -ne 1) { throw "expected one task named $TaskName, found $($found.Count)" }
+    . (Join-Path $PSScriptRoot 'task-process.ps1')
+    $span = Get-FileArgSpan (@($found[0].Actions)[0].Arguments)
     Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
+    # After the unregister, so a broker a trigger started in between is ended too.
+    if ($span) { Stop-FileArgProcess $span }
   }
   return
 }
@@ -81,15 +89,14 @@ $action = New-ScheduledTaskAction -Execute $conhost -Argument $conArg
 
 $user = [Security.Principal.WindowsIdentity]::GetCurrent().Name
 $logon = New-ScheduledTaskTrigger -AtLogOn -User $user
-$every = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 30)
+$every = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 1)
 $wakeClass = Get-CimClass -ClassName MSFT_TaskEventTrigger -Namespace Root/Microsoft/Windows/TaskScheduler
 $wake = New-CimInstance -CimClass $wakeClass -ClientOnly
 $wake.Enabled = $true
 $wake.Subscription = '<QueryList><Query Id="0" Path="System"><Select Path="System">*[System[Provider[@Name=''Microsoft-Windows-Power-Troubleshooter''] and EventID=1]]</Select></Query></QueryList>'
 
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
-  -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero) `
-  -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
+  -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero)
 $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
 
 # Install the committed scripts (its checks refuse a dirty or unmerged checkout, and only after they pass does it
@@ -111,5 +118,5 @@ if ($PSCmdlet.ShouldProcess($TaskName, "Register scheduled task running: $conhos
   Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger @($logon, $wake, $every) `
     -Settings $settings -Principal $principal -Force | Out-Null
   Start-ScheduledTask -TaskName $TaskName
-  "registered $TaskName (logon, wake, every 30 min); broker log: $(Join-Path $WowHome 'broker.log')"
+  "registered $TaskName (logon, wake, every 1 min); broker log: $(Join-Path $WowHome 'broker.log')"
 }

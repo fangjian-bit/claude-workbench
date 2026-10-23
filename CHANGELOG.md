@@ -21,6 +21,16 @@ the GitHub release notes.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The broker's scheduled task no longer leaves a broker running after a stop, and a killed broker is restarted (`#1016`, `#1015`).**
+  `register-broker-task.ps1 -Unregister` and the reinstall's task stop now also end the `pwsh` whose
+  command line carries the task's own `-File` path (stopping conhost did not), and wait for it; the
+  install disables the task across the swap and enables it again after (if it was enabled), on failure too;
+  that applies to the review poll task's reinstall as well, though its registration is unchanged and it ends no process. The task's
+  repeating trigger runs every minute and the `-RestartCount` settings are gone, since conhost exits 0
+  when the broker is killed and the restart never fired.
+
 ## [0.24.0] — 2026-10-23
 
 ### Added

@@ -24,6 +24,12 @@
 #                creates tokens/<repo>;
 #                register-broker-task.ps1 -WhatIf points the task at bin, runs pwsh through conhost --headless and installs nothing (skipped, loudly,
 #                where New-ScheduledTaskAction is not available)
+#   task process task-process.ps1 (dot-sourced): Get-FileArgSpan finds the -File span of the broker task's conhost action
+#                and none in the poll task's -Command form; Test-FileArgMatch matches the broker pwsh and conhost command
+#                lines (any letter case) and not another home, a bin.old path or an empty line; an empty -File "" is no span;
+#                Stop-FileArgProcess under strict mode with stubbed cmdlets (no match, one, two, a survivor throws); static checks that the
+#                broker trigger repeats every minute with no RestartCount, both stop paths call Stop-FileArgProcess, and
+#                the install disables and re-enables the task (#1016)
 #   no tool on PATH  with PATH holding only an empty directory and no -Sh, register-broker-task, broker
 #                and install-host-tools each reach their own "no POSIX sh found" / "git not found" message,
 #                never a null .Source error; broker never calls mint.sh and install creates no bin
@@ -228,7 +234,7 @@ done
 src="$tmp/src" origin="$tmp/origin.git"
 git init -q -b main "$src" && git init -q --bare -b main "$origin"
 mkdir -p "$src/scripts/identity"
-for f in broker.ps1 mint.sh wow-common.sh wow-review-mint wow-admin register-broker-task.ps1 install-host-tools.ps1; do
+for f in broker.ps1 mint.sh wow-common.sh wow-review-mint wow-admin register-broker-task.ps1 install-host-tools.ps1 task-process.ps1; do
   cp "$root_dir/scripts/identity/$f" "$src/scripts/identity/$f"
 done
 # The install table, read from the script itself: one `,@('<source>', '<destination>')` line per entry.
@@ -374,6 +380,63 @@ check "no tool: install exits non-zero" test "$rc" -ne 0
 check "no tool: install reports the missing git" grep -q 'git not found on PATH' "$tmp/out"
 check "no tool: install has no null .Source error" no_source_err
 check "no tool: install creates no bin" test ! -e "$home/bin"
+
+# --- task process (#1016) ---------------------------------------------------------------------
+tp="$root_dir/scripts/identity/task-process.ps1"
+reg_ps="$root_dir/scripts/identity/register-broker-task.ps1"
+inst_ps="$root_dir/scripts/identity/install-host-tools.ps1"
+tpcase() { # tpcase <label> <expected> <powershell expression using the dot-sourced functions>
+  l=$1 want=$2 expr=$3
+  got=$(pwsh -NoProfile -NonInteractive -Command ". '$(wp "$tp")'; $expr" 2>&1) || got="failed: $got"
+  if [ "$got" = "$want" ]; then ok "task process: $l"; else bad "task process: $l (got: $got)"; fi
+}
+span='-File "C:\Users\a\.config\glunk-identity\bin\broker.ps1"'
+tail_args='-WowHome "C:\Users\a\.config\glunk-identity" -Sh "C:\Program Files\Git\bin\sh.exe"'
+con_args="--headless \"C:\\pwsh\\pwsh.exe\" -NoProfile -NonInteractive -WindowStyle Hidden $span $tail_args"
+tpcase "span from the conhost action" "$span" "Get-FileArgSpan '$con_args'"
+tpcase "no span in the poll task's -Command action" "NULL" "if (\$null -eq (Get-FileArgSpan '-NoProfile -Command \"& x\"')) { 'NULL' } else { 'span' }"
+tpcase "no span in an empty argument string" "NULL" "if (\$null -eq (Get-FileArgSpan '')) { 'NULL' } else { 'span' }"
+pwsh_line="\"C:\\pwsh\\pwsh.exe\" -NoProfile -NonInteractive -WindowStyle Hidden $span $tail_args"
+tpcase "pwsh command line matches" "True" "Test-FileArgMatch '$pwsh_line' '$span'"
+tpcase "conhost command line matches" "True" "Test-FileArgMatch '$con_args' '$span'"
+tpcase "another letter case matches" "True" "Test-FileArgMatch ('$pwsh_line').ToUpper() '$span'"
+tpcase "another home does not match" "False" "Test-FileArgMatch ('$pwsh_line').Replace('\\a\\', '\\b\\') '$span'"
+tpcase "a bin.old path does not match" "False" "Test-FileArgMatch ('$pwsh_line').Replace('\\bin\\', '\\bin.old\\') '$span'"
+tpcase "a longer path does not match" "False" "Test-FileArgMatch ('$pwsh_line').Replace('broker.ps1', 'broker.ps1x') '$span'"
+tpcase "an empty command line does not match" "False" "Test-FileArgMatch '' '$span'"
+tpcase "an empty span does not match" "False" "Test-FileArgMatch '$pwsh_line' ''"
+# Stop-FileArgProcess under strict mode with the process cmdlets stubbed (a fake process table in $env:TP_PROCS, ids).
+sfa_run() { # sfa_run <label> <expected> <matching ids, space separated> <ids that survive a kill, space separated>
+  l=$1 want=$2
+  cat >"$tmp/sfa.ps1" <<'PS1'
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+. $env:TP_FILE
+$script:procs = [System.Collections.ArrayList]@($env:TP_MATCH -split ' ' | Where-Object { $_ } | ForEach-Object { [int]$_ })
+$script:immortal = @($env:TP_IMMORTAL -split ' ' | Where-Object { $_ } | ForEach-Object { [int]$_ })
+$script:killed = [System.Collections.ArrayList]@()
+function Get-CimInstance { param($ClassName)
+  $script:procs | ForEach-Object { [pscustomobject]@{ ProcessId = $_; CommandLine = '"p" -File "C:\h\bin\broker.ps1" -x' } }
+  [pscustomobject]@{ ProcessId = $PID; CommandLine = '-File "C:\h\bin\broker.ps1"' }
+  [pscustomobject]@{ ProcessId = 1; CommandLine = 'unrelated' } }
+function Stop-Process { param($Id, [switch]$Force)
+  [void]$script:killed.Add($Id)
+  if ($script:immortal -notcontains $Id) { $script:procs.Remove($Id) } }
+try { Stop-FileArgProcess '-File "C:\h\bin\broker.ps1"' 1; "ok killed=$($script:killed -join ',')" } catch { "threw: $($_.Exception.Message)" }
+PS1
+  got=$(TP_FILE="$(wp "$tp")" TP_MATCH="$3" TP_IMMORTAL="$4" pwsh -NoProfile -NonInteractive -File "$(wp "$tmp/sfa.ps1")" 2>&1) || got="failed: $got"
+  if [ "$got" = "$want" ]; then ok "task process: $l"; else bad "task process: $l (got: $got)"; fi
+}
+sfa_run "Stop-FileArgProcess with no match returns quietly" "ok killed=" "" ""
+sfa_run "Stop-FileArgProcess ends one match, never itself" "ok killed=11" "11" ""
+sfa_run "Stop-FileArgProcess ends two matches" "ok killed=11,12" "11 12" ""
+sfa_run "Stop-FileArgProcess throws naming a survivor" "threw: still running after 1 s: process id 12" "11 12" "12"
+tpcase "an empty -File \"\" has no span" "NULL" "if (\$null -eq (Get-FileArgSpan '-File \"\" x')) { 'NULL' } else { 'span' }"
+check "register: the repeating trigger is one minute" grep -q 'RepetitionInterval (New-TimeSpan -Minutes 1)' "$reg_ps"
+check "register: no RestartCount" test "$(grep -c 'RestartCount' "$reg_ps")" -eq 0
+check "register: dot-sources task-process.ps1 and calls Stop-FileArgProcess" sh -c 'grep -q "task-process.ps1" "$1" && grep -q "Stop-FileArgProcess" "$1"' sh "$reg_ps"
+check "install: dot-sources task-process.ps1 and calls Stop-FileArgProcess" sh -c 'grep -q "task-process.ps1" "$1" && grep -q "Stop-FileArgProcess" "$1"' sh "$inst_ps"
+check "install: disables and re-enables the task" sh -c 'grep -q "Disable-ScheduledTask" "$1" && grep -q "Enable-ScheduledTask" "$1"' sh "$inst_ps"
 
 # --- config ----------------------------------------------------------------------------------
 reset
