@@ -26,7 +26,8 @@
 #                where New-ScheduledTaskAction is not available)
 #   task process task-process.ps1 (dot-sourced): Get-FileArgSpan finds the -File span of the broker task's conhost action
 #                and none in the poll task's -Command form; Test-FileArgMatch matches the broker pwsh and conhost command
-#                lines (any letter case) and not another home, a bin.old path or an empty line; an empty -File "" is no span;
+#                lines (any letter case), quoted or bare as the Store app-alias pwsh reports it, and not another home, a bin.old
+#                path, a longer path or an empty line; an empty -File "" is no span;
 #                Stop-FileArgProcess under strict mode with stubbed cmdlets (no match, one, two, a survivor throws); static checks that the
 #                broker trigger repeats every minute with no RestartCount, both stop paths call Stop-FileArgProcess, and
 #                the install disables and re-enables the task (#1016), passing neither cmdlet -Confirm or -WhatIf
@@ -405,6 +406,18 @@ tpcase "a bin.old path does not match" "False" "Test-FileArgMatch ('$pwsh_line')
 tpcase "a longer path does not match" "False" "Test-FileArgMatch ('$pwsh_line').Replace('broker.ps1', 'broker.ps1x') '$span'"
 tpcase "an empty command line does not match" "False" "Test-FileArgMatch '' '$span'"
 tpcase "an empty span does not match" "False" "Test-FileArgMatch '$pwsh_line' ''"
+# The Store app-alias pwsh.exe reports a rebuilt command line, quoting only paths that hold a space (seen on the host, #1016).
+alias_line='C:\Users\a\AppData\Local\Microsoft\WindowsApps\pwsh.exe -NoProfile -NonInteractive -WindowStyle Hidden -File C:\Users\a\.config\glunk-identity\bin\broker.ps1 -WowHome C:\Users\a\.config\glunk-identity -Sh "C:\Program Files\Git\bin\sh.exe"'
+tpcase "the alias pwsh's unquoted -File path matches" "True" "Test-FileArgMatch '$alias_line' '$span'"
+tpcase "an unquoted path at the end of the line matches" "True" "Test-FileArgMatch 'pwsh -File C:\Users\a\.config\glunk-identity\bin\broker.ps1' '$span'"
+tpcase "an unquoted longer path does not match" "False" "Test-FileArgMatch ('$alias_line').Replace('broker.ps1', 'broker.ps1x') '$span'"
+tpcase "an unquoted bin.old path does not match" "False" "Test-FileArgMatch ('$alias_line').Replace('\\bin\\', '\\bin.old\\') '$span'"
+tpcase "an unquoted path in a -WowHome argument does not match" "False" "Test-FileArgMatch 'pwsh -File C:\\x.ps1 -WowHome C:\\Users\\a\\.config\\glunk-identity\\bin\\broker.ps1' '$span'"
+tpcase "a path opened by a quote and not closed does not match" "False" "Test-FileArgMatch ('$alias_line').Replace('-File C:', '-File \"C:') '$span'"
+tpcase "-File glued to a preceding character does not match" "False" "Test-FileArgMatch ('$alias_line').Replace(' -File ', ' x-File ') '$span'"
+tpcase "a path with its dot replaced does not match" "False" "Test-FileArgMatch ('$alias_line').Replace('broker.ps1', 'brokerXps1') '$span'"
+sp_span='-File "C:\Users\a b\.config\glunk-identity\bin\broker.ps1"'
+tpcase "a quoted path with a space matches" "True" "Test-FileArgMatch 'C:\\p\\pwsh.exe -NoProfile $sp_span -WowHome x' '$sp_span'"
 # Stop-FileArgProcess under strict mode with the process cmdlets stubbed (a fake process table in $env:TP_PROCS, ids).
 sfa_run() { # sfa_run <label> <expected> <matching ids, space separated> <ids that survive a kill, space separated>
   l=$1 want=$2
@@ -416,7 +429,7 @@ $script:procs = [System.Collections.ArrayList]@($env:TP_MATCH -split ' ' | Where
 $script:immortal = @($env:TP_IMMORTAL -split ' ' | Where-Object { $_ } | ForEach-Object { [int]$_ })
 $script:killed = [System.Collections.ArrayList]@()
 function Get-CimInstance { param($ClassName)
-  $script:procs | ForEach-Object { [pscustomobject]@{ ProcessId = $_; CommandLine = '"p" -File "C:\h\bin\broker.ps1" -x' } }
+  $script:procs | ForEach-Object { [pscustomobject]@{ ProcessId = $_; CommandLine = 'p -File C:\h\bin\broker.ps1 -x' } }
   [pscustomobject]@{ ProcessId = $PID; CommandLine = '-File "C:\h\bin\broker.ps1"' }
   [pscustomobject]@{ ProcessId = 1; CommandLine = 'unrelated' } }
 function Stop-Process { param($Id, [switch]$Force)
