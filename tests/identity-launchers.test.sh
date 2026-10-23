@@ -697,7 +697,7 @@ lane_setup; run_lane -Issue 5 -Hash "$(echo "$PH" | tr 0-9a-f 1-9a-f0)"; probe_r
 sec_lanec() {
 # lane happy path
 lane_setup; run_lane -Issue 5 -Hash "$PH"
-lane_msg="In one Bash call, run: T=\$(mktemp -d); cp /tmp/lanes/5-prompt.md \$T/p.md; sha256sum \$T/p.md; echo \$T/p.md. Stop unless that call printed the hash $PH. If it did, read only that copy and follow it."
+lane_msg="Lane for issue #5. In one Bash call, run: T=\$(mktemp -d); cp /tmp/lanes/5-prompt.md \$T/p.md; sha256sum \$T/p.md; echo \$T/p.md. Stop unless that call printed the hash $PH. If it did, read only that copy and follow it."
 check "wow-lane lane: exits with the session's code" test "$rc" -eq 7
 check "wow-lane lane: the interactive argv is exactly the declared one" test "$(non_ps | tail -1)" = "docker exec -it -u app -e GIT_TERMINAL_PROMPT=0 -w /tmp/lanes/5 $ID1 /usr/local/bin/claude --model sonnet $lane_msg"
 check "wow-lane lane: relay probe, in-container probe, then the session, and nothing else" test "$(exec_shape)" = "exec -u root,exec -u app,exec -it -u,"

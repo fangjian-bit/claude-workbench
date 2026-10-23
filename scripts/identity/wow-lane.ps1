@@ -11,7 +11,7 @@
 
     -Issue N -Hash HASH   Lane mode. Starts a coder lane in the worktree scripts/lanes/lane.sh prep N
                           made (/tmp/lanes/N in the container), on models.coder, with the lane's fixed
-                          first message. HASH is the prompt-sha256= value prep printed.
+                          first message, which opens with the issue number. HASH is the prompt-sha256= value prep printed.
     -Spec N[,N...]        Spec mode. Makes a fresh detached worktree at the Reference's base commit
                           under /tmp/lanes (spec- and six characters of a-z0-9), starts a session there
                           on models.architect at --effort high, whose first message asks it to run
@@ -167,7 +167,7 @@ function Get-SpecSweepScript {
 }
 
 # First-message templates: only @N@, @HASH@ and @LIST@ are filled, each from a validated value.
-$script:LaneMessage = 'In one Bash call, run: T=$(mktemp -d); cp /tmp/lanes/@N@-prompt.md $T/p.md; sha256sum $T/p.md; echo $T/p.md. Stop unless that call printed the hash @HASH@. If it did, read only that copy and follow it.'
+$script:LaneMessage = 'Lane for issue #@N@. In one Bash call, run: T=$(mktemp -d); cp /tmp/lanes/@N@-prompt.md $T/p.md; sha256sum $T/p.md; echo $T/p.md. Stop unless that call printed the hash @HASH@. If it did, read only that copy and follow it.'
 $script:SpecMessage = 'Run /way-of-working:spec-task for each of these issues, one at a time, in this order: @LIST@. Build nothing, and start no build for any of them.'
 
 $script:LanesDir = '/tmp/lanes'

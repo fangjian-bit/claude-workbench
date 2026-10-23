@@ -212,8 +212,8 @@ only `/workspace`, and its `.git` file names a host path.
   never writes the record. It then enters the container with `docker exec -it -u app -e
   GIT_TERMINAL_PROMPT=0 -w /tmp/lanes/N`, into `/usr/local/bin/claude --model <models.coder>`, and sends the lane
   this first message:
-  > In one Bash call, run: T=$(mktemp -d); cp /tmp/lanes/N-prompt.md $T/p.md; sha256sum $T/p.md;
-  > echo $T/p.md. Stop unless that call printed the hash HASH. If it did, read only that copy and
+  > Lane for issue #N. In one Bash call, run: T=$(mktemp -d); cp /tmp/lanes/N-prompt.md $T/p.md;
+  > sha256sum $T/p.md; echo $T/p.md. Stop unless that call printed the hash HASH. If it did, read only that copy and
   > follow it.
 
   The copy that was hashed is the copy that is followed. The check in the container is an accident
