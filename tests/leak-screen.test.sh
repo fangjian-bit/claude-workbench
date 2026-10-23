@@ -69,14 +69,47 @@ assert_eq "one stdout line" "1" "$(wc -l <"$tmp/out" | tr -d ' ')"
 if grep -qF "$body" "$tmp/out" "$tmp/err"; then bad=1; else bad=0; fi
 assert_eq "no matched text on either stream" "0" "$bad"
 
+# parity_ok <spec-post file> <leak-screen file> <shape>: 0 only when the post file has exactly one
+# "leak <shape> " line and that line appears exactly once, as a whole line, in the leak-screen file
+parity_ok() {
+  _n="$(grep -c "^leak $3 " "$1" || true)"
+  [ "$_n" = 1 ] || return 1
+  _line="$(grep "^leak $3 " "$1")"
+  _m="$(grep -cxF "$_line" "$2" || true)"
+  [ "$_m" = 1 ]
+}
+
 # parity: spec-post.sh's six leak lines appear verbatim, and the anthropic fragment is review-outbox.sh's
 for shape in drive users home appdata pem token; do
-  line="$(grep "^leak $shape " "$spec_post")"
-  if [ -n "$line" ] && grep -qxF "$line" "$script"; then ok=0; else ok=1; fi
+  if parity_ok "$spec_post" "$script" "$shape"; then ok=0; else ok=1; fi
   assert_eq "parity $shape" "0" "$ok"
 done
+# witness: a second "leak home " line that leak-screen.sh lacks must fail the helper
+sed '' "$spec_post" >"$tmp/spec-post-dup.sh"
+printf '%s\n' "leak home -e 'witness-not-in-leak-screen'" >>"$tmp/spec-post-dup.sh"
+if parity_ok "$tmp/spec-post-dup.sh" "$script" home; then ok=0; else ok=1; fi
+assert_eq "parity witness: duplicate leak line fails" "1" "$ok"
 if grep -qF 'sk-ant-[A-Za-z0-9_-]{20,}' "$outbox" && grep -qF "leak anthropic -E -e 'sk-ant-[A-Za-z0-9_-]{20,}'" "$script"; then ok=0; else ok=1; fi
 assert_eq "parity anthropic" "0" "$ok"
+
+# bytes built at run time, so no NUL or invalid byte is committed
+printf '\000 /home/x\n' >"$tmp/f.txt"
+run "$tmp/f.txt"
+assert_eq "nul byte stdout" "unreadable" "$(cat "$tmp/out")"
+assert_eq "nul byte rc" "1" "$rc"
+
+run_utf8() {
+  rc=0
+  LC_ALL=C.UTF-8 sh "$script" "$@" >"$tmp/out" 2>"$tmp/err" || rc=$?
+}
+printf 'a\377b\n/home/x\n' >"$tmp/f.txt"
+run_utf8 "$tmp/f.txt"
+assert_eq "invalid byte before match stdout" "leak 2 home" "$(cat "$tmp/out")"
+assert_eq "invalid byte before match rc" "1" "$rc"
+printf 'a\377b /home/x\n/home/y\n' >"$tmp/f.txt"
+run_utf8 "$tmp/f.txt"
+assert_eq "invalid byte on matching line stdout" "leak 2 home" "$(cat "$tmp/out")"
+assert_eq "invalid byte on matching line rc" "1" "$rc"
 
 [ "$fail" = 0 ] && echo "leak-screen: ok"
 exit "$fail"
