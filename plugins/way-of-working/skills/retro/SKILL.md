@@ -189,7 +189,7 @@ Explicitly reject:
      shapes, not a boundary: a secret in any form other than the raw shape passes, and a
      report that names a path matching a shape for an innocent reason is dropped.
      The transcript reader's own instructions say it writes repo paths repo-relative and describes
-     any other path in words, so a drop on the `drive`, `users`, `home` or `tilde` shape most likely
+     any other path in words, so a drop on any of the screen's path shapes most likely
      means the reader broke that rule; the drop stands.
    - **When it cannot run.** No transcript matching the rule, no file reporting `ok` (every file
      `empty` or `failed`), a spawn of

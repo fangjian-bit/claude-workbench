@@ -1,7 +1,7 @@
 #!/bin/sh
-# Static checks for issues #899, #900, #904, #914, #916, #957 and #961: /way-of-working:retro's transcript reader is a plugin agent
+# Static checks for issues #899, #900, #904, #914, #916, #957, #961, #981 and #982: /way-of-working:retro's transcript reader is a plugin agent
 # confined by its frontmatter tool list, not by a prose instruction.
-# Permitted toolset: POSIX sh, grep, sed.
+# Permitted toolset: POSIX sh, grep, sed, and the leak screen's own tools (mktemp, cut, rm).
 set -eu
 
 root_dir="$(cd "$(dirname "$0")/.." && pwd)"
@@ -25,6 +25,8 @@ else
   fi
   grep -qF 'repo-relative' "$agent" || bad "$agent: no 'repo-relative' wording"
   grep -qF 'credential-shaped text' "$agent" || bad "$agent: no 'credential-shaped text' wording"
+  screen_out="$(sh "$root_dir/plugins/way-of-working/bin/leak-screen.sh" "$agent" 2>&1 || true)"
+  [ "$screen_out" = ok ] || bad "$agent: the leak screen says '$screen_out', not ok"
 fi
 grep -q 'way-of-working:transcript-reader' "$skill" || bad "$skill: does not name way-of-working:transcript-reader"
 if grep -q 'runs only `jq`' "$skill"; then bad "$skill: still says the reader runs only jq"; fi
@@ -34,6 +36,7 @@ if grep -qF 'is filed or surfaced, never written to memory' "$skill"; then bad "
 grep -qF 'POSIX-only' "$skill" || bad "$skill: no POSIX-only statement for the cross-session path match"
 
 grep -qF 'the reader broke that rule' "$skill" || bad "$skill: no reader-broke-the-rule sentence"
+grep -qF "any of the screen's path shapes" "$skill" || bad "$skill: no 'any of the screen's path shapes' wording"
 grep -qF "leak-screen.sh" "$skill" || bad "$skill: does not name leak-screen.sh"
 grep -qF "transcript-reader report dropped" "$skill" || bad "$skill: no drop line text"
 grep -qF "\`empty\`" "$skill" || bad "$skill: no backticked empty status word"

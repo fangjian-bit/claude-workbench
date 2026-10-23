@@ -23,6 +23,10 @@ the GitHub release notes.
 
 ### Changed
 
+- **The transcript reader's instructions no longer trip the leak screen (`#981`, `#982`).**
+  The agent file describes a home-relative path in words instead of writing it, so a report that
+  restates the rule is not dropped, and retro's sentence about a path-shape drop no longer lists
+  the shapes, so it cannot fall behind the screen. The screen and its drop-whole rule are unchanged.
 - **The transcript reader writes repo paths repo-relative and no credential-shaped text (`#961`, `#957`).**
   Its instructions now say to describe any other path in words and to name a finding about a
   secret only in words, so retro's leak screen should drop its report less often. The screen
