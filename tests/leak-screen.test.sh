@@ -48,10 +48,12 @@ case_ "token classic" "leak 1 token" 1 "t ghp""_$body"
 case_ "token fine-grained" "leak 1 token" 1 "t github""_pat_$body"
 case_ "anthropic" "leak 1 anthropic" 1 "k sk-""ant-$body"
 case_ "tilde" "leak 1 tilde" 1 "see ~/.aws/x"
-case_ "abspath pass" "ok" 0 \
-  "run /way-of-working:retro now" "see https://example.com/a/b/c." \
+# one case per string, so a failure names the string that tripped it
+for s in "run /way-of-working:retro now" "see https://example.com/a/b/c." \
   "edit plugins/way-of-working/bin/leak-screen.sh" "plugins/*/bin/" "tests/*.test.sh" "**/x/y" \
-  "../x/y" "./a/b" "// foo/bar" "pass / fail" "read/write" "10/23/2026" "/" "/tmp"
+  "../x/y" "./a/b" "// foo/bar" "pass / fail" "read/write" "10/23/2026" "/" "/tmp"; do
+  case_ "abspath pass: $s" "ok" 0 "$s"
+done
 case_ "abspath staging dir" "leak 1 abspath" 1 "under /tmp/stage/x"
 case_ "abspath backticks" "leak 1 abspath" 1 "\`/var/lib/x\`"
 case_ "abspath parens" "leak 1 abspath" 1 "(/opt/x/y)"
@@ -60,6 +62,21 @@ case_ "abspath climb" "leak 1 abspath" 1 "climb /tmp/stage/../../etc/passwd"
 case_ "abspath host colon" "leak 1 abspath" 1 "host:/etc/x"
 case_ "abspath file url" "leak 1 abspath" 1 "url file:///etc/passwd"
 case_ "abspath quoted" "leak 1 abspath" 1 '"/srv/a/b"'
+# the header's known false drops: each prints a leak although none is a path
+case_ "abspath false drop: a site-relative link" "leak 1 abspath" 1 "see [doc](/docs/a.md) here"
+case_ "abspath false drop: an API route" "leak 1 abspath" 1 "gh api /repos/o/r/pulls"
+case_ "abspath false drop: a URL query with a slash after an equals sign" "leak 1 abspath" 1 \
+  "https://example.com/x?path=/a/b"
+case_ "abspath false drop: a braces segment" "leak 1 abspath" 1 "edit plugins/{bin,skills}/x/y.sh"
+case_ "abspath false drop: a brackets segment" "leak 1 abspath" 1 "see docs/[id]/a/b"
+case_ "abspath false drop: two slash commands joined by a slash" "leak 1 abspath" 1 \
+  "/way-of-working:resume/way-of-working:handoff"
+# the header's known misses: each passes although it is a path
+case_ "abspath known miss: a space in the first segment" "ok" 0 "/Program Files/x/y"
+case_ "abspath known miss: a home path as a bare environment variable" "ok" 0 'cat $HOME/.ssh/config'
+case_ "abspath known miss: a file URL with a host" "ok" 0 "file://host/etc/passwd"
+case_ "abspath known miss: a relative climb" "ok" 0 "../../etc/passwd"
+case_ "abspath known miss: a backslash path with no drive letter" "ok" 0 '\\server\share\x'
 case_ "later line" "leak 3 home" 1 "a" "b" "/home/x"
 case_ "order wins over line order" "leak 2 home" 1 "ghp""_$body" "/home/x"
 
@@ -122,6 +139,15 @@ printf 'a\377b /home/x\n/home/y\n' >"$tmp/f.txt"
 run_utf8 "$tmp/f.txt"
 assert_eq "invalid byte on matching line stdout" "leak 2 home" "$(cat "$tmp/out")"
 assert_eq "invalid byte on matching line rc" "1" "$rc"
+
+printf 'x \377/etc/x/y\n' >"$tmp/f.txt"
+run_utf8 "$tmp/f.txt"
+assert_eq "abspath known miss: a path straight after an invalid byte stdout" "ok" "$(cat "$tmp/out")"
+assert_eq "abspath known miss: a path straight after an invalid byte rc" "0" "$rc"
+printf '/a\377b/c/d\n' >"$tmp/f.txt"
+run_utf8 "$tmp/f.txt"
+assert_eq "abspath known miss: an invalid byte in the first segment stdout" "ok" "$(cat "$tmp/out")"
+assert_eq "abspath known miss: an invalid byte in the first segment rc" "0" "$rc"
 
 [ "$fail" = 0 ] && echo "leak-screen: ok"
 exit "$fail"

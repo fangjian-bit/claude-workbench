@@ -46,8 +46,9 @@ the GitHub release notes.
 
 - **The leak screen also drops a report on slash-led text with a second slash (`#952`).**
   A new last shape, `abspath`, catches an absolute path outside the existing shapes, and a file
-  URL with an empty host (any colon followed by three slashes). Slash commands, plain URLs, and repo-relative paths and star globs still pass; the
-  header comment states its known misses and false drops.
+  URL with an empty host (any colon followed by three slashes). Slash commands, plain URLs, and
+  repo-relative paths and star globs still pass; the header comment states its known misses and
+  false drops.
 - **archive-sprint offers a retro at every sprint close (`#898`).**
   The offer no longer depends on the closing session having done the sprint's work, since retro now
   reads the repo's other recent sessions. It stays one optional line and never a gate.
