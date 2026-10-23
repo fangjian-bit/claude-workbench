@@ -18,7 +18,8 @@
 #   attach refuses  mismatched/missing/malformed record, another clone, dirty probe, two containers,
 #                   restarting/paused, a failed docker ps, a missing tool
 #   model, canary, edit after up, the declared values the docker exec literals copy
-#   wow-lane        not installed, bad arguments, container and record refusals, the lane probe and the
+#   wow-lane        not installed, bad arguments, container and record refusals (the sweep's lanes-directory
+#                   refusal too), the lane probe and the
 #                   spec prep and cleanup scripts run for real (the stub docker runs a non-interactive
 #                   `exec -u app ... /bin/sh -c <script> sh <args>` with the real /bin/sh against a scratch
 #                   lanes directory and a scratch container clone), both happy paths, base-moved and kept
@@ -870,6 +871,9 @@ else
   if fake_start "$lanes/spec-aaa111"; then
     rm -rf "$lanes/spec-aaa111"
     before=$(leaves); rerun -Spec 7; busy_refuses 'the leaf directory removed under the session' 7
+    rerun -SpecSweep
+    check "wow-lane sweep (leaf removed under the session): exits 0" test "$rc" -eq 0
+    check "wow-lane sweep (leaf removed under the session): lists it gone, with its process and issues" out_has "^/tmp/lanes/spec-aaa111 (gone); process $fake_pid; issues 7; started 2023-11-1"
     rm -f "$lanes/record-spec-aaa111"
     before=$(leaves); rerun -Spec 7; busy_refuses 'the leaf directory and the record removed' unknown
     fake_stop
@@ -908,6 +912,24 @@ else
   check "wow-lane sweep (no lanes directory): exits 0" test "$rc" -eq 0
   check "wow-lane sweep (no lanes directory): reports no spec sessions" test "$(cat "$tmp/out")" = 'no spec sessions'
   check "wow-lane sweep (no lanes directory): no lanes directory made" test ! -e "$lanes"
+  # a lanes directory that is a link or a regular file: refused, nothing listed
+  sweep_unsafe() { # sweep_unsafe <label>
+    check "wow-lane sweep ($1): exits 1" test "$rc" -eq 1
+    check "wow-lane sweep ($1): says why" err_has 'is a link, not a directory, or not owned by the container user'
+    check "wow-lane sweep ($1): lists no spec line" sh -c "! grep -q 'spec-' '$tmp/out'"
+    check "wow-lane sweep ($1): no -it exec" no_it
+  }
+  spec_setup; mkdir "$lanes/spec-aaa111"; printf '%s\n' '7 1700000000' >"$lanes/record-spec-aaa111"
+  mv "$lanes" "$tmp/lanes.real"
+  if mklink_dir "$lanes" "$tmp/lanes.real"; then
+    target_before=$(ls -1A "$tmp/lanes.real" | tr '\n' ' ')
+    rerun -SpecSweep; sweep_unsafe 'the lanes directory a link'
+    check "wow-lane sweep (the lanes directory a link): relay probe, then one in-container exec" test "$(exec_shape)" = "exec -u root,exec -u app,"
+    check "wow-lane sweep (the lanes directory a link): the link target is unchanged" test "$(ls -1A "$tmp/lanes.real" | tr '\n' ' ')" = "$target_before"
+  else skip "a directory link cannot be made here; the sweep lanes-directory link fixture did not run"; fi
+  rm -rf "$lanes" "$tmp/lanes.real"
+  : >"$lanes"; rerun -SpecSweep; sweep_unsafe 'the lanes path a regular file'
+  rm -f "$lanes"
 fi
   :
 }

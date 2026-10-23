@@ -252,6 +252,8 @@ only `/workspace`, and its `.git` file names a host path.
   without a readable one) and the process id (`no process` for a kept directory or an orphan
   record; a directory that is gone is marked so). It kills, removes and edits nothing: stopping a stray
   session, and removing its worktree and then its record, are done by hand.
+  The sweep refuses, listing nothing, when `/tmp/lanes` in the container is a link, not a directory, or
+  not owned by the container user, as the lane and spec modes do; a missing `/tmp/lanes` is not refused.
 - **Driver handoff points** (#729). The driver runs `/way-of-working:handoff` after each lane PR
   merges and its `lane.sh done N` has run, after each batch of spec sessions, and whenever the
   status line shows the context running high, rather than only when it runs low.

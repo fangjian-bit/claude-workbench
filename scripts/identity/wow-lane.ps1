@@ -24,6 +24,8 @@
     -SpecSweep            Sweep mode. Read-only: lists every spec worktree directory, spec record and
                           running spec-session process under /tmp/lanes, each with its issues and start
                           time. It kills, removes and edits nothing, and starts no session.
+                          It refuses, listing nothing, when /tmp/lanes in the container is a link, not a
+                          directory, or not owned by the container user.
 
   Order, lane and spec modes (-SpecSweep runs steps 1 to 5, skips steps 6 and 8, and its step 7 is the
   one non-interactive docker exec -u app of the sweep script, whose lines it prints):
@@ -95,7 +97,8 @@
 
 .PARAMETER SpecSweep
   Sweep mode: a switch, exclusive with -Issue, -Hash and -Spec. Lists the spec worktrees, records and
-  running spec sessions under /tmp/lanes and changes nothing.
+  running spec sessions under /tmp/lanes and changes nothing. Refuses, listing nothing, when /tmp/lanes
+  is a link, not a directory, or not owned by the container user.
 #>
 [CmdletBinding(PositionalBinding = $false)]
 param(
@@ -161,9 +164,9 @@ function Get-SpecCleanupScript {
   'set -f; exec 2>/dev/null; L=$1; R=$2; F=$3; C=$4; v=ok; w=kept; n=0; h=0; d=0; i=0; t=; if test -L $L; then v=no; fi; if test $v = ok; then if test -d $L; then :; else v=no; fi; fi; if test $v = ok; then if test -O $L; then :; else v=no; fi; fi; if test $v = ok; then if test -L $L/$F; then v=no; fi; fi; if test $v = ok; then if test -d $L/$F; then :; else v=no; fi; fi; if test $v = ok; then if test -L $L/$F/.git; then v=no; fi; fi; if test $v = ok; then if test -f $L/$F/.git; then :; else v=no; fi; fi; if test $v = ok; then t=$(mktemp); case $t in /*) :;; *) v=no;; esac; fi; if test $v = ok; then if git -C $R worktree list --porcelain >$t; then :; else v=no; fi; fi; if test $v = ok; then while read -r k u; do case $k in worktree) i=0; case $u in $L/$F) n=$((n+1)); i=1;; esac;; HEAD) if test $i = 1; then case $u in $C) h=1;; esac; fi;; detached) if test $i = 1; then d=1; fi;; esac; done <$t; fi; if test $v = ok; then if test $n$h$d = 111; then if git -C $R worktree remove $L/$F >/dev/null; then w=removed; rm -f $L/record-$F >/dev/null; fi; fi; fi; case $t in /*) rm -f $t >/dev/null;; esac; echo $w'
 }
 
-# Positionals: lanes dir. Prints one line per running spec session and per leaf with no running session: leaf, process id or -, issues or unknown, seconds or unknown, yes or no (directory present); or the one word none.
+# Positionals: lanes dir. Prints one line per running spec session and per leaf with no running session: leaf, process id or -, issues or unknown, seconds or unknown, yes or no (directory present); or the one word none; or the one word unsafe-dir when the lanes directory is a link, not a directory or not owned by the user (nothing else is printed then). A missing lanes directory is not refused.
 function Get-SpecSweepScript {
-  'set -f; exec 2>/dev/null; L=$1; seen=,; any=0; dg() { if test $# = 2; then :; else dok=0; return 0; fi; dv=$1; dok=1; while test ${#dv} -gt 0; do case $dv in [$2]*) dv=${dv#?};; *) dok=0; dv=;; esac; done; }; pf() { g=; q=$1; dg $q 0-9; if test $dok = 0; then return 0; fi; if test -O /proc/$q; then :; else return 0; fi; c=$(cat /proc/$q/comm); case $c in claude) :;; *) return 0;; esac; y=$(readlink /proc/$q/cwd); case $y in $L/spec-*) :;; *) return 0;; esac; set -- ${y#$L/}; if test $# -gt 2; then return 0; fi; if test $# = 2; then case $2 in \(deleted\)) :;; *) return 0;; esac; fi; case $1 in spec-[a-z0-9][a-z0-9][a-z0-9][a-z0-9][a-z0-9][a-z0-9]) g=$1;; esac; }; rd() { ri=unknown; rs=unknown; f=$L/record-$1; if test -L $f; then return 0; fi; if test -f $f; then :; else return 0; fi; n=0; a=; b=; while read -r k u; do n=$((n+1)); a=$k; b=$u; done <$f; if test $n = 1; then :; else return 0; fi; ok=1; if test ${#b} -lt 1; then ok=0; fi; if test ${#b} -gt 10; then ok=0; fi; dg $b 0-9; if test $dok = 0; then ok=0; fi; case $b in 0*) ok=0;; esac; if test ${#a} -lt 1; then ok=0; fi; if test ${#a} -gt 99; then ok=0; fi; dg $a 0-9,; if test $dok = 0; then ok=0; fi; case $a in ,*) ok=0;; *,) ok=0;; *,,*) ok=0;; 0*) ok=0;; *,0*) ok=0;; esac; if test $ok = 1; then IFS=,; set -- $a; unset IFS; if test $# -gt 10; then ok=0; fi; while test $# -gt 0; do if test ${#1} -gt 9; then ok=0; fi; shift; done; fi; if test $ok = 1; then ri=$a; rs=$b; fi; };  sp() { d=no; if test -d $L/$1; then d=yes; fi; }; set -- $(ls /proc); while test $# -gt 0; do pf $1; if test ${#g} -gt 0; then rd $g; sp $g; echo $g $1 $ri $rs $d; seen=$seen$g,; any=1; fi; shift; done; set -- $(ls $L); while test $# -gt 0; do h=; case $1 in spec-[a-z0-9][a-z0-9][a-z0-9][a-z0-9][a-z0-9][a-z0-9]) h=$1;; record-spec-[a-z0-9][a-z0-9][a-z0-9][a-z0-9][a-z0-9][a-z0-9]) h=${1#record-};; esac; if test ${#h} -gt 0; then case $seen in *,$h,*) h=;; esac; fi; if test ${#h} -gt 0; then e=0; if test -d $L/$h; then e=1; fi; if test -e $L/record-$h; then e=1; fi; if test -L $L/record-$h; then e=1; fi; if test $e = 1; then rd $h; sp $h; echo $h - $ri $rs $d; seen=$seen$h,; any=1; fi; fi; shift; done; if test $any = 0; then echo none; fi'
+  'set -f; exec 2>/dev/null; L=$1; seen=,; any=0; dg() { if test $# = 2; then :; else dok=0; return 0; fi; dv=$1; dok=1; while test ${#dv} -gt 0; do case $dv in [$2]*) dv=${dv#?};; *) dok=0; dv=;; esac; done; }; pf() { g=; q=$1; dg $q 0-9; if test $dok = 0; then return 0; fi; if test -O /proc/$q; then :; else return 0; fi; c=$(cat /proc/$q/comm); case $c in claude) :;; *) return 0;; esac; y=$(readlink /proc/$q/cwd); case $y in $L/spec-*) :;; *) return 0;; esac; set -- ${y#$L/}; if test $# -gt 2; then return 0; fi; if test $# = 2; then case $2 in \(deleted\)) :;; *) return 0;; esac; fi; case $1 in spec-[a-z0-9][a-z0-9][a-z0-9][a-z0-9][a-z0-9][a-z0-9]) g=$1;; esac; }; rd() { ri=unknown; rs=unknown; f=$L/record-$1; if test -L $f; then return 0; fi; if test -f $f; then :; else return 0; fi; n=0; a=; b=; while read -r k u; do n=$((n+1)); a=$k; b=$u; done <$f; if test $n = 1; then :; else return 0; fi; ok=1; if test ${#b} -lt 1; then ok=0; fi; if test ${#b} -gt 10; then ok=0; fi; dg $b 0-9; if test $dok = 0; then ok=0; fi; case $b in 0*) ok=0;; esac; if test ${#a} -lt 1; then ok=0; fi; if test ${#a} -gt 99; then ok=0; fi; dg $a 0-9,; if test $dok = 0; then ok=0; fi; case $a in ,*) ok=0;; *,) ok=0;; *,,*) ok=0;; 0*) ok=0;; *,0*) ok=0;; esac; if test $ok = 1; then IFS=,; set -- $a; unset IFS; if test $# -gt 10; then ok=0; fi; while test $# -gt 0; do if test ${#1} -gt 9; then ok=0; fi; shift; done; fi; if test $ok = 1; then ri=$a; rs=$b; fi; };  sp() { d=no; if test -d $L/$1; then d=yes; fi; }; w=ok; if test -L $L; then w=unsafe-dir; elif test -e $L; then if test -d $L; then if test -O $L; then :; else w=unsafe-dir; fi; else w=unsafe-dir; fi; fi; if test $w = ok; then set -- $(ls /proc); while test $# -gt 0; do pf $1; if test ${#g} -gt 0; then rd $g; sp $g; echo $g $1 $ri $rs $d; seen=$seen$g,; any=1; fi; shift; done; set -- $(ls $L); while test $# -gt 0; do h=; case $1 in spec-[a-z0-9][a-z0-9][a-z0-9][a-z0-9][a-z0-9][a-z0-9]) h=$1;; record-spec-[a-z0-9][a-z0-9][a-z0-9][a-z0-9][a-z0-9][a-z0-9]) h=${1#record-};; esac; if test ${#h} -gt 0; then case $seen in *,$h,*) h=;; esac; fi; if test ${#h} -gt 0; then e=0; if test -d $L/$h; then e=1; fi; if test -e $L/record-$h; then e=1; fi; if test -L $L/record-$h; then e=1; fi; if test $e = 1; then rd $h; sp $h; echo $h - $ri $rs $d; seen=$seen$h,; any=1; fi; fi; shift; done; fi; if test $w = unsafe-dir; then echo unsafe-dir; elif test $any = 0; then echo none; fi'
 }
 
 # First-message templates: only @N@, @HASH@ and @LIST@ are filled, each from a validated value.
@@ -215,13 +218,14 @@ function Invoke-SpecPrep([string]$Docker, [string]$Id, [string[]]$ScriptArgs) {
 }
 
 # Invoke-SpecSweep: the sweep script's lines, each a leaf, a process id or -, the issues or unknown, the
-# record's seconds or unknown, and yes or no; or the one line none (returned as an empty array).
-# $null for a nonzero exit or anything else.
+# record's seconds or unknown, and yes or no; or the one line none (returned as an empty array); or the one
+# line unsafe-dir (returned as that string). $null for a nonzero exit or anything else.
 function Invoke-SpecSweep([string]$Docker, [string]$Id, [string]$LanesDir) {
   $text = Invoke-ContainerExec $Docker $Id (Get-SpecSweepScript) @($LanesDir)
   if ($null -eq $text -or -not $text.EndsWith("`n")) { return $null }
   $lines = @($text.Substring(0, $text.Length - 1).Split("`n") | ForEach-Object { $_.TrimEnd("`r") })
   if ($lines.Count -eq 1 -and $lines[0] -ceq 'none') { return , @() }
+  if ($lines.Count -eq 1 -and $lines[0] -ceq 'unsafe-dir') { return 'unsafe-dir' }
   $rx = "\A($($script:SpecLeafRx)) ([1-9][0-9]{0,9}|-) (unknown|$($script:IssueListRx)) ($($script:SecondsRx)|unknown) (yes|no)\z"
   $rows = @()
   foreach ($l in $lines) {
@@ -303,6 +307,7 @@ try {
   if ($hasSweep) {
     # --- sweep: read-only, no session -------------------------------------------------------------
     $rows = Invoke-SpecSweep $docker $id $script:LanesDir
+    if ($rows -is [string] -and $rows -ceq 'unsafe-dir') { Stop-Launch "$($script:LanesDir) in the container is a link, not a directory, or not owned by the container user" }
     if ($null -eq $rows) { Stop-Launch 'the spec sweep in the container gave no usable answer' }
     if (@($rows).Count -eq 0) { Write-LaunchLine 'no spec sessions' }
     foreach ($r in @($rows)) {
