@@ -16,6 +16,21 @@ On a PR touching `code_paths`, after `/way-of-working:ship`, the maintainer runs
 on the host; a passing review from the reviewer App turns the `architect-review` status green, and until the follow-up so does one with no verdict line
 (`.github/workflows/architect-review-gate.yml`, `WB-D37`). A PR touching nothing under `code_paths` is not gated.
 
+## Areas
+
+A commit scope is the suffix of exactly one `area/*` label, Dependabot's `ci(deps)` aside, and every open issue carries one.
+
+- `way-of-working` — `plugins/way-of-working/` except its `.claude-plugin/`
+- `identity` — `scripts/identity/`, `docs/identity/`
+- `loop` — `scripts/loop/`
+- `lanes` — `scripts/lanes/`
+- `devcontainer` — `.devcontainer/`
+- `ci` — `.github/`, `scripts/*.sh`
+- `release` — `.claude-plugin/`, `plugins/way-of-working/.claude-plugin/`, `.claude/`
+- `ai` — `.ai/`
+
+Any other path follows the area of the change it belongs to (a test takes the area of what it tests, a changelog line the area of the change it records). A change spanning areas takes the area of its main purpose, or omits the scope.
+
 ## The one rule that matters most here
 
 **Shared plugin code in `plugins/way-of-working/` — every entry except `reference/`
