@@ -28,7 +28,8 @@
 # was built was not reproduced on the GNU build. Run it alone, in its own Bash call, with the
 # tool timeout at least 52 s (twice the 26 s). On a container whose `timeout` is uutils the bound
 # is about 1550 s: run it in the background, or stop and ask the maintainer to remove a uutils
-# copy from ~/.local/bin or recreate the container (DEV-CONTAINER.md, Lanes).
+# copy from ~/.local/bin or recreate the container (DEV-CONTAINER.md, Lanes). `scripts/test-all.sh`
+# starts this suite with its pool.
 set -u
 
 root_dir="$(cd "$(dirname "$0")/.." && pwd)"

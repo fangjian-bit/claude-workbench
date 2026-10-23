@@ -13,12 +13,13 @@
 # The files are found by a glob (sorted), so a new tests/X.test.sh is picked up with no list to
 # edit; every matching file runs, tracked or not. Each runs as `sh tests/NAME` from the repo
 # root with stdout and stderr together in one log under a mktemp -d directory.
-# Three suites are held out of the pool and started one at a time after it has drained, in this
-# order, each with nothing else running: tests/ai-cursor-banner.test.sh and
-# tests/loop-critic.test.sh assert wall-clock upper bounds that a loaded pool can trip, and
-# tests/identity-review.test.sh runs last (its own header's Runtime note: about 97 s alone in the
-# dev container), so a whole run needs more than a two-minute tool timeout. A held-out file the
-# glob does not find is skipped. No glob match prints `no tests found` and exits 1.
+# tests/identity-review.test.sh is the longest suite (its own header's Runtime note: about 26 s
+# alone in the dev container), so it is the first suite started, with the pool, and takes one of
+# the -j slots. Two suites are held out of the pool and started one at a time after it has
+# drained (identity-review included), in this order, each with nothing else running:
+# tests/ai-cursor-banner.test.sh and tests/loop-critic.test.sh assert wall-clock upper bounds
+# that a loaded pool can trip. A held-out file the glob does not find is skipped. No glob match
+# prints `no tests found` and exits 1.
 #
 # Verdicts: a non-zero exit is `fail`; exit 0 with a log line beginning `SKIP - ` or `skip - `
 # is `skip`; any other exit 0 is `pass`. A skip never fails the run. Output, once every file has
@@ -50,9 +51,10 @@
 #   - tests/identity-launchers.test.sh needs `pwsh`, `git`, `yq` and `jq`;
 #     tests/identity-broker.test.sh needs `pwsh`.
 #   - tests/invariants-files-filter.test.sh needs `jq` (the checker's check 20 does).
-#   - tests/identity-review.test.sh takes 97 s alone and its bound is 194 s; see the Runtime
+#   - tests/identity-review.test.sh takes 26 s alone and its bound is 52 s; see the Runtime
 #     bullet of the Lanes section of docs/identity/DEV-CONTAINER.md.
-# The script runs under bash 3.2.
+# The script is verified under bash 5 (the dev container and CI); it has not been run under bash
+# 3.2.
 set -euo pipefail
 
 usage() {
@@ -133,13 +135,17 @@ for x in ${xs[@]+"${xs[@]}"}; do
   fi
 done
 
-held=(ai-cursor-banner.test.sh loop-critic.test.sh identity-review.test.sh)
+held=(ai-cursor-banner.test.sh loop-critic.test.sh)
+first=identity-review.test.sh   # the longest suite: started first so it overlaps the rest of the pool
 names=()
+if [ -f "tests/$first" ] && ! is_excluded "$first"; then
+  names+=("$first")
+fi
 for f in tests/*.test.sh; do
   [ -f "$f" ] || continue
   ! is_excluded "${f#tests/}" || continue
   is_held=0
-  for h in "${held[@]}"; do
+  for h in "$first" "${held[@]}"; do
     [ "${f#tests/}" = "$h" ] && is_held=1
   done
   [ "$is_held" -eq 1 ] || names+=("${f#tests/}")

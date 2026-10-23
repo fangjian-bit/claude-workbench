@@ -278,7 +278,7 @@ only `/workspace`, and its `.git` file names a host path.
   higher, about 90 ms per call. The other uutils tools' share was not measured. Run the suite
   alone, in its own Bash call, with the tool timeout at least 52 s (twice the 26 s). On a container whose
   `timeout --version` names uutils, the bound is about 1550 s: run the suite in the background, or
-  stop and ask the maintainer. `scripts/test-all.sh` runs this suite last and alone, and the lane
+  stop and ask the maintainer. `scripts/test-all.sh` starts this suite with its pool, and the lane
   prompt runs the runner in one Bash call at the tool's 600 s maximum and stops and reports if that
   call times out. If `command -v timeout` prints `/usr/bin/timeout`, the container
   predates #741 and the maintainer recreates it, on the host: after every lane, every spec session and the driver
