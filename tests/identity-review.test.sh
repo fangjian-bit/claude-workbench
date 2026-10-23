@@ -12,15 +12,21 @@
 #
 # Permitted toolset: POSIX sh and its standard utilities, jq and yq (skipped, loudly, if absent).
 #
-# Runtime (#755): run alone, in the dev container as built (GNU coreutils 9.7 `timeout`, linked
-# by #741), this suite takes 97 s (#935). The same run with the uutils 0.8.0 `timeout` first on PATH
-# took 775 s; that and the figures below were measured before #935. The cause is the container's `timeout` build: a run makes
+# Concurrency (#955): the sections run at once, each in a subshell with its own scratch directory ($tmp: its
+# case tree and its out, err and log scratch files) over the stubs, which are written once before any section
+# starts. Each section's output goes to files that are replayed in section order; the suite fails if any
+# section reports a FAIL through `bad` (the invariants' included) or exits non-zero.
+#
+# Runtime (#755, #955): run alone, in the dev container as built (GNU coreutils 9.7 `timeout`, linked
+# by #741; 28 cores by `nproc`, on ext4), this suite takes 26 s; with the sections one after another it took
+# 92 s. The uutils 0.8.0 `timeout` first on PATH took 775 s with the sections one after another (measured
+# before #935). The cause is the container's `timeout` build: a run makes
 # about 7,500 `timeout` calls (the launcher wraps nearly every docker and gh call in it), and an
 # isolated `timeout 5 true` costs 62.2 ms with uutils against 0.8 ms with GNU in a 100-call loop
 # (a 61.4 ms difference; the figure varies with load, and the suite's effective overhead is
 # higher, about 90 ms per call). The other uutils tools' share was not measured. The 300 s overrun seen while #710
 # was built was not reproduced on the GNU build. Run it alone, in its own Bash call, with the
-# tool timeout at least 194 s (twice the 97 s). On a container whose `timeout` is uutils the bound
+# tool timeout at least 52 s (twice the 26 s). On a container whose `timeout` is uutils the bound
 # is about 1550 s: run it in the background, or stop and ask the maintainer to remove a uutils
 # copy from ~/.local/bin or recreate the container (DEV-CONTAINER.md, Lanes).
 set -u
@@ -34,8 +40,8 @@ for t in jq yq timeout; do
   fi
 done
 
-tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+tmp_root="$(mktemp -d)"
+trap 'rm -rf "$tmp_root"' EXIT
 
 fail=0
 ok() { printf 'ok - %s\n' "$1"; }
@@ -52,7 +58,7 @@ hasre() { grep -qE -- "$2" "$1" 2>/dev/null; }        # hasre <file> <regex>
 sed_esc() { printf '%s' "$1" | sed -e 's/[\\&|]/\\&/g'; }
 
 real_sleep=$(command -v sleep)
-stubs="$tmp/stubs"
+stubs="$tmp_root/stubs"
 mkdir "$stubs"
 
 # =========================================================================================
@@ -483,13 +489,90 @@ expect_failure_post() { # expect_failure_post <label> <code>
 }
 
 # =========================================================================================
-# --- arguments and environment: exit 2 before any mint, gh or docker call ----------------
+# --- helpers the sections share (defined before any section starts) ------------------------
 # =========================================================================================
 untouched() { # untouched <label>: no mint, gh or docker call was made
   assert_eq "$1: no mint" 0 "$(grep -c . "$STUB/mint.calls")"
   assert_eq "$1: no gh" 0 "$(grep -c . "$STUB/gh.calls")"
   assert_eq "$1: no docker" 0 "$(grep -c . "$STUB/docker.calls")"
 }
+dl_of() { printf '%s' "$1" | grep -o '\[wow.review.deadline=[0-9]*\]' | head -n 1; }
+no_docker() { assert_eq "$1: no docker call" 0 "$(grep -c . "$STUB/docker.calls")"; }
+no_post() { assert_eq "$1: nothing posted" 0 "$(n_posts)"; }
+key_case() { # key_case <label> <file content, printf format>: a run with a key file already there
+  new_case
+  mkdir -p "$home/review-state"; printf -- "$2" >"$home/review-state/.home-key"
+}
+review_doc() { # review_doc <uid> <commit> <state> <submitted_at json> [body]
+  jq -n --argjson uid "$1" --arg c "$2" --arg s "$3" --argjson t "$4" --arg b "${5-$HDRTXT
+
+$ATTTXT
+
+other text}" '{user:{id:$uid}, commit_id:$c, state:$s, submitted_at:$t, body:$b}'
+}
+vbody() { printf '%s\n\n%s\n\nReview verdict: %s\n\nrest' "$HDRTXT" "$ATTTXT" "$1"; }
+exempt_case() { # exempt_case <label> <compare files json or none> [yq edit] [status] [ahead_by]
+  new_case; set_outcome "exempt 7 $SHA"
+  [ -z "${3:-}" ] || set_yml "$3"
+  set_compare "${4:-ahead}" "${5:-2}" "$2"
+  run o/r 7
+  expect_failure_post "exempt ($1)" bad-outcome
+  if grep -E '/compare/' "$STUB/gh.calls" | grep -vE "\|repos/o/r/compare/[0-9a-f]{40}\.\.\.[0-9a-f]{40}\|" | grep -q .; then bad "exempt ($1): a compare call sent something other than two SHAs"; fi
+}
+body_case() { # body_case <label> <code> <extra text>
+  new_case
+  set_body "$HDRTXT
+
+$ATTTXT
+
+Reviewed against head $SHA
+
+$3"
+  run o/r 7
+  expect_failure_post "$1" "$2"
+}
+findings_case() { # findings_case <label> <code> <findings json>
+  new_case; set_findings "$3"
+  run o/r 7
+  assert_eq "findings ($1): the review posts, exit 0" 0 "$rc"
+  assert_eq "findings ($1): the footer" "Host: findings not filed ($2)" "$(post_body | tail -1)"
+  assert_eq "findings ($1): nothing filed" 0 "$(n_issues)"
+}
+FIND1='[{"title":"T","body":"b","type":"bug"}]'
+BEFORE=2026-10-17T16:00:00Z; AFTER=2026-10-17T17:00:00Z; SUBMITTED=2026-10-17T16:35:56Z
+glog() { cat "$home"/review-logs/*.log; }
+gpolls() { glog | grep -c -E 'gate poll [0-9]'; }
+gline() { glog | grep -c -E -- "Z gate poll $1\$"; }                  # gline <text>: that exact poll line
+status_doc() { # status_doc <context> <state> <updated_at json>
+  printf '{"statuses":[{"context":"%s","state":"%s","updated_at":%s}]}\n' "$1" "$2" "$3"
+}
+run_gate_case() { # run_gate_case <label>: golden path, exit 0 and the one finding filed
+  run o/r 7
+  assert_eq "$1: exit 0" 0 "$rc"
+  assert_eq "$1: the finding is filed" 1 "$(n_issues)"
+}
+gate_case() { new_case; set_findings "$FIND1"; printf '{"check_runs":[{"name":"ci","status":"completed","conclusion":"success"}]}\n' >"$STUB/gh/repos_o_r_commits_${SHA}_check-runs"; }
+pre_case() { # pre_case <label> <stub file under docker/> <jq filter>
+  new_case; printf '%s\n' "$3" >"$STUB/docker/$2"
+  run o/r 7
+  assert_eq "preflight ($1): exit 1" 1 "$rc"
+  assert_eq "preflight ($1): the session was not started" 0 "$(ev_count 'docker-start wow-review-session')"
+  check "preflight ($1): the never-started entry is freed" test ! -d "$(entry_dir)"
+  check "preflight ($1): directories gone" dirs_gone
+}
+no_leftover() { ! ps -ef 2>/dev/null | grep -F "$home/bin/wow-review" | grep -v grep | grep -q .; }
+cleaned() { # cleaned <label>
+  check "$1: both directories and the lock are gone" dirs_gone
+  check "$1: no launcher or refresher process is left" no_leftover
+  for c in session holder inject proxy; do check "$1: docker rm -f of the $c" has "$STUB/events" "docker-rm wow-review-$c-"; done
+  check "$1: both networks removed" has "$STUB/events" "docker-net-rm wow-review-net-"
+  check "$1: both volumes removed" has "$STUB/events" "docker-vol-rm -f wow-review-work-"
+}
+
+sec_args() {
+# =========================================================================================
+# --- arguments and environment: exit 2 before any mint, gh or docker call ----------------
+# =========================================================================================
 new_case
 for argv in "a" "a/b/c" "-a/b" "a/.." "o/r 0" "o/r 012" "o/r x" "o/r 7 --bogus" "o/r 7 --rerun --rerun" "o/r" "o/r 7 8" "/r 7" "o/ 7"; do
   # shellcheck disable=SC2086
@@ -510,7 +593,10 @@ for tv in "WOW_REVIEW_MAX=0" "WOW_REVIEW_MAX=10" "WOW_REVIEW_MAX=x" "WOW_REVIEW_
   assert_eq "tunable $tv: exit 2" 2 "$rc"
   untouched "tunable $tv"
 done
+:
+}
 
+sec_golden() {
 # =========================================================================================
 # --- the golden run: a valid review, same-owner backlog, two findings ----------------------
 # =========================================================================================
@@ -613,7 +699,6 @@ for pair in "proxy|$pr" "injector|$ij"; do
   case $call in *"[--label] [wow.review.deadline="*) ok "golden: the $who carries a deadline label" ;; *) bad "golden: the $who lacks a deadline label: $call" ;; esac
   case $call in *"[wow.review=1]"*) bad "golden: the $who carries the counted label" ;; *) ok "golden: the $who is not counted by the cap" ;; esac
 done
-dl_of() { printf '%s' "$1" | grep -o '\[wow.review.deadline=[0-9]*\]' | head -n 1; }
 sc=$(grep '^CALL \[create\].*wow-review-session' "$STUB/docker.calls")
 assert_eq "golden: the launcher takes its deadline in exactly one place" 1 "$(grep -c '^[[:space:]]*DL=' "$root_dir/scripts/identity/wow-review")"
 assert_eq "golden: the proxy and the holder carry one deadline" "$(dl_of "$hold")" "$(dl_of "$pr")"
@@ -664,13 +749,13 @@ assert_eq "golden: the filed ledger lines" "0 101
 1 102" "$(cat "$(entry_dir)/filed")"
 check "golden: the outcome is recorded" test "$(cat "$(entry_dir)/outcome")" = "0 reviewed"
 check "golden: no write call used a field flag" test ! -s "$STUB/gh.bad"
+:
+}
 
-
+sec_schema() {
 # =========================================================================================
 # --- the schema: exit 6 before any docker call ---------------------------------------------
 # =========================================================================================
-no_docker() { assert_eq "$1: no docker call" 0 "$(grep -c . "$STUB/docker.calls")"; }
-no_post() { assert_eq "$1: nothing posted" 0 "$(n_posts)"; }
 while IFS='|' read -r label expr; do
   new_case
   set_yml "$expr"
@@ -693,7 +778,10 @@ new_case
 set_yml 'del(.review.ci_gate.triggers_on) | .code_paths = ["src/"]'
 run o/r 7
 assert_eq "schema: a null triggers_on falls back to code_paths" 0 "$rc"
+:
+}
 
+sec_ident() {
 # =========================================================================================
 # --- the identity and the PR: exit 1 before any docker call --------------------------------
 # =========================================================================================
@@ -714,7 +802,10 @@ new_case; printf '{"default_branch":"-main"}\n' >"$STUB/gh/repos_o_r"
 run o/r 7; assert_eq "default branch with a leading dash: exit 1" 1 "$rc"; no_docker "default branch"
 new_case; rm -f "$STUB/gh/repos_o_r_contents_.ai_project.yml"
 run o/r 7; assert_eq "no project.yml readable: exit 1" 1 "$rc"; no_docker "no project.yml"
+:
+}
 
+sec_mints() {
 # =========================================================================================
 # --- the backlog mints -----------------------------------------------------------------------
 # =========================================================================================
@@ -757,7 +848,10 @@ run o/r 7
 assert_eq "post-token mint failure: exit 1" 1 "$rc"
 no_post "post-token mint failure"
 check "post-token mint failure: the entry is kept" test -d "$(entry_dir)"
+:
+}
 
+sec_lock() {
 # =========================================================================================
 # --- the lock, the ledger and the cap --------------------------------------------------------
 # =========================================================================================
@@ -815,10 +909,6 @@ check "overdue sweep: a container with a future deadline is left running" test "
 check "overdue sweep: a sidecar with a future deadline is left running" test "$(grep -c 'docker-rm sidefut' "$STUB/events")" = 0
 
 # the home key and the per-home cap and sweep (#815)
-key_case() { # key_case <label> <file content, printf format>: a run with a key file already there
-  new_case
-  mkdir -p "$home/review-state"; printf -- "$2" >"$home/review-state/.home-key"
-}
 new_case
 run o/r 7
 assert_eq "home key absent: the run proceeds" 0 "$rc"
@@ -935,18 +1025,13 @@ run o/r 7
 assert_eq "moved head at the pre-post re-read: exit 1" 1 "$rc"; no_post "moved head at the pre-post re-read"
 check "moved head at the pre-post re-read: the entry is kept" test -d "$(entry_dir)"
 check "moved head at the pre-post re-read: no free counted" test ! -e "$(entry_dir).frees"
+:
+}
 
-
+sec_reviewed() {
 # =========================================================================================
 # --- outcomes: already-reviewed and exempt, each verified on the host -----------------------
 # =========================================================================================
-review_doc() { # review_doc <uid> <commit> <state> <submitted_at json> [body]
-  jq -n --argjson uid "$1" --arg c "$2" --arg s "$3" --argjson t "$4" --arg b "${5-$HDRTXT
-
-$ATTTXT
-
-other text}" '{user:{id:$uid}, commit_id:$c, state:$s, submitted_at:$t, body:$b}'
-}
 new_case; set_outcome "already-reviewed 7 $SHA"
 printf '[%s]\n' "$(review_doc 4242 "$SHA" COMMENTED '"2026-10-15T10:00:00Z"')" >"$STUB/gh/repos_o_r_pulls_7_reviews"
 run o/r 7
@@ -977,7 +1062,6 @@ printf '[%s]\n' "$(review_doc 4242 "$SHA" COMMENTED '"2026-10-15T10:00:00Z"' 'wr
 run o/r 7
 expect_failure_post "already-reviewed (the review's header differs)" bad-outcome
 
-vbody() { printf '%s\n\n%s\n\nReview verdict: %s\n\nrest' "$HDRTXT" "$ATTTXT" "$1"; }
 for vc in \
   "latest pass|4|pass:2026-10-15T10:00:00Z" \
   "latest old form|4|old:2026-10-15T10:00:00Z" \
@@ -1022,14 +1106,6 @@ new_case; set_outcome "exempt 7 $SHA"
 run o/r 7
 assert_eq "exempt (only non-trigger paths): exit 4" 4 "$rc"; no_post "exempt"
 check "exempt: the entry is kept" test -d "$(entry_dir)"
-exempt_case() { # exempt_case <label> <compare files json or none> [yq edit] [status] [ahead_by]
-  new_case; set_outcome "exempt 7 $SHA"
-  [ -z "${3:-}" ] || set_yml "$3"
-  set_compare "${4:-ahead}" "${5:-2}" "$2"
-  run o/r 7
-  expect_failure_post "exempt ($1)" bad-outcome
-  if grep -E '/compare/' "$STUB/gh.calls" | grep -vE "\|repos/o/r/compare/[0-9a-f]{40}\.\.\.[0-9a-f]{40}\|" | grep -q .; then bad "exempt ($1): a compare call sent something other than two SHAs"; fi
-}
 exempt_case "a path under a src/ entry" '[{"filename":"src/x.c"}]'
 exempt_case "a path under a slashless src entry" '[{"filename":"srcfoo/x.c"}]' '.review.ci_gate.triggers_on = ["src"]'
 exempt_case "an exact-path match" '[{"filename":"docs/readme.md"}]' '.review.ci_gate.triggers_on = ["docs/readme.md"]'
@@ -1054,7 +1130,10 @@ new_case; set_outcome "exempt 7 $SHA"
 printf '{"check_runs":[{"name":"gate","status":"completed","conclusion":"skipped"}]}\n' >"$STUB/gh/repos_o_r_commits_${SHA}_check-runs"
 run o/r 7
 assert_eq "exempt: a gate check reading skipped changes nothing (still exempt)" 4 "$rc"
+:
+}
 
+sec_verdict() {
 # =========================================================================================
 # --- the verdict line: host-inserted at zero-based line 4, or a bad-verdict failure ---------
 # =========================================================================================
@@ -1107,7 +1186,10 @@ new_case; set_verdict pass; set_findings '[{"title":"T","body":"b","type":"bug"}
 run o/r 7
 assert_eq "verdict with findings: the footer follows the body" "Host: 1 findings will be filed in o/r" "$(post_body | tail -1)"
 assert_eq "verdict with findings: line 4 is the verdict line" "Review verdict: pass" "$(post_body | sed -n 5p)"
+:
+}
 
+sec_outcomes() {
 # =========================================================================================
 # --- outcomes: review and the failure reviews -----------------------------------------------
 # =========================================================================================
@@ -1137,18 +1219,6 @@ Uses actions/checkout@abcdef0123, mail user@example.com, and mentions a \`ghs_\`
 run o/r 7
 assert_eq "benign @ and prefix prose pass: exit 0" 0 "$rc"
 
-body_case() { # body_case <label> <code> <extra text>
-  new_case
-  set_body "$HDRTXT
-
-$ATTTXT
-
-Reviewed against head $SHA
-
-$3"
-  run o/r 7
-  expect_failure_post "$1" "$2"
-}
 body_case "a mention at a line start" mention '@user please look'
 body_case "a mention after a dash" mention 'see -@user'
 body_case "a mention after a dot" mention 'see .@user'
@@ -1229,7 +1299,10 @@ T_TIMEOUT=20
 expect_failure_post "a session that overruns the timeout" timed-out
 check "timeout: docker kill was recorded" has "$STUB/events" "docker-kill"
 assert_eq "timeout: the outbox was not read" 0 "$(ev_count docker-outbox-read)"
+:
+}
 
+sec_post() {
 # =========================================================================================
 # --- the post ----------------------------------------------------------------------------------
 # =========================================================================================
@@ -1252,17 +1325,13 @@ check "a failing POST: the entry is kept" test -d "$(entry_dir)"
 new_case; printf '{}\n' >"$STUB/gh/post_review"
 run o/r 7
 assert_eq "an empty POST response: exit 104" 104 "$rc"
+:
+}
 
+sec_findings() {
 # =========================================================================================
 # --- findings ----------------------------------------------------------------------------------
 # =========================================================================================
-findings_case() { # findings_case <label> <code> <findings json>
-  new_case; set_findings "$3"
-  run o/r 7
-  assert_eq "findings ($1): the review posts, exit 0" 0 "$rc"
-  assert_eq "findings ($1): the footer" "Host: findings not filed ($2)" "$(post_body | tail -1)"
-  assert_eq "findings ($1): nothing filed" 0 "$(n_issues)"
-}
 findings_case "not JSON" findings-unreadable 'not json'
 findings_case "an object" findings-shape '{"a":1}'
 findings_case "a missing type" findings-shape '[{"title":"t","body":"b"}]'
@@ -1310,24 +1379,13 @@ new_case; set_findings '[{"title":"T","body":"b","type":"bug"},{"title":"U","bod
 run o/r 7
 assert_eq "a failed create stops the rest, the exit stays 0" 0 "$rc"
 assert_eq "a failed create: only one file line" "0 101" "$(cat "$(entry_dir)/filed")"
+:
+}
 
+sec_gate() {
 # =========================================================================================
 # --- the gate poll: a failure is final only when posted after the review ---------------------
 # =========================================================================================
-FIND1='[{"title":"T","body":"b","type":"bug"}]'
-BEFORE=2026-10-17T16:00:00Z; AFTER=2026-10-17T17:00:00Z; SUBMITTED=2026-10-17T16:35:56Z
-glog() { cat "$home"/review-logs/*.log; }
-gpolls() { glog | grep -c -E 'gate poll [0-9]'; }
-gline() { glog | grep -c -E -- "Z gate poll $1\$"; }                  # gline <text>: that exact poll line
-status_doc() { # status_doc <context> <state> <updated_at json>
-  printf '{"statuses":[{"context":"%s","state":"%s","updated_at":%s}]}\n' "$1" "$2" "$3"
-}
-run_gate_case() { # run_gate_case <label>: golden path, exit 0 and the one finding filed
-  run o/r 7
-  assert_eq "$1: exit 0" 0 "$rc"
-  assert_eq "$1: the finding is filed" 1 "$(n_issues)"
-}
-gate_case() { new_case; set_findings "$FIND1"; printf '{"check_runs":[{"name":"ci","status":"completed","conclusion":"success"}]}\n' >"$STUB/gh/repos_o_r_commits_${SHA}_check-runs"; }
 
 gate_case
 status_path="$STUB/gh/repos_o_r_commits_${SHA}_status"
@@ -1401,7 +1459,10 @@ for bad in '"not-a-time"' '"2999-01-01T00:00:00.5Z"' '""'; do
   run_gate_case "a gate timestamp $bad"
   assert_eq "gate timestamp $bad: never final" 6 "$(gline '[1-6]: failure, not posted after the review')"
 done
+:
+}
 
+sec_log() {
 # =========================================================================================
 # --- the log -----------------------------------------------------------------------------------
 # =========================================================================================
@@ -1437,19 +1498,13 @@ LC_ALL=C tr -d '\000-\010\013-\037\177' <"$STUB/session-log" >"$tmp/stream"; pri
 check "log (under the cap): the stream is kept whole, byte for byte" cmp -s "$tmp/stream" "$tmp/logpart"
 assert_eq "log (under the cap): no omitted line" 0 "$(grep -c 'bytes of the session log omitted' "$logf")"
 check "log (under the cap): the staged session-stream is gone at the outbox read" test -z "$(grep -x session-stream "$STUB/hdir.after-log" || true)"
+:
+}
 
-
+sec_preflight() {
 # =========================================================================================
 # --- the preflight, the sidecars and the credential ----------------------------------------
 # =========================================================================================
-pre_case() { # pre_case <label> <stub file under docker/> <jq filter>
-  new_case; printf '%s\n' "$3" >"$STUB/docker/$2"
-  run o/r 7
-  assert_eq "preflight ($1): exit 1" 1 "$rc"
-  assert_eq "preflight ($1): the session was not started" 0 "$(ev_count 'docker-start wow-review-session')"
-  check "preflight ($1): the never-started entry is freed" test ! -d "$(entry_dir)"
-  check "preflight ($1): directories gone" dirs_gone
-}
 pre_case "a writable root filesystem" inspect.session.jq '.[0].HostConfig.ReadonlyRootfs = false'
 pre_case "an extra bind mount" inspect.session.jq '.[0].Mounts += [{Type:"bind",Source:"/home/x",Destination:"/x",RW:true}]'
 pre_case "a docker.sock mount" inspect.session.jq '.[0].Mounts += [{Type:"bind",Source:"/var/run/docker.sock",Destination:"/s",RW:false}]'
@@ -1504,18 +1559,13 @@ printf 'junk\n' >"$home/bin/MANIFEST"
 run o/r 7
 assert_eq "an unreadable MANIFEST: exit 1" 1 "$rc"
 assert_eq "an unreadable MANIFEST: no container started" 0 "$(ev_count 'docker-run')"
+:
+}
 
+sec_cleanup() {
 # =========================================================================================
 # --- cleanup: every directory, the lock and every container, whatever the ending -----------
 # =========================================================================================
-no_leftover() { ! ps -ef 2>/dev/null | grep -F "$home/bin/wow-review" | grep -v grep | grep -q .; }
-cleaned() { # cleaned <label>
-  check "$1: both directories and the lock are gone" dirs_gone
-  check "$1: no launcher or refresher process is left" no_leftover
-  for c in session holder inject proxy; do check "$1: docker rm -f of the $c" has "$STUB/events" "docker-rm wow-review-$c-"; done
-  check "$1: both networks removed" has "$STUB/events" "docker-net-rm wow-review-net-"
-  check "$1: both volumes removed" has "$STUB/events" "docker-vol-rm -f wow-review-work-"
-}
 new_case; run o/r 7;                                   cleaned "after a success"
 new_case; set_outcome "stopped 7 $SHA entry-clone"; run o/r 7; cleaned "after a failure review"
 new_case; set_outcome "stopped 7 $SHA checks-pending"
@@ -1540,6 +1590,28 @@ sess=$(grep '^read ' "$STUB/mint.tokens" | sed 's/^read //' | sort -u)
 assert_eq "TERM during the wait: every session token minted was revoked" "$sess" "$(sort -u "$STUB/revoked")"
 check "TERM during the wait: the started session keeps its ledger entry" test -d "$(entry_dir)"
 assert_eq "TERM during the wait: nothing posted" 0 "$(n_posts)"
+:
+}
 
-[ "$fail" = 0 ] || { echo "identity-review: FAILED" >&2; exit 1; }
+# Run every section at once, each in a subshell with its own scratch directory ($tmp: its case tree, its out
+# and err files, its log scratch files) over the shared stubs; replay each one's output in order.
+sections="args golden schema ident mints lock reviewed verdict outcomes post findings gate log preflight cleanup"
+pids=
+# An interrupt stops the section subshells and leaves the scratch tree (the stubs in it) in place: a launcher
+# already in flight ends on its own, within its own timeout, and must not lose its stubs to the real gh and
+# docker. test-all.sh's header allows a stopped suite to leave its temp directory behind.
+stop_sections() { kill $pids 2>/dev/null || :; trap - EXIT; exit "$1"; }
+trap 'stop_sections 129' HUP; trap 'stop_sections 130' INT; trap 'stop_sections 143' TERM
+for n in $sections; do
+  ( tmp="$tmp_root/$n"; mkdir "$tmp"; "sec_$n"; [ "$fail" -eq 0 ] ) >"$tmp_root/$n.out" 2>"$tmp_root/$n.err" &
+  eval "pid_$n=$!"; pids="$pids $!"
+done
+all_ok=1
+for n in $sections; do
+  eval "p=\$pid_$n"; src=0; wait "$p" || src=$?
+  cat "$tmp_root/$n.out"; cat "$tmp_root/$n.err" >&2
+  [ "$src" -eq 0 ] || { echo "FAIL - section $n exited $src" >&2; all_ok=0; }
+done
+
+[ "$all_ok" -eq 1 ] || { echo "identity-review: FAILED" >&2; exit 1; }
 echo "identity-review: all fixtures passed"

@@ -251,13 +251,14 @@ only `/workspace`, and its `.git` file names a host path.
   shim and git credential helper. Do not prefix commands with `GH_TOKEN`. Suites run natively
   (no WSL), and commits are unsigned (`WB-D25`), so no `timeout 90` around signing.
 - **Runtime of `tests/identity-review.test.sh` (#755).** Run alone on the container as built
-  (GNU `timeout`), it takes 97 s (#935). With the uutils `timeout` first on `PATH` the same run took
-  775 s, measured before #935, which overruns even the Bash tool's 600 s maximum (its default is 120 s). The cause is
+  (GNU `timeout`), it takes 26 s on 28 cores (`nproc`), its sections running at once (#955); it took
+  92 s before that. With the uutils `timeout` first on `PATH` the run with the sections one after
+  another took 775 s, measured before #935, which overruns even the Bash tool's 600 s maximum (its default is 120 s). The cause is
   the `timeout` build: a run makes about 7,500 `timeout` calls across the launcher's wrapped
   docker and gh calls. An isolated `timeout 5 true` measured 62.2 ms with uutils against 0.8 ms
   with GNU, a 61.4 ms difference; that varies with load, and the suite's effective overhead is
   higher, about 90 ms per call. The other uutils tools' share was not measured. Run the suite
-  alone, in its own Bash call, with the tool timeout at least 194 s (twice the 97 s). On a container whose
+  alone, in its own Bash call, with the tool timeout at least 52 s (twice the 26 s). On a container whose
   `timeout --version` names uutils, the bound is about 1550 s: run the suite in the background, or
   stop and ask the maintainer. `scripts/test-all.sh` runs this suite last and alone, and the lane
   prompt runs the runner in one Bash call at the tool's 600 s maximum and stops and reports if that
