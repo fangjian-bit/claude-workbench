@@ -74,8 +74,8 @@
 #     (export-ignore drops files from git archive, which then fails closed as unreadable; eol,
 #     ident, export-subst and a configured filter can rewrite the extracted scripts' content),
 #     and its refs. That is outside what this script can guard.
-#   - /way-of-working:ship never sets a PR's milestone, so a lane PR is not on milestone M.
-#     The driver sets it.
+#   - /way-of-working:ship never sets a PR's milestone. The lane sets it to M after ship when
+#     the backlog is the repo and M is still open; the driver confirms it.
 #   - The lane's PATH line runs the plugin scripts from the worktree it is editing. A task
 #     that changes bin/spec-find.sh therefore checks its own pin with its own edited copy.
 #   - The M the driver types ties the task to the driver's milestone. Whether that milestone
@@ -368,10 +368,18 @@ fail() {
   stop failed
 }
 
-emit_prompt() {
+emit_prompt_sed() {
   sed -e "s#@BACKLOG@#$BACKLOG#g" -e "s#@N@#$N#g" -e "s#@M@#$M#g" \
     -e "s#@ID@#$FID#g" -e "s#@UP@#$FUP#g" -e "s#@LANES@#$LANES#g" \
-    -e "s#@CRITICS@#$CRITICS#g" <<'PROMPT'
+    -e "s#@CRITICS@#$CRITICS#g"
+}
+
+# The prompt is three quoted heredocs, each through the same sed expressions, the fifth step chosen
+# in between: the chosen text is sed's input like the rest of the template, never a replacement
+# string. Every part must succeed (the caller's `||` turns set -e off), so a failed early part
+# cannot leave a truncated prompt that reads as success.
+emit_prompt() {
+  emit_prompt_sed <<'PROMPT' || return 1
 # Lane prompt: @BACKLOG@#@N@
 
 You are a **lane**. For this one task you act as the `coder` defined in `plugins/way-of-working/agents/coder.md` in this worktree. The driver session that ran `lane.sh prep` is your spawner.
@@ -397,6 +405,17 @@ If that check fails, stop and report.
 2. Run every `gates.green` entry in `.ai/project.yml`, then `bash scripts/test-all.sh` in its own Bash call with the tool's maximum timeout (600000 ms); if that call times out, stop and report.
 3. Run `/way-of-working:critic-gate` as written and let its own proposal stand. The driver expects the critics `@CRITICS@`. If critic-gate's proposal differs, show both lists to the human in the pick-list. That list is not the explicit-names shortcut, which only names the human types count for.
 4. Commit and open the PR with `/way-of-working:ship`. This is the explicit instruction to commit and push that `coder.md` asks for.
+PROMPT
+  if [ "$BACKLOG" = "$NAME" ]; then
+    emit_prompt_sed <<'STEP5' || return 1
+5. Set this PR's milestone, only when ship's author check passed and ship reported the PR URL; `P` is the number at the end of that URL. In one Bash call, capture each value into a variable, check it is non-empty and chain with `&&`: require `P` to be digits with no leading zero; require `gh api repos/@BACKLOG@/pulls/$P --jq .head.ref` to print what `git branch --show-current` prints; require `gh api repos/@BACKLOG@/milestones/@M@ --jq .state` to print `open`; then run `gh api -X PATCH repos/@BACKLOG@/issues/$P -F milestone=@M@ --jq .milestone.number`, setting no other field. The milestone is set only when that last call prints `@M@`. Any other outcome (a `P` that is not digits, a branch mismatch, a closed milestone, a failed read, a PATCH that failed or the session refused, another number printed) is no further write. Report the outcome in your final message either way, and never retry with another value or another command.
+STEP5
+  else
+    emit_prompt_sed <<'STEP5' || return 1
+5. Make no milestone write: milestone `@M@` is in the backlog repository, not this PR's. Say so in your final message.
+STEP5
+  fi
+  emit_prompt_sed <<'PROMPT' || return 1
 
 ## Lane rules
 

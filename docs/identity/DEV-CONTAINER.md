@@ -187,12 +187,15 @@ only `/workspace`, and its `.git` file names a host path.
   worktree's scripts first while the installed plugin is behind `main`. It never holds issue or
   comment text. It prints `worktree=`, `branch=`, `found=`, `milestone=`, `prompt=` and
   `prompt-sha256=`. If a step from the base fetch on fails it undoes what it did, as far as it
-  can, and prints `failed`. Setting the PR's milestone to `M` is the driver's, since `ship` never
-  sets one. It stops with one word instead: `not-main`, `unsafe-dir`, `unreadable`,
+  can, and prints `failed`. `prep` stops with one word instead: `not-main`, `unsafe-dir`, `unreadable`,
   `repo-mismatch`, `not-map`, `finder: WORD`, `bad-issue` or `exists`. To clear an `exists`
   caused by a stale name, run `git branch -dr origin/BRANCH` for a lingering remote-tracking
   ref, or `git config --remove-section branch.BRANCH` for leftover config, or pick another
   branch name. `WOW_LANES_DIR` overrides `/tmp/lanes` for the tests only.
+  After ship, the lane sets its PR's milestone to `M` when `M` is still open, and reports
+  the outcome; with a separate backlog repository it sets none. When the lane's PR is reported to
+  the driver, the driver confirms the milestone and gives the maintainer the one-line `gh api -X
+  PATCH` command only when it is missing and the backlog is the repo.
   The `PATH` line is written by the script and its text is checked by the fixture. A Bash tool
   call does not keep exports, so the lane prefixes the line, and checks that `command -v
   spec-find.sh` finds the worktree's copy, on every call that runs a plugin script. No lane has

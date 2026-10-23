@@ -343,6 +343,13 @@ nc
 setyml '.backlog.repo = "glunk-works/backlog"'
 prep_ok
 assert_has "backlog.repo names the issue path" "$FX_GHLOG" "api repos/glunk-works/backlog/issues/$ISSUE --jq "
+assert_has "backlog.repo: the prompt makes no milestone write" "$LD/$ISSUE-prompt.md" "5. Make no milestone write: milestone \`$MS\` is in the backlog repository"
+if grep -F "PATCH" "$LD/$ISSUE-prompt.md" >/dev/null; then
+  echo "FAIL - backlog.repo: the prompt carries a PATCH" >&2
+  fail=1
+else
+  echo "ok - backlog.repo: the prompt carries no PATCH"
+fi
 
 nc
 put .ai/project.yml "$(yq '.identities = null' "$R/.ai/project.yml")"
@@ -367,6 +374,20 @@ chmod +x "$R/bin/gh" "$R/plugins/way-of-working/bin/spec-find.sh"
 stop_case "trust root: the working tree's spec-find.sh is not used" 1 "finder: none" prep $PREP
 # The script never puts a checkout directory on PATH, so this only guards against it starting to.
 assert_eq "trust root: a working-tree bin/gh is not run" no "$([ -e "$D/gh-ran" ] && echo yes || echo no)"
+
+# ---- the milestone step names the M passed to prep -----------------------------------------
+nc
+canon '.milestone.number = 23'
+run_lane prep $ISSUE 23 $BR $CR
+assert_eq "milestone 23: exit" 0 "$rc"
+assert_has "milestone 23: the read names 23" "$LD/$ISSUE-prompt.md" "gh api repos/glunk-works/claude-workbench/milestones/23 --jq .state"
+assert_has "milestone 23: the PATCH names 23" "$LD/$ISSUE-prompt.md" "issues/\$P -F milestone=23 --jq .milestone.number"
+if grep -F "milestone=$MS " "$LD/$ISSUE-prompt.md" >/dev/null; then
+  echo "FAIL - milestone 23: the prompt still names $MS" >&2
+  fail=1
+else
+  echo "ok - milestone 23: the prompt does not name $MS"
+fi
 
 # ---- prep with found -----------------------------------------------------------------------
 nc
@@ -413,6 +434,7 @@ If that check fails, stop and report.
 2. Run every `gates.green` entry in `.ai/project.yml`, then `bash scripts/test-all.sh` in its own Bash call with the tool's maximum timeout (600000 ms); if that call times out, stop and report.
 3. Run `/way-of-working:critic-gate` as written and let its own proposal stand. The driver expects the critics `architect,security-critic`. If critic-gate's proposal differs, show both lists to the human in the pick-list. That list is not the explicit-names shortcut, which only names the human types count for.
 4. Commit and open the PR with `/way-of-working:ship`. This is the explicit instruction to commit and push that `coder.md` asks for.
+5. Set this PR's milestone, only when ship's author check passed and ship reported the PR URL; `P` is the number at the end of that URL. In one Bash call, capture each value into a variable, check it is non-empty and chain with `&&`: require `P` to be digits with no leading zero; require `gh api repos/glunk-works/claude-workbench/pulls/$P --jq .head.ref` to print what `git branch --show-current` prints; require `gh api repos/glunk-works/claude-workbench/milestones/19 --jq .state` to print `open`; then run `gh api -X PATCH repos/glunk-works/claude-workbench/issues/$P -F milestone=19 --jq .milestone.number`, setting no other field. The milestone is set only when that last call prints `19`. Any other outcome (a `P` that is not digits, a branch mismatch, a closed milestone, a failed read, a PATCH that failed or the session refused, another number printed) is no further write. Report the outcome in your final message either way, and never retry with another value or another command.
 
 ## Lane rules
 
