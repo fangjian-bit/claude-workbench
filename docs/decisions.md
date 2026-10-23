@@ -2158,6 +2158,8 @@ take effect. Full reasoning and the task breakdown that implements them:
       `spec-find.sh` and to carry no comment listing, `timeline` included.
     - `spec-find.sh`, `spec-reaction.sh`, `gh-identity.sh`, `spec-comment.sh` and their tests join
       `scripts/loop/protected-paths.txt`.
+      *Amended by `#1047`: the list and its header comment, not this log, are the record of what the
+      list holds; this log records some joins (this one and `WB-D31`'s) and not others.*
   - **The `WB-D30` residuals.**
     1. An approved spec stays a candidate indefinitely.
     2. With two approved specs, deleting or editing one picks the other (an edit moves its
