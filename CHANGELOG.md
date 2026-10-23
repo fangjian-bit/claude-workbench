@@ -23,6 +23,9 @@ the GitHub release notes.
 
 ### Changed
 
+- **archive-sprint offers a retro at every sprint close (`#898`).**
+  The offer no longer depends on the closing session having done the sprint's work, since retro now
+  reads the repo's other recent sessions. It stays one optional line and never a gate.
 - **The transcript reader's instructions no longer trip the leak screen (`#981`, `#982`).**
   The agent file describes a home-relative path in words instead of writing it, so a report that
   restates the rule is not dropped, and retro's sentence about a path-shape drop no longer lists
