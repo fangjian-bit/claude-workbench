@@ -10,7 +10,8 @@
 # adds ai-cursor-banner.test.sh and loop-critic.test.sh stubs that fail if any other stub's
 # marker exists when they start or just before they end (loop-critic also fails unless
 # ai-cursor-banner has finished), and an identity-review stub that fails unless both have
-# finished. The TERM case's slow stub traps TERM, writes a marker and exits.
+# finished. The TERM case's slow stub traps TERM, writes a marker and exits. The parallel case's
+# two stubs each wait up to about 5 s for the other's marker, so a serialised -j 2 pool fails.
 # The -x cases add extra.test.sh, a stub that passes and that the identity-review stub does not
 # wait on: -x extra.test.sh and -x identity-review.test.sh each leave that file's verdict line
 # out and the rest of the run unchanged, two -x options leave both out, and -x with no value,
@@ -165,6 +166,26 @@ assert_eq "TERM exits 143" 143 "$rc"
 assert_eq "TERM leaves no runner temp directory" "" "$(ls -A "$t5/tmpd")"
 assert_eq "TERM prints nothing" "" "$(cat "$t5/out")"
 assert_eq "TERM reached the running suite" 1 "$([ -f "$t5/termed" ] && echo 1 || echo 0)"
+
+# --- -j 2 really runs two suites at once (a serialised pool fails) ---
+t8="$tmp/t8"
+mkdir -p "$t8/scripts" "$t8/tests" "$t8/state"
+cp "$runner" "$t8/scripts/test-all.sh"
+for n in a b; do
+  o=b
+  [ "$n" = b ] && o=a
+  {
+    echo "touch \"$t8/state/$n.marker\""
+    echo "i=0"
+    echo "while [ ! -f \"$t8/state/$o.marker\" ] && [ \"\$i\" -lt 50 ]; do sleep 0.1; i=\$((i + 1)); done"
+    echo "[ -f \"$t8/state/$o.marker\" ] || { echo \"$o never started\"; exit 1; }"
+  } >"$t8/tests/$n.test.sh"
+done
+rc=0
+(cd "$t8" && bash scripts/test-all.sh -j 2) >"$t8/out" 2>"$t8/err" || rc=$?
+assert_eq "parallel pool exits 0" 0 "$rc"
+assert_has "parallel pool: a passes" "$t8/out" "pass tests/a.test.sh"
+assert_has "parallel pool: b passes" "$t8/out" "pass tests/b.test.sh"
 
 # --- held-out suites run alone, after the pool, in list order ---
 t6="$tmp/t6"

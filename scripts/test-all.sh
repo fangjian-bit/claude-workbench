@@ -161,7 +161,8 @@ rcs=()
 
 cleanup() {
   trap '' INT TERM
-  local live=" $(jobs -rp | tr '\n' ' ') "
+  jobs -rp 2>/dev/null >"$logdir/jobs" || true
+  local live=" $(tr '\n' ' ' 2>/dev/null <"$logdir/jobs") "
   for i in $running; do
     case "$live" in
       *" ${pids[$i]} "*) kill -TERM "${pids[$i]}" 2>/dev/null || true ;;
@@ -184,7 +185,11 @@ start() { # <index>
 
 reap() { # reap every finished suite
   local keep="" i rc live
-  live=" $(jobs -rp | tr '\n' ' ') "   # bash's own job table: a reused PID cannot pass for a suite
+  # bash's own job table: a reused PID cannot pass for a suite. `jobs -rp` is its own statement,
+  # not the first stage of a pipeline, so it reads this shell's table on every bash (a pipeline's
+  # subshell is not guaranteed to keep it); "jobs" cannot collide with the numbered logs.
+  jobs -rp >"$logdir/jobs"
+  live=" $(tr '\n' ' ' <"$logdir/jobs") "
   for i in $running; do
     case "$live" in
       *" ${pids[$i]} "*)
