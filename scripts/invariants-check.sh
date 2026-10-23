@@ -31,7 +31,7 @@ report() {
 # the tests/invariants-*.test.sh fixtures, which copy the tree and look for one check's message.
 # It is an argument on purpose, never an environment variable, so nothing ambient can narrow a
 # gate run; the gate (CI, release, gates.green) never passes it.
-ALL_IDS=(1 2 2b 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24)
+ALL_IDS=(1 2 2b 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25)
 only=
 only_set=0
 usage() {
@@ -1378,6 +1378,100 @@ if [ -n "$gateargs_hits" ]; then
   report "the gate's call to scripts/invariants-check.sh carries an argument (#874)" \
     "$gateargs_hits" \
     "The gate (CI, release, gates.green) runs the checker bare; --only is for the tests/invariants-*.test.sh fixtures."
+fi
+fi
+
+# --- 25. Every agent is named in both manifest descriptions (#932) ---------------------------
+if want 25; then
+#
+# PR #911 added the transcript-reader agent and neither manifest description named it; both stayed
+# stale on main until #928 (closing #915) fixed them by hand, before any release. Nothing tied the
+# descriptions to plugins/*/agents/. (Unlike most checks here the defect was merged, not released.)
+# For each plugin directory that holds an agents/*.md file, the frontmatter `name` of every agent
+# must appear as a whole token (no letter, digit, `_` or `-` on either side) in the `description`
+# of that plugin's .claude-plugin/plugin.json and in the `description` of the one
+# .claude-plugin/marketplace.json `plugins[]` entry with the plugin's name. Hits name the agent file
+# and the manifest, never the agent name or any description text. A name that is missing, repeated
+# or outside [A-Za-z0-9_-], an unreadable agent file, a manifest or entry that is missing,
+# duplicated or has no string name or non-empty string description, an unreadable manifest, jq not on PATH, and a tree with no agent file at all are
+# hits: a check that cannot look must not pass (as checks 13 and 23). Outside it: skills and
+# commands, whether `name` equals the file name, and marketplace.json's top-level description.
+mfagents_hits=""
+mfagents_seen=0
+mfagents_jq=1
+command -v jq >/dev/null 2>&1 || { mfagents_jq=0; mfagents_hits+="  (jq not found on PATH)"$'\n'; }
+if [ "$mfagents_jq" -eq 1 ]; then
+  for mfagents_dir in plugins/*/; do
+    mfagents_dir=${mfagents_dir%/}
+    mfagents_files=()
+    for f in "$mfagents_dir"/agents/*.md; do [ -f "$f" ] && mfagents_files+=("$f"); done
+    [ "${#mfagents_files[@]}" -gt 0 ] || continue
+    mfagents_seen=1
+    mfagents_pj="$mfagents_dir/.claude-plugin/plugin.json"
+    mfagents_mp=".claude-plugin/marketplace.json"
+    mfagents_pname="" mfagents_pdesc="" mfagents_mdesc="" mfagents_pok=1 mfagents_mok=1
+    if [ ! -f "$mfagents_pj" ]; then
+      mfagents_hits+="  $mfagents_pj: missing, so its agents cannot be checked"$'\n'; mfagents_pok=0
+    elif mfagents_pname=$(jq -r '.name | strings' "$mfagents_pj" 2>/dev/null) \
+      && mfagents_pdesc=$(jq -r '.description | strings' "$mfagents_pj" 2>/dev/null) \
+      && [ -n "$mfagents_pname" ] && [ -n "$mfagents_pdesc" ]; then :
+    else
+      mfagents_hits+="  $mfagents_pj: unreadable, or no string name and non-empty string description"$'\n'; mfagents_pok=0
+    fi
+    if [ ! -f "$mfagents_mp" ]; then
+      mfagents_hits+="  $mfagents_mp: missing, so $mfagents_dir's agents cannot be checked"$'\n'; mfagents_mok=0
+    elif [ "$mfagents_pok" -eq 1 ]; then
+      if ! mfagents_cnt=$(jq --arg n "$mfagents_pname" '[.plugins[]? | select(.name == $n)] | length' "$mfagents_mp" 2>/dev/null); then
+        mfagents_hits+="  $mfagents_mp: unreadable"$'\n'; mfagents_mok=0
+      elif [ "$mfagents_cnt" != 1 ]; then
+        mfagents_hits+="  $mfagents_mp: $mfagents_cnt plugins[] entries named like the name in $mfagents_pj (want exactly 1)"$'\n'; mfagents_mok=0
+      elif mfagents_mdesc=$(jq -r --arg n "$mfagents_pname" '.plugins[] | select(.name == $n) | .description | strings' "$mfagents_mp" 2>/dev/null) \
+        && [ -n "$mfagents_mdesc" ]; then :
+      else
+        mfagents_hits+="  $mfagents_mp: the entry for $mfagents_dir has no non-empty string description"$'\n'; mfagents_mok=0
+      fi
+    else
+      mfagents_mok=0
+    fi
+    for f in "${mfagents_files[@]}"; do
+      # The leading frontmatter block only: line 1 is `---`, the block ends at the next `---`.
+      [ -r "$f" ] || { mfagents_hits+="  $f: unreadable"$'\n'; continue; }
+      mfagents_n=0 mfagents_val="" mfagents_line=0 mfagents_closed=0
+      while IFS= read -r mfagents_l || [ -n "$mfagents_l" ]; do
+        mfagents_l=${mfagents_l%$'\r'}
+        mfagents_line=$((mfagents_line + 1))
+        if [ "$mfagents_line" -eq 1 ]; then [ "$mfagents_l" = '---' ] || break; continue; fi
+        if [ "$mfagents_l" = '---' ]; then mfagents_closed=1; break; fi
+        case "$mfagents_l" in
+          name:*) mfagents_n=$((mfagents_n + 1)); mfagents_val=${mfagents_l#name:} ;;
+        esac
+      done <"$f"
+      if [ "$mfagents_closed" -ne 1 ] || [ "$mfagents_n" -ne 1 ]; then
+        mfagents_hits+="  $f: needs exactly one frontmatter name:"$'\n'; continue
+      fi
+      mfagents_val=${mfagents_val#"${mfagents_val%%[![:space:]]*}"}
+      mfagents_val=${mfagents_val%"${mfagents_val##*[![:space:]]}"}
+      case "$mfagents_val" in
+        \"*\"|\'*\') mfagents_val=${mfagents_val#?}; mfagents_val=${mfagents_val%?} ;;
+      esac
+      if ! [[ "$mfagents_val" =~ ^[A-Za-z0-9_-]+$ ]]; then
+        mfagents_hits+="  $f: frontmatter name is empty or outside [A-Za-z0-9_-]"$'\n'; continue
+      fi
+      mfagents_re="(^|[^A-Za-z0-9_-])${mfagents_val}(\$|[^A-Za-z0-9_-])"
+      if [ "$mfagents_pok" -eq 1 ] && ! [[ "$mfagents_pdesc" =~ $mfagents_re ]]; then
+        mfagents_hits+="  $f: not named in the description of $mfagents_pj"$'\n'
+      fi
+      if [ "$mfagents_mok" -eq 1 ] && ! [[ "$mfagents_mdesc" =~ $mfagents_re ]]; then
+        mfagents_hits+="  $f: not named in the $mfagents_mp description of its plugin"$'\n'
+      fi
+    done
+  done
+  [ "$mfagents_seen" -eq 1 ] || mfagents_hits+="  (no plugins/*/agents/*.md file found)"$'\n'
+fi
+if [ -n "$mfagents_hits" ]; then
+  report "an agent is missing from a manifest description (#932)" \
+    "$mfagents_hits" \
+    "Name the agent in both the plugin.json description and the marketplace.json entry's description."
 fi
 fi
 

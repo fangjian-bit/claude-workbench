@@ -8,7 +8,7 @@
 #
 # The checker's messages and exit codes are asserted, and its source layout (the ids, the guards).
 # The run-each-id-alone case needs yq, jq
-# (checks 7 and 20) and git (check 9) and skips itself, loudly, without them.
+# (checks 7, 20 and 25) and git (check 9) and skips itself, loudly, without them.
 #
 # Permitted toolset: POSIX sh, awk, grep, sed and tr. No jq, no yq, no python.
 set -eu
@@ -71,7 +71,7 @@ bad "a leading comma" --only ,11
 bad "a trailing comma" --only 11,
 bad "a doubled comma" --only 11,,18
 bad "unknown id 0" --only 0
-bad "unknown id 25" --only 25
+bad "unknown id 26" --only 26
 bad "unknown id 2c" --only 2c
 bad "a glob element" --only '*'
 bad "an element with a leading space" --only ' 11'
