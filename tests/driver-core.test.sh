@@ -313,7 +313,7 @@ while IFS= read -r p; do
   [ -f "$root_dir/$p" ] && r=exists || r=missing
   assert_eq "protected-paths.txt entry exists: $p" exists "$r"
 done <"$prot"
-assert_eq "protected-paths.txt names the twenty predicates (the push pin, the API-commit route and the leak screen included) and their twenty-one fixtures" 41 "$n_entries"
+assert_eq "protected-paths.txt names the twenty predicates (the push pin, the API-commit route and the leak screen included), the transcript reader's agent file, and their twenty-two fixtures" 43 "$n_entries"
 
 # A hostile or broken list is a usage fault, never an empty (or partial) protection.
 printf '# only a comment\n\n' >"$tmp/empty-list"
