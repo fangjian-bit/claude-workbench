@@ -315,6 +315,24 @@ CTLINE="api|--hostname|github.com|graphql|-f|query=$CTQ|-f|owner=acme|-f|name=ba
 # the same text in spec-issue.sh: the two scripts query the content time identically
 ISSUE_CTQ="$(sed -n "s/^  gh api graphql -f query='\(.*\)' -f owner=.*/\1/p" "$bindir/spec-issue.sh")"
 assert_eq "the content-time query text is equal in spec-issue.sh and spec-post.sh" "$CTQ" "$ISSUE_CTQ"
+# the content-time block (#890, WB-D32) is carried in both scripts' agent_path: held equal, but for the one --hostname on the query line
+ctblock() { # ctblock <script> -- from the "# 3b." line through the i_updated line, inclusive, with --hostname github.com dropped from the query line
+  awk '/# 3b\. the content time/ { on = 1 } on { print } on && $0 == "  i_updated=\"$ct_time\"" { exit }' "$1" |
+    sed 's/^  gh api --hostname github\.com graphql /  gh api graphql /'
+}
+CTB_POST="$(ctblock "$script")"
+CTB_ISSUE="$(ctblock "$bindir/spec-issue.sh")"
+for _s in "$script" "$bindir/spec-issue.sh"; do
+  _b="$(ctblock "$_s")"
+  assert_eq "$(basename "$_s") carries exactly one # 3b. content-time line" 1 "$(grep -c '# 3b\. the content time' "$_s" || true)"
+  assert_eq "$(basename "$_s") content-time block (found) starts at the # 3b. line" yes "$(printf '%s\n' "$_b" | head -n 1 | grep -q '^  # 3b\. the content time' && echo yes || echo no)"
+  assert_eq "$(basename "$_s") content-time block (found) ends at the i_updated line" '  i_updated="$ct_time"' "$(printf '%s\n' "$_b" | tail -n 1)"
+done
+assert_eq "the content-time block is equal in spec-issue.sh and spec-post.sh" "$CTB_POST" "$CTB_ISSUE"
+# self-check: one character changed inside ct_ts() of a copy makes the comparison differ
+sed '/# 3b\. the content time/,/i_updated="\$ct_time"/ s/\]Z) : ;;/]z) : ;;/' "$script" >"$tmp/post-mutated.sh"
+assert_eq "the mutation reached the copy" yes "$(cmp -s "$script" "$tmp/post-mutated.sh" && echo no || echo yes)"
+assert_eq "a changed character inside ct_ts() is caught by the comparison" differ "$([ "$(ctblock "$tmp/post-mutated.sh")" = "$CTB_ISSUE" ] && echo equal || echo differ)"
 # mkct <created> <updated> <lastEditedAt-json> [rename-createdAt ...] -- the query's response, to $tmp/ct.json
 mkct() {
   _c="$1"; _u="$2"; _e="$3"; shift 3
