@@ -3,7 +3,7 @@
 # This repo's devcontainer: the shared base image, pinned by tag AND digest, plus the two
 # scripts that make `gh` and git act only as the dev App (WB-D24, #393) and a pinned,
 # checksum-verified `claude` (#725) with a root-owned managed settings file (#742) and GNU
-# coreutils ahead of uutils on PATH (#741). Dependabot's docker ecosystem bumps the FROM line
+# coreutils ahead of uutils on PATH (#741) and a pinned `pwsh` (#893). Dependabot's docker ecosystem bumps the FROM line
 # (.github/dependabot.yml).
 #
 # Every pull request is checked by `verify / verify` once the template's
@@ -109,4 +109,29 @@ for p in $(dpkg -L gnu-coreutils | grep '^/usr/bin/gnu'); do \
 ln -s "$p" "/usr/local/bin/${p#/usr/bin/gnu}"; \
 done
 RUN [ "$(readlink -f "$(command -v timeout)")" = /usr/bin/gnutimeout ] && [ "$(date +%s%3N | wc -c)" -eq 14 ]
+
+# PowerShell, at /usr/local/bin/pwsh (#893), so the pwsh fixtures (tests/identity-launchers.test.sh,
+# tests/identity-broker.test.sh) run in lanes as in CI instead of skipping. Same shape as the
+# claude pin: root-owned files on the read-only root filesystem, the tarball checked with
+# sha256sum -c, and a build-time assertion that pwsh runs and reports the pinned version.
+# PWSH_SHA256 is the linux-x64 tarball's entry in the release's hashes.sha256, confirmed by
+# downloading the file. .NET runs in invariant-globalization mode: the base image ships no apt
+# lists and an unpinned build-time apt fetch of libicu is refused (docs/identity/DEV-CONTAINER.md, GNU coreutils section),
+# so culture-aware string comparisons are ordinal. Telemetry is off. Dependabot does not track a
+# pin inside a RUN, so it is bumped by hand: edit both ARG lines, then recreate with the
+# compare-first procedure in docs/identity/DEV-CONTAINER.md. Only this image gets pwsh.
+ARG PWSH_VERSION=7.6.8
+ARG PWSH_SHA256=59112e38ad83350e4f6dc0195953c66b5926792f300ca2e7691b8242e7a16e7f
+ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 POWERSHELL_TELEMETRY_OPTOUT=1
+RUN set -eu; \
+    curl -fsSL --retry 3 -o /tmp/pwsh.tar.gz \
+      "https://github.com/PowerShell/PowerShell/releases/download/v${PWSH_VERSION}/powershell-${PWSH_VERSION}-linux-x64.tar.gz"; \
+    echo "${PWSH_SHA256}  /tmp/pwsh.tar.gz" | sha256sum -c -; \
+    mkdir -p /opt/microsoft/powershell/7; \
+    tar --no-same-owner -xzf /tmp/pwsh.tar.gz -C /opt/microsoft/powershell/7; \
+    rm -f /tmp/pwsh.tar.gz; \
+    chmod -R go-w /opt/microsoft/powershell/7; \
+    chmod 0755 /opt/microsoft/powershell/7/pwsh; \
+    ln -s /opt/microsoft/powershell/7/pwsh /usr/local/bin/pwsh
+RUN [ "$(pwsh -NoProfile -NonInteractive -Command '$PSVersionTable.PSVersion.ToString()')" = "$PWSH_VERSION" ]
 USER 1000:1000

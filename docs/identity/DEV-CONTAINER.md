@@ -123,7 +123,7 @@ that serves the host's git credential (see Hazards that remain).
     `/tmp/vscode-remote-containers-*` and greps every `/proc/<pid>/cmdline` for the relay processes;
     any output, or a nonzero exit, refuses.
   - **Attach's residuals.** The container runs the configuration of the commit it was created from,
-    and keeps the image built then (the `claude` pin, the coreutils links), even if `main`'s
+    and keeps the image built then (the `claude` pin, the coreutils links, the `pwsh` pin), even if `main`'s
     `.devcontainer/` has moved since; the launcher prints that commit and warns when `.devcontainer/`
     has changed since, and the container should then be recreated at start of day once the lanes are
     done. Attach still fetches the Reference for the model, so an offline driver restart refuses.
@@ -503,6 +503,31 @@ removes it. The login lives on the volume; the binary does not.
   `command -v timeout` prints `/usr/local/bin/timeout`, `timeout --version` names GNU coreutils on
   its first line, `date +%s%3N` prints 13 digits, and `ls ~/.local/bin` lists no coreutils name (a
   copy there, on the home volume, would shadow the links).
+
+## PowerShell
+
+- **Where it comes from.** The image (#893): the `linux-x64` tarball of the version in
+  `PWSH_VERSION` in `.devcontainer/Dockerfile`, its SHA-256 (`PWSH_SHA256`) checked at build time
+  with `sha256sum -c`, extracted root-owned and without group or other write under `/opt/microsoft/powershell/7` and linked from
+  `/usr/local/bin/pwsh`. A build-time assertion fails the build if `pwsh` does not run or reports
+  another version. This is what lets `tests/identity-launchers.test.sh` and
+  `tests/identity-broker.test.sh` run in lanes instead of printing `SKIP - pwsh not on PATH`.
+- **Why invariant globalization.** `pwsh` runs with `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1`, so it
+  needs no `libicu`. The base image ships no apt lists, and an unpinned build-time apt fetch is
+  refused here for the same reason as in the coreutils section. Telemetry is off
+  (`POWERSHELL_TELEMETRY_OPTOUT=1`). Both are set by one `ENV` line in the Dockerfile, which `docker exec`
+  also sees.
+- **How to bump it.** Edit both `ARG` lines. Dependabot does not track a pin inside a `RUN`. Take the
+  hash from the release's `hashes.sha256` list (the `linux-x64.tar.gz` entry) and confirm it by
+  downloading the file and running `sha256sum` on it. Then recreate the container by the
+  procedure in *The `claude` binary*.
+- **What it does not cover.** Only this image: the review and loop images are unchanged. A `pwsh`
+  earlier on `PATH` shadows it. Under invariant globalization culture-aware string comparisons run
+  ordinal, so a sort or comparison result can differ from CI and the host.
+- **The check after a rebuild**: `command -v pwsh` prints `/usr/local/bin/pwsh`, `pwsh --version`
+  names the pinned version, and `sh tests/identity-launchers.test.sh` and
+  `sh tests/identity-broker.test.sh` no longer print their pwsh SKIP line (the broker suite's Task
+  Scheduler case still skips off Windows, as in CI).
 
 ## Not adopted here yet
 

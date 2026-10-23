@@ -1,12 +1,14 @@
 #!/bin/sh
-# Static fixtures for the dev container image (#725, #742, #741): .devcontainer/Dockerfile,
+# Static fixtures for the dev container image (#725, #742, #741, #893): .devcontainer/Dockerfile,
 # .devcontainer/devcontainer.json and .devcontainer/managed-settings.json.
 #
 #   Dockerfile          the template's shape (header of the Dockerfile), the claude pin against
 #                       scripts/loop/Dockerfile's, the download and checksum, nothing in the app
 #                       user's home directory, no npm or node, the managed settings file's guard,
 #                       COPY and owner/mode assertion in order, the GNU coreutils links (#741): the
-#                       four-line link loop, its assertion, their order, and no replacing `ln`
+#                       four-line link loop, its assertion, their order, and no replacing `ln`; the
+#                       pinned pwsh (#893): version and hash ARGs, the ENV line, the install RUN pinned
+#                       line by line, the version assertion, and their order
 #   devcontainer.json   DISABLE_AUTOUPDATER is "1" inside containerEnv. The file has // comments,
 #                       so jq cannot parse it; this checks with a line-anchored grep inside the
 #                       containerEnv block (awk cuts the block out), not by stripping comments.
@@ -15,8 +17,8 @@
 #   managed-settings.json  a regular file whose bytes are exactly the DISABLE_AUTOUPDATER pin
 #
 # Permitted toolset: POSIX sh and its standard utilities (awk, grep, sed, mktemp), plus cmp for the
-# managed settings bytes. A fixture that needs a tool the runner lacks would skip loudly; none does
-# beyond these (without cmp, only the managed-settings bytes check fails).
+# managed settings bytes and the pwsh install RUN. A fixture that needs a tool the runner lacks would skip loudly; none does
+# beyond these (without cmp, only the managed-settings bytes and pwsh install RUN checks fail).
 set -eu
 
 root_dir="$(cd "$(dirname "$0")/.." && pwd)"
@@ -79,8 +81,11 @@ check "Dockerfile: the download is to /usr/local/bin/claude from the \${CLAUDE_V
   grep -qF 'https://downloads.claude.ai/claude-code-releases/${CLAUDE_VERSION}/linux-x64/claude' "$dfcode"
 check "Dockerfile: the download writes /usr/local/bin/claude" grep -q 'curl .*-o /usr/local/bin/claude' "$dfcode"
 check "Dockerfile: the download is checked with sha256sum -c against CLAUDE_SHA256" grep -qF '${CLAUDE_SHA256}  /usr/local/bin/claude" | sha256sum -c -' "$dfcode"
-check "Dockerfile: the install RUN starts with set -eu" grep -Eq '^RUN set -eu; \\$' "$dfcode"
-check "Dockerfile: sha256sum -c ends its line, nothing masks it" grep -qE 'sha256sum -c -; \\$' "$dfcode"
+# Anchored to the claude block (the pwsh block below has the same shape and must not satisfy these).
+claude_curl_n=$(grep -n '^curl .*-o /usr/local/bin/claude' "$dfstrip" | head -1 | cut -d: -f1)
+check "Dockerfile: the claude install RUN starts with set -eu" sh -c '[ -n "$2" ] && [ "$(sed -n "$(($2 - 1))p" "$1")" = "RUN set -eu; \\" ]' _ "$dfstrip" "$claude_curl_n"
+check "Dockerfile: the claude sha256sum -c line ends its line, nothing masks it" \
+  grep -qxF 'echo "${CLAUDE_SHA256}  /usr/local/bin/claude" | sha256sum -c -; \' "$dfstrip"
 check "Dockerfile: the binary is root-owned" grep -qF 'chown root:root /usr/local/bin/claude' "$dfcode"
 check "Dockerfile: the binary is mode 0755" grep -qF 'chmod 0755 /usr/local/bin/claude' "$dfcode"
 assert_eq "Dockerfile: USER 1000:1000 is the last USER" "USER 1000:1000" "$(grep '^USER ' "$df" | tail -1)"
@@ -131,6 +136,41 @@ check "Dockerfile: managed-settings stat, link loop, assertion, last USER 1000:1
   sh -c '[ -n "$1" ] && [ -n "$2" ] && [ -n "$3" ] && [ -n "$4" ] && [ "$1" -lt "$2" ] && [ "$(($2 + 3))" -lt "$3" ] && [ "$3" -lt "$4" ]' _ "$stat_n" "$loop_n" "$gnu_assert_n" "$last_user_n"
 check "Dockerfile: no ln replaces an existing destination (force, backup or suffix)" \
   test -z "$(grep -E '(^|[^[:alnum:]_.-])(gnu)?ln([[:space:]]+-[^[:space:]]*)*[[:space:]]+(-[[:alnum:]]*[fbS][^[:space:]]*|--(f|b|su)[^[:space:]]*)([[:space:]]|$)' "$dfstrip" || true)"
+
+# --- Dockerfile: the pinned PowerShell (#893) ----------------------------------------------
+pwsh_ver=$(arg "$dfcode" PWSH_VERSION)
+pwsh_sha=$(arg "$dfcode" PWSH_SHA256)
+pwsh_env='ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 POWERSHELL_TELEMETRY_OPTOUT=1'
+pwsh_assert='RUN [ "$(pwsh -NoProfile -NonInteractive -Command '"'"'$PSVersionTable.PSVersion.ToString()'"'"')" = "$PWSH_VERSION" ]'
+check "Dockerfile: PWSH_VERSION is a plain x.y.z, 7.2 or later" sh -c 'printf "%s\n" "$1" | grep -Eq "^([89]|[1-9][0-9]+)\.[0-9]+\.[0-9]+\$|^7\.([2-9]|[1-9][0-9]+)\.[0-9]+\$"' _ "$pwsh_ver"
+check "Dockerfile: PWSH_SHA256 is 64 lowercase hex" sh -c 'printf "%s\n" "$1" | grep -Eq "^[0-9a-f]{64}\$"' _ "$pwsh_sha"
+assert_eq "Dockerfile: exactly one PWSH_VERSION ARG" 1 "$(grep -c '^ARG PWSH_VERSION=' "$dfcode" || true)"
+assert_eq "Dockerfile: exactly one PWSH_SHA256 ARG" 1 "$(grep -c '^ARG PWSH_SHA256=' "$dfcode" || true)"
+check "Dockerfile: the pwsh ENV line is a whole line" grep -qxF "$pwsh_env" "$dfcode"
+check "Dockerfile: the pwsh version assertion is a whole line" grep -qxF "$pwsh_assert" "$dfcode"
+# The install RUN is pinned line by line (like the coreutils loop): set -e, download, checksum before
+# extract, extract without owner, group/other write dropped, mode, link.
+cat >"$want" <<'EOT'
+RUN set -eu; \
+curl -fsSL --retry 3 -o /tmp/pwsh.tar.gz \
+"https://github.com/PowerShell/PowerShell/releases/download/v${PWSH_VERSION}/powershell-${PWSH_VERSION}-linux-x64.tar.gz"; \
+echo "${PWSH_SHA256}  /tmp/pwsh.tar.gz" | sha256sum -c -; \
+mkdir -p /opt/microsoft/powershell/7; \
+tar --no-same-owner -xzf /tmp/pwsh.tar.gz -C /opt/microsoft/powershell/7; \
+rm -f /tmp/pwsh.tar.gz; \
+chmod -R go-w /opt/microsoft/powershell/7; \
+chmod 0755 /opt/microsoft/powershell/7/pwsh; \
+ln -s /opt/microsoft/powershell/7/pwsh /usr/local/bin/pwsh
+EOT
+pwsh_dl_n=$(grep -n '^curl .*-o /tmp/pwsh\.tar\.gz' "$dfstrip" | head -1 | cut -d: -f1)
+pwsh_head_n=$((${pwsh_dl_n:-0} - 1))
+pwsh_got=$(mktemp); trap 'rm -f "$dfcode" "$want" "$dfstrip" "$pwsh_got"' EXIT
+[ -n "$pwsh_dl_n" ] && sed -n "${pwsh_head_n},$((pwsh_head_n + 9))p" "$dfstrip" >"$pwsh_got"
+check "Dockerfile: the pwsh install RUN is exactly the pinned ten lines" cmp -s "$pwsh_got" "$want"
+pwsh_env_n=$(grep -nxF "$pwsh_env" "$dfstrip" | head -1 | cut -d: -f1)
+pwsh_assert_n=$(grep -nxF "$pwsh_assert" "$dfstrip" | head -1 | cut -d: -f1)
+check "Dockerfile: coreutils assertion, pwsh ENV, pwsh install, pwsh assertion, last USER 1000:1000 in that order" \
+  sh -c '[ -n "$1" ] && [ -n "$2" ] && [ -n "$3" ] && [ -n "$4" ] && [ -n "$5" ] && [ "$1" -lt "$2" ] && [ "$2" -lt "$3" ] && [ "$3" -lt "$4" ] && [ "$4" -lt "$5" ]' _ "$gnu_assert_n" "$pwsh_env_n" "$pwsh_dl_n" "$pwsh_assert_n" "$last_user_n"
 
 # --- devcontainer.json -------------------------------------------------------------------
 block=$(awk '/^[[:space:]]*"containerEnv"[[:space:]]*:/ {on=1} on {print} on && /}/ {exit}' "$dj")
