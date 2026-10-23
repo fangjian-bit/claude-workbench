@@ -59,6 +59,13 @@ the GitHub release notes.
   manifest and the marketplace's `way-of-working` entry listed only the architect, coder,
   security-critic and docs-consistency agents; they now add the read-only `transcript-reader`
   that `/way-of-working:retro` spawns.
+- **Retro screens the transcript-reader's report before using it, and the staging line shows
+  an empty extraction (`#914`, `#916`).** The reader can Read any path, so injected transcript
+  text could steer a credentials file into its paraphrase. The session now writes the report to
+  the staging directory and runs the new `leak-screen.sh` over it (`spec-post.sh`'s six leak
+  shapes plus an `sk-ant-` key and a `~/` path); a report that matches is dropped whole, with
+  one line naming only the shape and line number. Each staged transcript now reports `ok
+  COUNT`, `empty` or `failed`, so a format change that extracts nothing no longer shows as `ok`.
 
 ## [0.23.0] — 2026-10-22
 

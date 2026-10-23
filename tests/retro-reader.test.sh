@@ -1,5 +1,5 @@
 #!/bin/sh
-# Static checks for issues #899, #900 and #904: /way-of-working:retro's transcript reader is a plugin agent
+# Static checks for issues #899, #900, #904, #914 and #916: /way-of-working:retro's transcript reader is a plugin agent
 # confined by its frontmatter tool list, not by a prose instruction.
 # Permitted toolset: POSIX sh, grep, sed.
 set -eu
@@ -23,6 +23,11 @@ grep -qF 'path match only, not confirmed to be this repo' "$skill" || bad "$skil
 grep -q 'confirms in this session' "$skill" || bad "$skill: no confirmation wording ('confirms in this session')"
 if grep -qF 'is filed or surfaced, never written to memory' "$skill"; then bad "$skill: old filing rule is back"; fi
 grep -qF 'POSIX-only' "$skill" || bad "$skill: no POSIX-only statement for the cross-session path match"
+
+grep -qF "leak-screen.sh" "$skill" || bad "$skill: does not name leak-screen.sh"
+grep -qF "transcript-reader report dropped" "$skill" || bad "$skill: no drop line text"
+grep -qF "\`empty\`" "$skill" || bad "$skill: no backticked empty status word"
+if grep -qF "only \`ok\` or \`failed\`" "$skill"; then bad "$skill: old status wording is back"; fi
 
 [ "$fail" = 0 ] && echo "retro-reader: ok"
 exit "$fail"
