@@ -18,7 +18,9 @@
 #
 # The area list is the first backtick span of each top-level `- ` bullet between the
 # `## Areas` heading and the next level-2 heading of CLAUDE.md, the only source. When
-# CLAUDE.md is missing, has no such heading or yields no area, the script fails closed.
+# CLAUDE.md is missing, has no such heading or yields no area, the script fails closed;
+# so it does for an area that does not fit the scope grammar (`[a-z0-9-]+`), which no
+# title could ever use.
 #
 # No message echoes the title or its subject; the only part of it printed is a scope that
 # passed the grammar, so no part of a title can start a workflow command in the job log.
@@ -51,6 +53,12 @@ if [ "${#areas[@]}" -eq 0 ]; then
   echo "pr-title: could not read the area list from the '## Areas' section of CLAUDE.md" >&2
   exit 1
 fi
+for a in "${areas[@]}"; do
+  if ! [[ "$a" =~ ^[a-z0-9-]+$ ]]; then
+    echo "pr-title: an area in the '## Areas' section of CLAUDE.md is not a valid scope (lowercase letters, digits and hyphens only)" >&2
+    exit 1
+  fi
+done
 
 shape='^([a-z]+)(\(([a-z0-9-]+)\))?(!)?: (.+)$'
 if [[ "$title" == *[[:cntrl:]]* ]] || ! [[ "$title" =~ $shape ]]; then

@@ -93,6 +93,26 @@ for d in none nohead nobullet; do
   assert "$d: scope fails closed" 1 "area list" "$tmp/$d" 'x(alpha): s'
 done
 
+# --- an area outside the scope grammar fails closed ------------------------
+for shape_name in Alpha a_b a.b a/b "a b"; do
+  d="$tmp/bad-$(printf '%s' "$shape_name" | od -An -tx1 | tr -d ' \n')"
+  mkdir -p "$d"
+  printf '# t\n\n## Areas\n\n- `alpha` — a\n- `%s` — b\n' "$shape_name" >"$d/CLAUDE.md"
+  assert "bad area [$shape_name]: no scope fails closed" 1 "not a valid scope" "$d" 'x: s'
+  assert "bad area [$shape_name]: scope fails closed" 1 "not a valid scope" "$d" 'x(alpha): s'
+  out="$( cd "$d" && bash "$script" 'x(alpha): s' 2>&1 )" || true
+  if printf '%s' "$out" | grep -qF -- "$shape_name"; then
+    echo "FAIL - bad area [$shape_name]: output echoes the area: $out" >&2
+    fail=1
+  else
+    echo "ok - bad area [$shape_name]: output does not echo the area"
+  fi
+done
+
+# --- subject bytes ----------------------------------------------------------
+assert "non-ASCII subject passes" 0 "" "$fixture" 'x(alpha): a — b'
+assert "malformed: DEL in subject" 1 "$M" "$fixture" "$(printf 'x(alpha): a\177b')"
+
 # --- usage ------------------------------------------------------------------
 assert "usage: no argument" 2 "usage" "$fixture"
 assert "usage: two arguments" 2 "usage" "$fixture" 'x: s' 'y: t'
