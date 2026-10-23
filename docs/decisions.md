@@ -2200,6 +2200,10 @@ take effect. Full reasoning and the task breakdown that implements them:
     10. **The marker is checked once.** Only the finder checks it: `verify --spec-comment` and
         `spec-comment.sh` trust the finder's selection from the same call. *Amended by `WB-D31`:
         `spec-fresh.sh` also reads the marker, after `spec-comment.sh check`, to find the commit.*
+        *Amended by `#1008`: `bin/lane-groups.sh` (`#896`) also runs `spec-fresh.sh check` and
+        `paths` on a found comment, after its own compare of the fetched comment's `.id` and
+        `.updated_at` against the `spec-find.sh` `found` line, not after `spec-comment.sh check`;
+        its output is display only and nothing gates on it.*
     11. **The loop preflight.** *Closed by `#682`, which applied the reaction rule to a
         maintainer-authored spec comment and refused `--no-spec-comment` under a map. The preflight
         still checks no `spec-task:` marker, and trusts the driver to supply `spec-find.sh`'s `found`
@@ -2220,6 +2224,11 @@ take effect. Full reasoning and the task breakdown that implements them:
   The `spec-fresh.sh shape` gate `spec-task` runs on its own draft is not one of them: it applies
   on every repo, `identities: null` included, and on an `identities: null` repo it checks the
   draft's shape only, since no build there re-checks freshness.*
+  *Amended by `#1008`: the clause "the marker is now also read by `spec-fresh.sh`, after
+  `spec-comment.sh check`" does not hold for `bin/lane-groups.sh` (`#896`), which also runs
+  `spec-fresh.sh check` and `paths` on a found comment, after its own compare of the fetched
+  comment's `.id` and `.updated_at` against the `spec-find.sh` `found` line; its output is display
+  only and nothing gates on it.*
   - **The decision.**
     - **Freshness.** Before a build uses a found spec, the paths its *Files touched* section lists
       are compared between the commit in its `spec-task:` marker (`sha=`) and the current tip of

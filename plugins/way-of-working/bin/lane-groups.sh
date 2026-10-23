@@ -58,8 +58,11 @@
 # field is `-`. Ready issues are taken in build-order position, then the unlisted ones ascending by
 # number, and each goes into the first group none of whose issues it shares a path with. A stale
 # spec is listed with its paths and is in no group. Live lanes are not consulted.
-# A config read, the milestone listing or the description fetch failing prints only `unreadable`
-# (exit 0), as does a listed number with a leading zero.
+# A config read, the milestone listing, the description fetch or the final pass that builds the
+# rows and groups failing prints only `unreadable` (exit 0), as does a listed number with a
+# leading zero. That pass writes to a file under the script's own temp directory, printed only
+# when it exits 0, so no partial row reaches stdout; a `cat` that fails while printing it is not
+# covered.
 #
 # Exits 2, printing nothing to stdout, for a usage error: the wrong count, a bad milestone number,
 # an unreadable <project.yml>, a slash-less $0, or a spec-find.sh, spec-fresh.sh or plan-depends.sh
@@ -71,7 +74,7 @@
 # evaluated; no fetched value is run.
 #
 # Permitted toolset: POSIX sh, gh (with its own --jq), yq (mikefarah v4), awk, sort, basename,
-# dirname, rm, mktemp. Runs under LC_ALL=C with pathname expansion off.
+# dirname, rm, mktemp, cat. Runs under LC_ALL=C with pathname expansion off.
 set -eu
 set -f
 LC_ALL=C
@@ -257,7 +260,7 @@ while IFS= read -r n || [ -n "$n" ]; do
 done <"$tmp/nums"
 
 # --- shared paths, waits and groups ----------------------------------------------------------
-LG_ORDER="$order_list" LG_ORDER_OK="$order_ok" awk -F '\t' '
+if ! LG_ORDER="$order_list" LG_ORDER_OK="$order_ok" awk -F '\t' '
   function overlap(a, b,    i, j, na, nb, qa, qb, x, y) {
     na = split(a, qa, " "); nb = split(b, qb, " ")
     for (i = 1; i <= na; i++) for (j = 1; j <= nb; j++) {
@@ -331,4 +334,7 @@ LG_ORDER="$order_list" LG_ORDER_OK="$order_ok" awk -F '\t' '
       printf "group\t%d\t%s\n", g, s
     }
   }
-' "$tmp/rows" 2>/dev/null || out unreadable
+' "$tmp/rows" >"$tmp/out" 2>/dev/null; then
+  out unreadable
+fi
+cat "$tmp/out"

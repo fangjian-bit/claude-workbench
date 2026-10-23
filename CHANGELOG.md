@@ -30,6 +30,8 @@ the GitHub release notes.
   that applies to the review poll task's reinstall as well, though its registration is unchanged and it ends no process. The task's
   repeating trigger runs every minute and the `-RestartCount` settings are gone, since conhost exits 0
   when the broker is killed and the restart never fired.
+- **`bin/lane-groups.sh` prints only `unreadable` when its final pass fails (`#1009`).**
+  Before, a failure partway left some rows on stdout followed by `unreadable`.
 
 ## [0.24.0] — 2026-10-23
 
