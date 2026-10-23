@@ -3,16 +3,16 @@
 **Now:** **Sprint 17** (cursor id `sprint-17`) on [milestone 24, *Green gate in parallel*](https://github.com/glunk-works/claude-workbench/milestone/24), with wave 4 on [milestone 25, *Review follow-ups: tests, docs and guards*](https://github.com/glunk-works/claude-workbench/milestone/25). Status: **implementing**. Live lanes: `lane-state.sh list`.
 
 **Just done (2026-10-23, driver session in the container, opus):**
-- **Wave 3 merged:** #898 (PR #1000), #979 with #980 (PR #1001), #952 (PR #1002), #896 (PR #1004, `lane-groups.sh`), #999 (PR #1014, scheduled tasks start through `conhost --headless`) and #862 (PR #1019, lanes set their own PR's milestone after ship). #896 and #999 escalated at spec time and were resolved by maintainer edits to the escalated comment.
-- **#999's host check found two broker gaps:** a stop orphans the broker `pwsh`, which then cannot mint (`0xC0000142`) while holding `broker.lock` (#1016), and a killed broker is not restarted because conhost exits 0 (#1015). #1015 is folded into #1016, whose spec converged and whose lane is building. #999 stays closed by the maintainer's decision.
-- **way-of-working v0.24.0 released** (PR #1024, `e6eeee3`), pinned (PR #1025, `c2d3301`) and installed in the container at the tag's commit.
-- **Planning pass:** milestone 25 created with a 35-item build order; lead issues carry their folded issues in their bodies; #790 narrowed (its second-opinion want is now #1020). Decisions: require all four test jobs (#989) and pr-title (#963) once the CI lane lands, with a docs-only skip limited to cursor-sync paths; document #992 only; protect the transcript-reader files in the loop list (#973); closed #948, #827 and #920; refresh comment on #223.
-- Critic passes ran in each spec and lane session; their outcomes are in each PR body. Lanes 898, 979, 896, 952, 999 and 862 are cleaned up with `lane.sh done`.
+- **#1016 with #1015 merged** (PR #1027, `0495241`): the broker task's stops end the broker `pwsh`, and its trigger repeats every minute. Lane 1016 cleaned up with `lane.sh done`.
+- **Two hotfixes from the host checks, built in this driver session at the maintainer's request:**
+  - PR #1031 (`5450357`): `Disable-`/`Enable-ScheduledTask` take no `-Confirm`; the reinstall failed on it. A parser-based check now guards it.
+  - PR #1034 (`6ed7ef9`, closes the reopened #1016): the Store app-alias `pwsh` reports the `-File` path unquoted, so the matcher accepts it quoted or bare.
+  - Critic passes: #1031 architect, 3 rounds, converged; #1034 architect, 2 rounds, converged. A second-opinion round was offered for each and skipped by the maintainer.
+- **Host checks passed on the glunk home** (the only home running a broker): `-Unregister` leaves no broker, a re-register leaves one, a killed broker restarts within a minute, no window opens. The 603id home gets a file refresh only (`install-host-tools.ps1`) until a broker is deployed there.
+- **Milestone 24 description:** #1016 (12f) and #1018 (12g) added to the build order; Wave 3 marked done.
 
-**Next:** on **opus** (driver). Start no build here; `next_action` holds the steps: check the #1016 lane PR against its spec, then check the ten wave 4 specs and prep their lanes in batches on the maintainer's reactions.
+**Next:** on **opus** (driver). Start no build here; `next_action` holds the steps: check the ten wave 4 spec comments and their transcripts, confirm their files are disjoint with `lane-groups.sh 25`, and prep their lanes in batches on the maintainer's reactions.
 
 **HITL Gate: NONE OPEN** — next gate: the maintainer reacts to each wave 4 spec comment before its lane is prepped, and approves each lane PR
-
-**Until #1016 merges (maintainer, on the host):** never stop `glunk-wow-broker` on its own; end the broker's `pwsh` by command line first, or the token lapses within the hour.
 
 **Pointers:** [docs/decisions.md](../docs/decisions.md) · [milestone 24](https://github.com/glunk-works/claude-workbench/milestone/24) · [milestone 25](https://github.com/glunk-works/claude-workbench/milestone/25) · [.ai/parked/](parked/)
