@@ -41,6 +41,9 @@ the GitHub release notes.
   Step 7 said the *Consider bumping the plugin pin* step "follows on any answer", which read as
   waiting for a reply to the offer, so with no reply the note was never given. The note now goes
   before the offer in the same message, and retro runs only on a yes typed later.
+- **`/way-of-working:archive-sprint`'s pin step states where its note goes (`#1048`, `#1052`).**
+  The *Consider bumping the plugin pin* step now says its note goes in the *Report* step's message,
+  between the report and the retro offer, so the order is readable from either step.
 - **`bin/lane-groups.sh` prints only `unreadable` when its final pass fails (`#1009`).**
   Before, a failure partway left some rows on stdout followed by `unreadable`.
 
