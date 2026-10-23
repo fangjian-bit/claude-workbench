@@ -21,6 +21,8 @@ the GitHub release notes.
 
 ## [Unreleased]
 
+## [0.24.0] — 2026-10-23
+
 ### Added
 
 - **`bin/lane-groups.sh` prints which open tasks on a milestone can run as parallel lanes (`#896`).**
