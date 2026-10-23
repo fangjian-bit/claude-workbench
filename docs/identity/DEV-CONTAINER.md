@@ -232,8 +232,26 @@ only `/workspace`, and its `.git` file names a host path.
   commit. Otherwise it keeps it, prints its path and exits 1. The likely cause is an untracked file
   the session left, such as `.claude/settings.local.json` after a "don't ask again" answer (it is
   not gitignored): inspect it, then run `git -C /workspace worktree remove --force
-  /tmp/lanes/spec-XXXXXX` in a `docker exec` shell, or `git worktree remove` once it is clean.
-  `lane.sh done` neither sees nor removes a spec worktree.
+  /tmp/lanes/spec-XXXXXX` in a `docker exec` shell, or `git worktree remove` once it is clean, and
+  only then `rm /tmp/lanes/record-spec-XXXXXX` (the launcher prints both lines). Beside the worktree
+  the launcher writes a record, `/tmp/lanes/record-spec-XXXXXX`: the issue list, a space and the
+  launch time in Unix seconds. It is removed with the worktree and kept with a kept one. A `-Spec`
+  run refuses, before the container clone's fetch and before any worktree or record is made, when a spec session already running in the
+  container (a `claude` process whose working directory is a `spec-` leaf under `/tmp/lanes`, also
+  one whose directory was removed) covers any issue in the new list. The refusal names that
+  session's worktree, process id and issues. A running session with no readable record counts
+  as `unknown` and refuses every `-Spec` run until the maintainer stops it. This is an accident
+  guard: two runs started close together can both pass it. `lane.sh done` neither sees nor
+  removes a spec worktree.
+- **List spec sessions** (#891), read-only:
+  ```powershell
+  pwsh -File $env:WOW_HOME\bin\wow-lane.ps1 -Clone <clone> -Reference <other clone> -SpecSweep
+  ```
+  It lists every spec worktree directory, spec record and running spec-session process under
+  `/tmp/lanes`, one line per running session and per leaf with none, with the issues and the launch time from the record (`unknown`
+  without a readable one) and the process id (`no process` for a kept directory or an orphan
+  record; a directory that is gone is marked so). It kills, removes and edits nothing: stopping a stray
+  session, and removing its worktree and then its record, are done by hand.
 - **Driver handoff points** (#729). The driver runs `/way-of-working:handoff` after each lane PR
   merges and its `lane.sh done N` has run, after each batch of spec sessions, and whenever the
   status line shows the context running high, rather than only when it runs low.

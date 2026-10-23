@@ -22,7 +22,10 @@
 #                   spec prep and cleanup scripts run for real (the stub docker runs a non-interactive
 #                   `exec -u app ... /bin/sh -c <script> sh <args>` with the real /bin/sh against a scratch
 #                   lanes directory and a scratch container clone), both happy paths, base-moved and kept
-#                   worktrees, and the static shape of the three scripts and both message templates
+#                   worktrees, the busy check (a fake running session: an executable named claude whose
+#                   working directory is a spec leaf), the spec record, the read-only -SpecSweep mode
+#                   (the busy-check and sweep fixtures are skipped loudly under MSYS), and the static shape of the four scripts and both message
+#                   templates
 #
 #
 # Concurrency (#937): the sections run at once, each in a subshell with its own scratch world
@@ -253,13 +256,31 @@ run_lane() { run_with "$home/bin/wow-lane.ps1" -Clone "$(wp "$clone")" -Referenc
 LANE_CONTAINER_STAGE=
 LHASH=$ID1   # any 64 lowercase hex digits are a valid -Hash
 no_app_exec() { ! calls | grep -q ' -u app '; }
-no_banned() { ! calls | grep -q '[&|^%"]'; }
+no_banned() { ! calls | grep -q '[&|^%!"]'; }
 it_line() { calls | grep ' -it '; }
 app_execs() { calls | grep ' -u app ' | grep -v ' -it '; }
 # app_execs_pinned <n>: exactly n non-interactive -u app execs, each carrying GIT_NO_REPLACE_OBJECTS=1
 app_execs_pinned() { [ "$(app_execs | wc -l | tr -d ' ')" -eq "$1" ] && [ "$(app_execs | grep -c -e '-e GIT_NO_REPLACE_OBJECTS=1')" -eq "$1" ]; }
 no_effort() { ! it_line | grep -q -e '--effort'; }
 exec_shape() { non_ps | awk '{print $2, $3, $4}' | tr '\n' ,; }
+# A fake running spec session (#891): an executable shell script named claude, so the kernel records
+# claude as its comm, started per case in the background from a subshell that execs it in the given
+# directory, so $! is the fake's own process id. Its sleep is bounded as a backstop. A renamed copy of
+# the sleep binary would not do: sleep can be a multicall binary that refuses an unknown name.
+mk_fake() {
+  mkdir -p "$tmp/fakebin"
+  printf '%s\n' '#!/bin/sh' "trap 'kill \$c 2>/dev/null; exit 0' TERM" 'sleep 200 &' 'c=$!' 'wait $c' >"$tmp/fakebin/claude"
+  chmod +x "$tmp/fakebin/claude"
+}
+fake_start() { # fake_start <dir>: sets fake_pid; non-zero if the process never reads as claude
+  ( cd "$1" && exec "$tmp/fakebin/claude" ) >/dev/null 2>&1 &
+  fake_pid=$!; fake_n=0
+  until [ "$(cat "/proc/$fake_pid/comm" 2>/dev/null)" = claude ]; do
+    fake_n=$((fake_n + 1)); [ "$fake_n" -lt 100 ] || return 1
+    sleep 0.1
+  done
+}
+fake_stop() { kill "$fake_pid" 2>/dev/null || :; wait "$fake_pid" 2>/dev/null || :; }
 # lane_setup: one running recorded container, a fresh scratch lanes directory with lane 5 prepared (a linked
 # worktree of the container clone, and a prompt file), and the container clone's worktree list pruned.
 lane_setup() {
@@ -596,6 +617,10 @@ bad_lane() { # bad_lane <label> <args...>: exit 2, a usage line, no stub or git 
 }
 bad_lane 'no mode' -Clone "$C" -Reference "$R" -WowHome "$H"
 bad_lane 'both modes' -Clone "$C" -Reference "$R" -WowHome "$H" -Issue 5 -Hash "$LHASH" -Spec 7
+bad_lane '-SpecSweep with -Spec' -Clone "$C" -Reference "$R" -WowHome "$H" -SpecSweep -Spec 7
+bad_lane '-SpecSweep with -Issue' -Clone "$C" -Reference "$R" -WowHome "$H" -SpecSweep -Issue 5
+bad_lane '-SpecSweep with -Hash' -Clone "$C" -Reference "$R" -WowHome "$H" -SpecSweep -Hash "$LHASH"
+bad_lane '-SpecSweep with -Issue and -Hash' -Clone "$C" -Reference "$R" -WowHome "$H" -SpecSweep -Issue 5 -Hash "$LHASH"
 bad_lane '-Hash alone' -Clone "$C" -Reference "$R" -WowHome "$H" -Hash "$LHASH"
 bad_lane '-Issue alone' -Clone "$C" -Reference "$R" -WowHome "$H" -Issue 5
 bad_lane '-Spec with -Hash' -Clone "$C" -Reference "$R" -WowHome "$H" -Spec 7 -Hash "$LHASH"
@@ -679,7 +704,7 @@ check "wow-lane lane: relay probe, in-container probe, then the session, and not
 check "wow-lane lane: the one in-container exec carries GIT_NO_REPLACE_OBJECTS=1" app_execs_pinned 1
 check "wow-lane lane: no --effort" no_effort
 check "wow-lane lane: no devcontainer call" no_dc
-check "wow-lane lane: no argv holds & | ^ % or a double quote" no_banned
+check "wow-lane lane: no argv holds & | ^ % ! or a double quote" no_banned
 check "wow-lane lane: nothing from the prompt file or the listings reaches an argv" no_canary
 check "wow-lane lane: the record is byte-identical afterwards" cmp -s "$tmp/rec-snap" "$home/driver/wb-driver.json"
 check "wow-lane lane: no devcontainer exec" no_dc_exec
@@ -693,6 +718,7 @@ for w in "$STUB_LANES"/spec-*; do
   git -C "$w" rev-parse HEAD >"$STUB_DIR/spec-head"
   git -C "$w" symbolic-ref -q HEAD >"$STUB_DIR/spec-symref" 2>/dev/null || echo detached >"$STUB_DIR/spec-symref"
   basename "$w" >"$STUB_DIR/spec-leaf"
+  cp "$STUB_LANES/record-$(basename "$w")" "$STUB_DIR/spec-record" 2>/dev/null || :
 done
 HOOK
 spec_setup; cp "$tmp/hook.ok" "$stubdir/it.hook"; run_lane -Spec 12,7,30
@@ -710,8 +736,17 @@ check "wow-lane spec: a detached worktree at the Reference's commit existed unde
 check "wow-lane spec: both non-interactive execs carry GIT_NO_REPLACE_OBJECTS=1" app_execs_pinned 2
 check "wow-lane spec: the worktree is gone afterwards" not_spec_left
 check "wow-lane spec: ...and no worktree of the container clone is left but its own" test "$($real_git -C "$crepo" worktree list | wc -l | tr -d ' ')" -eq 1
-check "wow-lane spec: no argv holds & | ^ % or a double quote" no_banned
+check "wow-lane spec: no argv holds & | ^ % ! or a double quote" no_banned
 check "wow-lane spec: the record is byte-identical afterwards" cmp -s "$tmp/rec-snap" "$home/driver/wb-driver.json"
+spec_record_ok() { # the spec record seen while the session ran: the list, a space, whole seconds near now
+  r=$(cat "$stubdir/spec-record" 2>/dev/null) || return 1
+  case $r in "12,7,30 "*) ;; *) return 1 ;; esac
+  s=${r#12,7,30 }; case $s in ''|*[!0-9]*) return 1 ;; esac
+  now=$(date +%s); [ "$s" -le "$now" ] && [ $((now - s)) -lt 600 ]
+}
+check "wow-lane spec: the record held the list and the launch seconds while the session ran" spec_record_ok
+no_record_left() { ! ls "$lanes" | grep -q '^record-'; }
+check "wow-lane spec: the record is gone after a clean exit" no_record_left
 spec_setup; cp "$tmp/hook.ok" "$stubdir/it.hook"; run_lane -Spec 9
 one_issue() { it_line | grep -q -e 'in this order: 9\. Build nothing'; }
 check "wow-lane spec: a single issue is named alone" one_issue
@@ -733,6 +768,9 @@ printf '%s\n' 'for w in "$STUB_LANES"/spec-*; do echo x >"$w/untracked"; done' >
 run_lane -Spec 7; kept_check 'an untracked file'
 untracked_kept() { ls "$lanes"/spec-*/untracked >/dev/null 2>&1; }
 check "wow-lane kept (untracked): the worktree and the file are still there" untracked_kept
+record_kept() { ls "$lanes"/record-spec-* >/dev/null 2>&1; }
+check "wow-lane kept (untracked): the record is still there" record_kept
+check "wow-lane kept (untracked): ...with its own removal line" err_has 'rm /tmp/lanes/record-spec-'
 spec_setup; $real_git -C "$crepo" worktree add -q --detach "$tmp/otherwt" "$c2"
 if [ -L "$tmp/probe-link" ]; then
   printf '%s\n' 'for w in "$STUB_LANES"/spec-*; do mv "$w" "$STUB_DIR/moved-wt"; ln -s "$STUB_OTHER" "$w"; done' >"$stubdir/it.hook"
@@ -747,26 +785,130 @@ run_lane -Spec 7; kept_check 'HEAD moved to another commit'
 check "wow-lane kept (HEAD moved): the worktree is still there" spec_left
 rm -rf "$lanes"; $real_git -C "$crepo" worktree prune
 
-# static shape of the three scripts and both message templates
+# static shape of the four scripts and both message templates
 lane_fn() { sed -n "/^function $1 /,/^}/p" "$root_dir/scripts/identity/wow-lane.ps1"; }
 lane_line() { lane_fn "$1" | sed -n 2p; }
-clean_line() { # no & | ^ % or double quote, and no single quote between the outer pair
-  ! printf '%s\n' "$1" | grep -q '[&|^%"]' && ! printf '%s\n' "$1" | sed "s/^  '//; s/'\$//" | grep -q "'"
+clean_line() { # no & | ^ % ! or double quote, and no single quote between the outer pair
+  ! printf '%s\n' "$1" | grep -q '[&|^%!"]' && ! printf '%s\n' "$1" | sed "s/^  '//; s/'\$//" | grep -q "'"
 }
 one_quoted() { lane_line "$1" | grep -q "^  '.*'\$"; }
 starts_set_f() { lane_line "$1" | grep -q "^  'set -f; "; }
-for fn in Get-LaneProbeScript Get-SpecPrepScript Get-SpecCleanupScript; do
+for fn in Get-LaneProbeScript Get-SpecPrepScript Get-SpecCleanupScript Get-SpecSweepScript; do
   check "static: $fn is a function of exactly one line" test "$(lane_fn $fn | wc -l | tr -d ' ')" -eq 3
   check "static: $fn returns one single-quoted string" one_quoted $fn
-  check "static: $fn holds none of & | ^ % or a double quote, nor an inner single quote" clean_line "$(lane_line $fn)"
+  check "static: $fn holds none of & | ^ % ! or a double quote, nor an inner single quote" clean_line "$(lane_line $fn)"
   check "static: $fn starts with set -f" starts_set_f $fn
 done
+sweep_pure() { ! lane_line Get-SpecSweepScript | grep -q -w -e kill -e rm -e mkdir -e git; }
+check "static: Get-SpecSweepScript holds none of kill, rm, mkdir or git as a whole word" sweep_pure
 tpl_line() { grep -E "^[\$]script:$1 = '" "$root_dir/scripts/identity/wow-lane.ps1" | sed "s/^[^']*'//; s/'\$//"; }
 for tpl in LaneMessage SpecMessage; do
   check "static: the $tpl template exists" test -n "$(tpl_line $tpl)"
-  check "static: the $tpl template holds none of & | ^ % or a double quote" clean_line "$(tpl_line $tpl)"
+  check "static: the $tpl template holds none of & | ^ % ! or a double quote" clean_line "$(tpl_line $tpl)"
 done
 
+  :
+}
+
+# --- section: wow-lane: the busy check, the spec record and -SpecSweep (#891) ---
+sec_laned() {
+spec_setup() { lane_setup; rm -rf "$lanes/5" "$lanes/5-prompt.md"; $real_git -C "$crepo" worktree prune; }
+leaves() { ls -1A "$lanes" | tr '\n' ' '; }
+# rerun <args>: run_lane again in the same world; the stub's ps counters and the call logs start over
+rerun() { rm -f "$stubdir"/n.*; : >"$stubdir/calls.log"; : >"$stubdir/git.log"; run_lane "$@"; }
+wt_count() { $real_git -C "$crepo" worktree list | wc -l | tr -d ' '; }
+if [ -n "$msys" ]; then
+  skip "the fake running session needs /proc; the busy check and sweep fixtures did not run under MSYS"
+else
+  mk_fake
+  busy_refuses() { # busy_refuses <label> <issues word>: before = the lanes listing before the run
+    check "wow-lane busy ($1): exit 1" test "$rc" -eq 1
+    check "wow-lane busy ($1): no -it exec" no_it
+    check "wow-lane busy ($1): names the worktree" err_has '/tmp/lanes/spec-aaa111'
+    check "wow-lane busy ($1): names the process id" err_has "process $fake_pid"
+    check "wow-lane busy ($1): names the issues" err_has "issues $2"
+    check "wow-lane busy ($1): says the maintainer stops it" err_has 'maintainer stops that session'
+    check "wow-lane busy ($1): no fetch of the base" sh -c "! grep -q -e 'fetch -q origin +refs/heads/' '$stubdir/git.log'"
+    check "wow-lane busy ($1): no directory, worktree or record made" test "$(leaves)" = "$before"
+    check "wow-lane busy ($1): no registered worktree made" test "$(wt_count)" -eq 1
+  }
+  busy_case() { # busy_case <label> <record text, or - for none> <-Spec list> <issues word>
+    rm -f "$lanes/record-spec-aaa111"
+    if [ "$2" != - ]; then printf '%s\n' "$2" >"$lanes/record-spec-aaa111"; fi
+    before=$(leaves); rerun -Spec "$3"; busy_refuses "$1" "$4"
+  }
+  spec_setup; mkdir "$lanes/spec-aaa111"
+  if fake_start "$lanes/spec-aaa111"; then
+    busy_case 'a record that overlaps' '7,9 1700000000' 7 7,9
+    busy_case 'a record that overlaps, in a list' '7,9 1700000000' 12,9,30 7,9
+    busy_case 'no record' - 8 unknown
+    busy_case 'a record of one word' 'zz' 8 unknown
+    busy_case 'a record with a non-number' '7 abc' 8 unknown
+    busy_case 'a record with a third field' '7 1700000000 9' 8 unknown
+    busy_case 'a record whose list ends in a comma' '7, 1700000000' 8 unknown
+    busy_case 'a record with a doubled comma' '7,,8 1700000000' 8 unknown
+    busy_case 'a record with a leading zero' '07 1700000000' 8 unknown
+    busy_case 'a record with an over-long number' '1234567890,5 1700000000' 8 unknown
+    busy_case 'a record whose seconds field holds spaces' '7 a a' 8 unknown
+    busy_case 'a record with over-long seconds' '7 12345678901' 8 unknown
+    busy_case 'a record of two lines' '7 1700000000
+7 1700000000' 8 unknown
+    if [ -L "$tmp/probe-link" ]; then
+      printf '7 1700000000\n' >"$tmp/record-real"; rm -f "$lanes/record-spec-aaa111"; ln -s "$tmp/record-real" "$lanes/record-spec-aaa111"
+      before=$(leaves); rerun -Spec 8; busy_refuses 'a record that is a link' unknown
+    else skip "a file symlink cannot be made here; the record-link fixture did not run"; fi
+    # a record that lists only other issues: the run starts, and leaves the other session alone
+    rm -f "$lanes/record-spec-aaa111"; printf '%s\n' '7,9 1700000000' >"$lanes/record-spec-aaa111"
+    before=$(leaves); rerun -Spec 8
+    check "wow-lane busy (no overlap): starts, exiting with the session's code" test "$rc" -eq 7
+    check "wow-lane busy (no overlap): ...the other session's directory and record are untouched" test "$(leaves)" = "$before"
+    check "wow-lane busy (no overlap): ...the interactive session ran" sh -c "grep -q ' -it ' '$stubdir/calls.log'"
+    fake_stop
+  else bad "the fake running session never read as claude"; fake_stop; fi
+  # a running session whose directory was removed still counts
+  spec_setup; mkdir "$lanes/spec-aaa111"; printf '%s\n' '7 1700000000' >"$lanes/record-spec-aaa111"
+  if fake_start "$lanes/spec-aaa111"; then
+    rm -rf "$lanes/spec-aaa111"
+    before=$(leaves); rerun -Spec 7; busy_refuses 'the leaf directory removed under the session' 7
+    rm -f "$lanes/record-spec-aaa111"
+    before=$(leaves); rerun -Spec 7; busy_refuses 'the leaf directory and the record removed' unknown
+    fake_stop
+  else bad "the fake running session never read as claude"; fake_stop; fi
+
+  # -SpecSweep: read-only, one non-interactive exec, no session
+  spec_setup; mkdir "$lanes/spec-aaa111" "$lanes/spec-bbb222" "$lanes/spec-ddd444" "$lanes/spec-xyz" "$lanes/spec-ABC123" "$lanes/spec-eee55"
+  printf '%s\n' '7,9 1700000000' >"$lanes/record-spec-aaa111"
+  printf '%s\n' '5 1700000100' >"$lanes/record-spec-ccc333"
+  printf '%s\n' 'zz' >"$lanes/record-spec-ddd444"
+  : >"$lanes/notes.txt"; : >"$lanes/record-foo"
+  if fake_start "$lanes/spec-aaa111"; then
+    before=$(leaves); wt_before=$($real_git -C "$crepo" worktree list)
+    rerun -SpecSweep
+    check "wow-lane sweep: exits 0" test "$rc" -eq 0
+    check "wow-lane sweep: lists the running session with its issues and start time" out_has "^/tmp/lanes/spec-aaa111; process $fake_pid; issues 7,9; started 2023-11-1"
+    check "wow-lane sweep: lists a kept directory with no process" out_has '^/tmp/lanes/spec-bbb222; no process; issues unknown; started unknown$'
+    check "wow-lane sweep: lists an orphan record, marked gone" out_has '^/tmp/lanes/spec-ccc333 (gone); no process; issues 5; started 2023-11-1'
+    check "wow-lane sweep: shows a malformed record as unknown" out_has '^/tmp/lanes/spec-ddd444; no process; issues unknown; started unknown$'
+    check "wow-lane sweep: skips names of another shape" sh -c "! grep -q -e spec-xyz -e ABC123 -e eee55 -e notes -e record-foo '$tmp/out'"
+    check "wow-lane sweep: one line per entry, four entries" test "$(wc -l <"$tmp/out" | tr -d ' ')" -eq 4
+    check "wow-lane sweep: relay probe, then one in-container exec, and nothing else" test "$(exec_shape)" = "exec -u root,exec -u app,"
+    check "wow-lane sweep: the one in-container exec carries GIT_NO_REPLACE_OBJECTS=1" app_execs_pinned 1
+    check "wow-lane sweep: no -it exec" no_it
+    check "wow-lane sweep: no argv holds & | ^ % ! or a double quote" no_banned
+    check "wow-lane sweep: the lanes directory is unchanged" test "$(leaves)" = "$before"
+    check "wow-lane sweep: the registered worktrees are unchanged" test "$($real_git -C "$crepo" worktree list)" = "$wt_before"
+    check "wow-lane sweep: the session is still running" kill -0 "$fake_pid"
+    check "wow-lane sweep: the record is not written" sh -c "[ ! -e '$home/driver/wb-driver.json' ] || cmp -s '$tmp/rec-snap' '$home/driver/wb-driver.json'"
+    fake_stop
+  else bad "the fake running session never read as claude"; fake_stop; fi
+  spec_setup; rerun -SpecSweep
+  check "wow-lane sweep (empty lanes directory): exits 0" test "$rc" -eq 0
+  check "wow-lane sweep (empty lanes directory): reports no spec sessions" test "$(cat "$tmp/out")" = 'no spec sessions'
+  rm -rf "$lanes"; rerun -SpecSweep
+  check "wow-lane sweep (no lanes directory): exits 0" test "$rc" -eq 0
+  check "wow-lane sweep (no lanes directory): reports no spec sessions" test "$(cat "$tmp/out")" = 'no spec sessions'
+  check "wow-lane sweep (no lanes directory): no lanes directory made" test ! -e "$lanes"
+fi
   :
 }
 
@@ -915,7 +1057,7 @@ done
 }
 
 # Run every section at once; replay each one's output in order.
-sections="notinst badargs start startb attach lanea laneb lanec misc msys"
+sections="notinst badargs start startb attach lanea laneb lanec laned misc msys"
 pids=
 # An interrupt stops the section subshells and removes the scratch tree (a signal skips the EXIT trap);
 # a pwsh run already in flight ends on its own, as test-all.sh's header allows.
