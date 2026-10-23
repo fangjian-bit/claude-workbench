@@ -8,8 +8,9 @@
 # identity-review.test.sh fails unless every other stub present has finished (each other stub
 # writes a marker file, sleeps briefly, removes it and writes a done file). The held-out case
 # adds ai-cursor-banner.test.sh and loop-critic.test.sh stubs that fail if any other stub's
-# marker exists when they start or just before they end, and an identity-review stub that fails
-# unless both have finished. The TERM case's slow stub traps TERM, writes a marker and exits.
+# marker exists when they start or just before they end (loop-critic also fails unless
+# ai-cursor-banner has finished), and an identity-review stub that fails unless both have
+# finished. The TERM case's slow stub traps TERM, writes a marker and exits.
 # The -x cases add extra.test.sh, a stub that passes and that the identity-review stub does not
 # wait on: -x extra.test.sh and -x identity-review.test.sh each leave that file's verdict line
 # out and the rest of the run unchanged, two -x options leave both out, and -x with no value,
@@ -175,6 +176,8 @@ for n in pass skipa; do
 done
 for n in ai-cursor-banner loop-critic; do
   {
+    [ "$n" = loop-critic ] &&
+      echo "[ -f \"$t6/state/ai-cursor-banner.done\" ] || { echo \"ai-cursor-banner not done\"; exit 1; }"
     echo "ls \"$t6/state\" | grep -q marker && { echo marker at start; exit 1; }"
     echo "touch \"$t6/state/$n.marker\"; sleep 1"
     echo "ls \"$t6/state\" | grep -v '^$n.marker\$' | grep -q marker && { echo marker at end; exit 1; }"
