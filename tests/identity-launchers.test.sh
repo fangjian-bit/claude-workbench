@@ -25,7 +25,9 @@
 #                   lanes directory and a scratch container clone), both happy paths, base-moved and kept
 #                   worktrees, the busy check (a fake running session: an executable named claude whose
 #                   working directory is a spec leaf), the spec record, the read-only -SpecSweep mode
-#                   (the busy-check and sweep fixtures are skipped loudly under MSYS), and the static shape of the four scripts and both message
+#                   (the busy-check and sweep fixtures are skipped loudly under MSYS), the shared lanes-directory guard
+#                   (an owner override in the stub docker makes `test -O` false on the lanes path, a dangling
+#                   lanes link and a missing lanes directory are fixtures), and the static shape of the guard, the four scripts and both message
 #                   templates
 #
 #
@@ -123,6 +125,9 @@ case "$1" in
         while [ "$1" != /bin/sh ]; do shift; done
         shift 2; script=$1; shift 2
         [ -z "${STUB_MSYS:-}" ] || script=$(printf '%s' "$script" | sed 's/mkdir -m 700/mkdir/g')
+        # it.owner: a shell function named test goes in front of the script, false for -O on the scratch
+        # lanes path, so the lanes directory reads as not owned by the user without a second user.
+        [ ! -e "$d/it.owner" ] || script='test() { case $1:$2 in -O:"$STUB_LANES") return 1;; esac; command test "$@"; }; '"$script"
         n=$#
         while [ "$n" -gt 0 ]; do
           a=$1; shift
@@ -678,6 +683,8 @@ if mklink_dir "$lanes" "$tmp/lanes.real"; then
   run_lane -Issue 5 -Hash "$PH"; probe_refuses 'the lanes directory a link' 'in the container is missing, a link'
 else skip "a directory link cannot be made here; the lanes-directory link fixture did not run"; fi
 rm -rf "$lanes" "$tmp/lanes.real"; $real_git -C "$crepo" worktree prune
+lane_setup; : >"$stubdir/it.owner"; run_lane -Issue 5 -Hash "$PH"; probe_refuses 'the lanes directory not owned by the user' 'in the container is missing, a link'
+rm -f "$stubdir/it.owner"
 lane_setup; $real_git -C "$crepo" worktree remove --force "$lanes/5"; run_lane -Issue 5 -Hash "$PH"; probe_refuses 'the worktree missing' 'is not a worktree'
 lane_setup; rm "$lanes/5/.git"; run_lane -Issue 5 -Hash "$PH"; probe_refuses 'the worktree with no .git file' 'is not a worktree'
 lane_setup; rm -rf "$lanes/5/.git"; mkdir "$lanes/5/.git"; run_lane -Issue 5 -Hash "$PH"; probe_refuses 'the worktree .git a directory' 'is not a worktree'
@@ -784,6 +791,18 @@ spec_setup
 printf '%s\n' "for w in \"\$STUB_LANES\"/spec-*; do git -C \"\$w\" checkout -q --detach $c1; done" >"$stubdir/it.hook"
 run_lane -Spec 7; kept_check 'HEAD moved to another commit'
 check "wow-lane kept (HEAD moved): the worktree is still there" spec_left
+# the shared lanes-directory guard in the prep and the cleanup: not owned by the user, and missing
+spec_setup; : >"$stubdir/it.owner"; run_lane -Spec 7
+lane_refuses 'the lanes directory not owned by the user (spec prep)'
+check "wow-lane refuses (spec prep, not owned): ...naming its reason" err_has 'not owned by the container user, or cannot be made'
+check "wow-lane refuses (spec prep, not owned): ...no spec leaf made" not_spec_left
+rm -f "$stubdir/it.owner"
+spec_setup; printf '%s\n' ': >"$STUB_DIR/it.owner"' >"$stubdir/it.hook"
+run_lane -Spec 7; kept_check 'the lanes directory not owned by the user'
+rm -f "$stubdir/it.owner"; for w in "$lanes"/spec-*; do $real_git -C "$crepo" worktree remove --force "$w"; done
+spec_setup; rm -rf "$lanes"; cp "$tmp/hook.ok" "$stubdir/it.hook"; run_lane -Spec 7
+check "wow-lane spec (the lanes directory missing): the prep makes it and the session runs" test "$rc" -eq 7
+check "wow-lane spec (the lanes directory missing): a detached worktree existed during the session" spec_seen
 rm -rf "$lanes"; $real_git -C "$crepo" worktree prune
 
 # static shape of the four scripts and both message templates
@@ -793,15 +812,31 @@ clean_line() { # no & | ^ % ! or double quote, and no single quote between the o
   ! printf '%s\n' "$1" | grep -q '[&|^%!"]' && ! printf '%s\n' "$1" | sed "s/^  '//; s/'\$//" | grep -q "'"
 }
 one_quoted() { lane_line "$1" | grep -q "^  '.*'\$"; }
-starts_set_f() { lane_line "$1" | grep -q "^  'set -f; "; }
+# the shared lanes-directory guard: one single-quoted line every script starts with
+guard_line() { grep -E "^[\$]script:LanesGuard = '.*'\$" "$root_dir/scripts/identity/wow-lane.ps1" | sed "s/^[^']*'//; s/'\$//"; }
+starts_set_f() { guard_line | grep -q "^set -f; "; }
+check "static: the shared lanes-directory guard exists as one single-quoted line" test "$(guard_line | wc -l | tr -d ' ')" -eq 1
+check "static: the guard holds none of & | ^ % ! or a double quote, nor an inner single quote" clean_line "$(guard_line)"
+check "static: the guard starts with set -f" starts_set_f
+guard_order() { # test -L $L comes before test -e $L
+  g=$(guard_line); a=${g%%test -L \$L*}; b=${g%%test -e \$L*}
+  [ "${#a}" -lt "${#g}" ] && [ "${#b}" -lt "${#g}" ] && [ "${#a}" -lt "${#b}" ]
+}
+check "static: the guard tests -L before -e" guard_order
+# the string a function concatenates after the guard
+lane_rest() { lane_line "$1" | sed "s/^  [\$]script:LanesGuard + '//; s/'\$//"; }
+guard_first() { lane_line "$1" | grep -q "^  [\$]script:LanesGuard + '.*'\$"; }
+no_dir_test() { # no lanes-directory test of its own in the remainder
+  ! lane_rest "$1" | grep -q -e 'test -L \$L;' -e 'test -e \$L;' -e 'test -d \$L;' -e 'test -O \$L;'
+}
 for fn in Get-LaneProbeScript Get-SpecPrepScript Get-SpecCleanupScript Get-SpecSweepScript; do
   check "static: $fn is a function of exactly one line" test "$(lane_fn $fn | wc -l | tr -d ' ')" -eq 3
-  check "static: $fn returns one single-quoted string" one_quoted $fn
-  check "static: $fn holds none of & | ^ % ! or a double quote, nor an inner single quote" clean_line "$(lane_line $fn)"
-  check "static: $fn starts with set -f" starts_set_f $fn
+  check "static: $fn returns the guard followed by one single-quoted string" guard_first $fn
+  check "static: $fn's own string holds none of & | ^ % ! or a double quote, nor an inner single quote" clean_line "  '$(lane_rest $fn)'"
+  check "static: $fn spells no lanes-directory test of its own" no_dir_test $fn
 done
-sweep_pure() { ! lane_line Get-SpecSweepScript | grep -q -w -e kill -e rm -e mkdir -e git; }
-check "static: Get-SpecSweepScript holds none of kill, rm, mkdir or git as a whole word" sweep_pure
+sweep_pure() { ! { guard_line; lane_rest Get-SpecSweepScript; } | grep -q -w -e kill -e rm -e mkdir -e git; }
+check "static: the guard and Get-SpecSweepScript hold none of kill, rm, mkdir or git as a whole word" sweep_pure
 tpl_line() { grep -E "^[\$]script:$1 = '" "$root_dir/scripts/identity/wow-lane.ps1" | sed "s/^[^']*'//; s/'\$//"; }
 for tpl in LaneMessage SpecMessage; do
   check "static: the $tpl template exists" test -n "$(tpl_line $tpl)"
@@ -929,6 +964,17 @@ else
   else skip "a directory link cannot be made here; the sweep lanes-directory link fixture did not run"; fi
   rm -rf "$lanes" "$tmp/lanes.real"
   : >"$lanes"; rerun -SpecSweep; sweep_unsafe 'the lanes path a regular file'
+  rm -f "$lanes"
+  # a lanes directory that exists but is not owned by the user (the stub's test function says -O is false)
+  spec_setup; mkdir "$lanes/spec-aaa111"; printf '%s\n' '7 1700000000' >"$lanes/record-spec-aaa111"
+  : >"$stubdir/it.owner"; rerun -SpecSweep; sweep_unsafe 'the lanes directory not owned by the user'
+  rm -f "$stubdir/it.owner"
+  # a link to a missing target: refused, which pins test -L running before test -e
+  rm -rf "$lanes" "$tmp/lanes.gone"
+  if mklink_dir "$lanes" "$tmp/lanes.gone"; then
+    rerun -SpecSweep; sweep_unsafe 'the lanes directory a link to a missing target'
+    check "wow-lane sweep (the lanes directory a dangling link): relay probe, then one in-container exec" test "$(exec_shape)" = "exec -u root,exec -u app,"
+  else skip "a directory link cannot be made here; the sweep dangling-link fixture did not run"; fi
   rm -f "$lanes"
 fi
   :
