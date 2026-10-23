@@ -31,8 +31,8 @@
 # copy from ~/.local/bin or recreate the container (DEV-CONTAINER.md, Lanes). CI runs this suite
 # alone (both `tests` shards in ci.yml leave it out with -x, and the `tests-review-launcher` job runs
 # it on its own), while the local green gate has `scripts/test-all.sh` start it with its pool, under
-# load; a failure seen only in the local gate is most likely a timing problem, so rerun the suite
-# alone before treating it as a launcher bug.
+# load; a failure seen only in the local gate may be a timing problem, so rerun the suite alone,
+# and if it still fails, treat it as a launcher bug.
 set -u
 
 root_dir="$(cd "$(dirname "$0")/.." && pwd)"
