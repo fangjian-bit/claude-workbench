@@ -1104,7 +1104,7 @@ EOF
   while [ "$idx" -lt "$NFIND" ]; do
     # Labels: kept only where the repository answers a read of the label (the read token).
     labels='[]'
-    for lab in $(jq -r --argjson i "$idx" '.[$i] | .type, (.area // empty)' <"$HDIR/ob-findings" | tr -d '\r'); do
+    for lab in $(jq -r --argjson i "$idx" '.[$i] | "type/" + .type, (.area // empty)' <"$HDIR/ob-findings" | tr -d '\r'); do
       enc=$(printf '%s' "$lab" | jq -Rr '@uri' | tr -d '\r')
       TOK=$RTOK
       if gh_api "repos/$BREPO/labels/$enc" >/dev/null 2>&1; then labels=$(printf '%s' "$labels" | jq -c --arg l "$lab" '. + [$l]' | tr -d '\r'); fi

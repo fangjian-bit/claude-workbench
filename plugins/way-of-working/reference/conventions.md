@@ -342,13 +342,13 @@ rename. Then **re-run the `jq` listing**: every casing must now show the sha.
 
 ## Issue + label taxonomy
 
-- **No title prefixes.** `[BUG] thing is broken` is noise — the label already says `bug`,
+- **No title prefixes.** `[BUG] thing is broken` is noise — the label already says `type/bug`,
   and the prefix wastes the most scannable characters in the UI. Issue titles are plain
   imperative statements, same as a commit subject.
 - **Labels carry structure on three orthogonal axes**, not one flat list. A label picked
   from each axis answers a different question, and mashing them together (the common
   failure) makes filtering useless:
-  - **type** — `bug`, `feature`, `chore`, `docs`: what kind of work.
+  - **`type/*`** — `type/bug`, `type/feature`, `type/chore`, `type/docs`: what kind of work.
   - **`area/*`** — one per module boundary in *this* repo, using **the same vocabulary as
     its commit scopes**, so an issue and the commit that closes it are filterable by the
     same word. **Derive the list, never copy one.** In the engine these read `area/core`,

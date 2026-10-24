@@ -411,8 +411,8 @@ here. The *Open the PR against `{pr_base}`* step also reads `pointers.sprint_pla
    re-pinned (`WB-D24`, accepted residual) — the base's stale-approval dismissal is what
    guards the new head. After pushing again to an armed PR, say so in the report.
 
-7. **Label on the three axes** if labels are being used: type (`bug`/`feature`/`docs`/
-   `chore`), `area/*` (mirrors the scope), `status/*` — see `reference/conventions.md`
+7. **Label on the three axes** if labels are being used: type (`type/bug`/`type/feature`/`type/docs`/
+   `type/chore`), `area/*` (mirrors the scope), `status/*` — see `reference/conventions.md`
    § *Issue + label taxonomy*. Machine-emitted labels stay namespaced under **the emitting
    system**; for a label this skill emits, that emitter is the repo's own automation, so the
    namespace is **the repo's own name** — the bare name from `{repo}`, never the `owner/name`

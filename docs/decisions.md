@@ -2670,6 +2670,12 @@ take effect. Full reasoning and the task breakdown that implements them:
     4. No live answer row has been checked under `gh`'s own `--jq` yet; the projection fixtures prove `jq` only.
   - **Not built.** The second-opinion round on a spec stays not built.
 
+- **WB-D40 (`#953`) — the type axis of the label taxonomy is `type/*`.** Builds on the *Issue + label taxonomy* section of `reference/conventions.md`.
+  - **The decision.** The shipped convention's type labels are `type/bug`, `type/feature`, `type/chore` and `type/docs`, so all three axes (`type/*`, `area/*`, `status/*`) are prefixed: a label's axis shows in its name and the axes filter the same way. `dependencies` stays as it is (Dependabot applies it; conventions.md already exempts it).
+  - **Not an emitter namespace.** The `type/` prefix names the axis. It is not the emitting-system namespace that conventions.md's rule for machine-emitted labels requires.
+  - **The finding field.** A review finding's `type` field keeps its four bare values (`review-outbox.sh` and the architect-review outbox schema are unchanged). The review launcher (`scripts/identity/wow-review`) builds the label as `type/` plus that value and keeps it only where the backlog answers a read of it.
+  - **Reach.** This changes a default every consuming repo reads in conventions.md. A repo that labels by type renames its own four labels in place (`gh label edit`), and, where the host launcher files findings into that repo, the host tools are reinstalled in every home; while only one of the two is done, the findings the launcher files carry no type label. The CHANGELOG's Migration line says so.
+
 ## Status
 
 All four of `WB-D1..D4` are implemented by this repo's existence and structure as of

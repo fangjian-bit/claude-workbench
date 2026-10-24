@@ -21,6 +21,13 @@ the GitHub release notes.
 
 ## [Unreleased]
 
+**⚠️ Migration** — in each repo that labels by type, rename the four type labels in place
+(`gh label edit bug --name type/bug`, and likewise `feature`, `chore`, `docs`), which keeps them on
+existing issues and PRs. Where the host launcher (`wow-review`) files findings into that repo (the reviewed
+repo's `backlog.repo`, else the reviewed repo itself), also reinstall the host tools from a default branch at
+or after this release in every home; while only one of the two is done, the findings it files carry no
+type label (`WB-D40`).
+
 ### Added
 
 - **A later `spec-task` run continues an escalated spec from a maintainer's answer (`#790`, `WB-D39`).** Under an `identities` map, a declared maintainer answers the newest `spec-task-escalated:` comment with a `spec-task-answer: escalated=<id> choice=apply|amend` comment; `spec-find.sh answer` finds it, the new `spec-answer.sh` is the only reader that prints either comment, and `spec-task` redrafts, critic-gates and posts as usual. The redraft still needs a maintainer's reaction. `spec-find.sh find` and `pending` print what they printed before.
@@ -29,6 +36,11 @@ the GitHub release notes.
   of its plugin's `plugin.json` and in the `description` of the matching `marketplace.json` entry, so
   an agent added without a description edit (as `transcript-reader` was in `#911`) fails CI. A name
   right after a `:` (a skill's `/way-of-working:NAME` mention) does not count.
+
+### Changed
+
+- **The type labels are now `type/bug`, `type/feature`, `type/chore` and `type/docs` (`#953`, `WB-D40`).**
+  The conventions, the ship skill and the review launcher's issue filing use the prefixed names.
 
 ### Fixed
 

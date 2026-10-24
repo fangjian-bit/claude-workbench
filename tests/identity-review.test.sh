@@ -399,7 +399,7 @@ EOF
   printf '{"statuses":[]}\n' >"$g/repos_o_r_commits_${SHA}_status"
   printf '{"check_runs":[{"name":"ci","status":"completed","conclusion":"success"},{"name":"gate","status":"completed","conclusion":"skipped"}]}\n' >"$g/repos_o_r_commits_${SHA}_check-runs"
   printf '[]\n' >"$g/repos_o_r_pulls_7_reviews"
-  for l in bug feature chore docs; do printf '{"name":"%s"}\n' "$l" >"$g/repos_o_backlog_labels_$l"; done
+  for l in bug feature chore docs; do printf '{"name":"type/%s"}\n' "$l" >"$g/repos_o_backlog_labels_type%2F$l"; done
   : >"$STUB/events"; : >"$STUB/docker.calls"; : >"$STUB/gh.calls"; : >"$STUB/mint.calls"
   set_compare ahead 2 '[{"filename":"docs/readme.md"}]'
   set_outcome "review 7 $SHA"
@@ -754,13 +754,38 @@ assert_eq "golden: the first issue request" \
 \`\`\`\`\`
 Detail with a \`\`\`\` run of four backticks.
 \`\`\`\`\`" "$(jq -r .body <"$STUB/inputs/$(grep '|POST||repos/o/backlog/issues|' "$STUB/gh.calls" | head -1 | awk -F'|' '{print $8}')")"
-assert_eq "golden: labels kept only where the stub answers (area/x is not there, bug is)" '["bug"]' "$(jq -c .labels <"$STUB/inputs/$(grep '|POST||repos/o/backlog/issues|' "$STUB/gh.calls" | head -1 | awk -F'|' '{print $8}')")"
+assert_eq "golden: labels kept only where the stub answers (area/x is not there, type/bug is)" '["type/bug"]' "$(jq -c .labels <"$STUB/inputs/$(grep '|POST||repos/o/backlog/issues|' "$STUB/gh.calls" | head -1 | awk -F'|' '{print $8}')")"
 check "golden: area/x was read as area%2Fx" has "$STUB/gh.calls" 'labels/area%2Fx'
 assert_eq "golden: the second issue has a three-backtick fence" '```' "$(jq -r .body <"$STUB/inputs/$(grep '|POST||repos/o/backlog/issues|' "$STUB/gh.calls" | tail -1 | awk -F'|' '{print $8}')" | tail -1)"
 assert_eq "golden: the filed ledger lines" "0 101
 1 102" "$(cat "$(entry_dir)/filed")"
 check "golden: the outcome is recorded" test "$(cat "$(entry_dir)/outcome")" = "0 reviewed"
 check "golden: no write call used a field flag" test ! -s "$STUB/gh.bad"
+assert_eq "golden: the second issue's labels" '["type/docs"]' "$(jq -c .labels <"$STUB/inputs/$(grep '|POST||repos/o/backlog/issues|' "$STUB/gh.calls" | tail -1 | awk -F'|' '{print $8}')")"
+
+# one finding of each type asks for exactly the matching type/* label
+new_case
+set_yml '.backlog.repo = "o/backlog"'
+set_findings '[{"title":"a","body":"b","type":"bug"},{"title":"c","body":"d","type":"feature"},{"title":"e","body":"f","type":"chore"},{"title":"g","body":"h","type":"docs"}]'
+printf '3\n' >"$STUB/wait.sleep"
+run o/r 7
+assert_eq "types: exit 0" 0 "$rc"
+n=0
+for t in bug feature chore docs; do
+  n=$((n + 1))
+  assert_eq "types: the $t finding's labels" "[\"type/$t\"]" "$(jq -c .labels <"$STUB/inputs/$(grep '|POST||repos/o/backlog/issues|' "$STUB/gh.calls" | sed -n "${n}p" | awk -F'|' '{print $8}')")"
+done
+
+# a backlog that answers only the bare name gets no type label
+new_case
+set_yml '.backlog.repo = "o/backlog"'
+set_findings '[{"title":"a","body":"b","type":"bug"}]'
+rm -f "$STUB"/gh/repos_o_backlog_labels_type*
+printf '{"name":"bug"}\n' >"$STUB/gh/repos_o_backlog_labels_bug"
+printf '3\n' >"$STUB/wait.sleep"
+run o/r 7
+assert_eq "bare label: exit 0" 0 "$rc"
+assert_eq "bare label: no type label filed" '[]' "$(jq -c .labels <"$STUB/inputs/$(grep '|POST||repos/o/backlog/issues|' "$STUB/gh.calls" | head -1 | awk -F'|' '{print $8}')")"
 :
 }
 
