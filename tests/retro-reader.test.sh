@@ -1,5 +1,5 @@
 #!/bin/sh
-# Static checks for issues #899, #900, #904, #914, #916, #957, #961, #981 and #982: /way-of-working:retro's transcript reader is a plugin agent
+# Static checks for issues #899, #900, #904, #914, #916, #927, #939, #940, #941, #942, #946, #957, #961, #981 and #982: /way-of-working:retro's transcript reader is a plugin agent
 # confined by its frontmatter tool list, not by a prose instruction.
 # Permitted toolset: POSIX sh, grep, sed, and the leak screen's own tools (mktemp, cut, rm).
 set -eu
@@ -33,7 +33,11 @@ if grep -q 'runs only `jq`' "$skill"; then bad "$skill: still says the reader ru
 grep -qF 'path match only, not confirmed to be this repo' "$skill" || bad "$skill: no caveat text"
 grep -q 'confirms in this session' "$skill" || bad "$skill: no confirmation wording ('confirms in this session')"
 if grep -qF 'is filed or surfaced, never written to memory' "$skill"; then bad "$skill: old filing rule is back"; fi
-grep -qF 'POSIX-only' "$skill" || bad "$skill: no POSIX-only statement for the cross-session path match"
+grep -qF 'with no normalization, so the match is POSIX-only' "$skill" || bad "$skill: no POSIX-only statement for the cross-session path match"
+grep -qF 'is not filed, noted as "confirmed again" on an existing item, written to memory or landed as a fix' "$skill" || bad "$skill: no not-filed clause for held material"
+grep -qF 'ask the human once, in one message that lists every held item' "$skill" || bad "$skill: no single question about the held items"
+grep -qF 'Each held item needs its own confirmation' "$skill" || bad "$skill: no per-item confirmation wording"
+grep -qF 'first** for `{repo}`, `{backlog}`,' "$skill" || bad "$skill: the config read line does not name {repo}"
 
 grep -qF 'the reader broke that rule' "$skill" || bad "$skill: no reader-broke-the-rule sentence"
 grep -qF "any of the screen's path shapes" "$skill" || bad "$skill: no 'any of the screen's path shapes' wording"

@@ -30,6 +30,11 @@ the GitHub release notes.
 
 ### Fixed
 
+- **`/way-of-working:retro` asks once about held cross-session items (`#939`, `#940`, `#927`).**
+  The *Implement the cheap; propose the rest* step now asks the human in one message, listing
+  every held item numbered with its caveat, and routes each item the human's reply confirms
+  by number; each held item needs its own confirmation, and an unconfirmed one stays deferred.
+  Retro's config read list also names `{repo}`.
 - **The broker's scheduled task no longer leaves a broker running after a stop, and a killed broker is restarted (`#1016`, `#1015`).**
   `register-broker-task.ps1 -Unregister` and the reinstall's task stop now also end the `pwsh` whose
   command line carries the task's own `-File` path (stopping conhost did not), and wait for it; the
@@ -82,8 +87,9 @@ the GitHub release notes.
   `.ai/archive/` snapshot, else the last 7 days, or a window the human names), newest first and
   at most 50. One subagent reads them and returns a
   paraphrased friction list, never verbatim transcript text. Anything drawn from other
-  sessions carries a path-match caveat and needs the human's OK before it is filed, becomes a
-  memory or becomes a fix (`#900`).
+  sessions carries a path-match caveat and needs the human's OK before it is filed, noted as
+  "confirmed again" on an existing item, becomes a memory or becomes a fix; the human confirms
+  both that the sessions are this repo's and the finding itself (`#900`).
 - **An App-filed issue's spec reaction is judged by its content time, not `updated_at` (`#890`).**
   `spec-issue.sh` and `spec-post.sh` compare a maintainer's reaction with the latest of the
   issue's creation, its body's last edit and its newest title rename (one GraphQL read), so a
