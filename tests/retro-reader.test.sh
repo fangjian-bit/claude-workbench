@@ -1,7 +1,7 @@
 #!/bin/sh
-# Static checks for issues #899, #900, #904, #914, #916, #927, #939, #940, #941, #942, #946, #957, #961, #981 and #982: /way-of-working:retro's transcript reader is a plugin agent
+# Static checks for issues #899, #900, #904, #914, #916, #927, #939, #940, #941, #942, #946, #957, #961, #981, #982, #1066, #1067 and #1068: /way-of-working:retro's transcript reader is a plugin agent
 # confined by its frontmatter tool list, not by a prose instruction.
-# Permitted toolset: POSIX sh, grep, sed, and the leak screen's own tools (mktemp, cut, rm).
+# Permitted toolset: POSIX sh, grep, sed, tr (to flatten the skill text), and the leak screen's own tools (mktemp, cut, rm).
 set -eu
 
 root_dir="$(cd "$(dirname "$0")/.." && pwd)"
@@ -9,6 +9,13 @@ agent="${AGENT_FILE:-$root_dir/plugins/way-of-working/agents/transcript-reader.m
 skill="${SKILL_FILE:-$root_dir/plugins/way-of-working/skills/retro/SKILL.md}"
 fail=0
 bad() { echo "FAIL: $1" >&2; fail=1; }
+
+# The skill's text with newlines turned into spaces and runs of spaces squeezed to one, so a
+# checked phrase matches wherever its lines break. A missing or empty skill fails, never aborts.
+flat=""
+if [ -f "$skill" ]; then flat="$(tr '\n' ' ' <"$skill" | sed 's/  */ /g')"; fi
+[ -n "$flat" ] || bad "$skill: missing or empty"
+sk() { printf '%s\n' "$flat" | grep "$@"; }
 
 if [ ! -f "$agent" ]; then
   bad "$agent: missing"
@@ -28,23 +35,32 @@ else
   screen_out="$(sh "$root_dir/plugins/way-of-working/bin/leak-screen.sh" "$agent" 2>&1 || true)"
   [ "$screen_out" = ok ] || bad "$agent: the leak screen says '$screen_out', not ok"
 fi
-grep -q 'way-of-working:transcript-reader' "$skill" || bad "$skill: does not name way-of-working:transcript-reader"
-if grep -q 'runs only `jq`' "$skill"; then bad "$skill: still says the reader runs only jq"; fi
-grep -qF 'path match only, not confirmed to be this repo' "$skill" || bad "$skill: no caveat text"
-grep -q 'confirms in this session' "$skill" || bad "$skill: no confirmation wording ('confirms in this session')"
-if grep -qF 'is filed or surfaced, never written to memory' "$skill"; then bad "$skill: old filing rule is back"; fi
-grep -qF 'with no normalization, so the match is POSIX-only' "$skill" || bad "$skill: no POSIX-only statement for the cross-session path match"
-grep -qF 'is not filed, noted as "confirmed again" on an existing item, written to memory or landed as a fix' "$skill" || bad "$skill: no not-filed clause for held material"
-grep -qF 'ask the human once, in one message that lists every held item' "$skill" || bad "$skill: no single question about the held items"
-grep -qF 'Each held item needs its own confirmation' "$skill" || bad "$skill: no per-item confirmation wording"
-grep -qF 'first** for `{repo}`, `{backlog}`,' "$skill" || bad "$skill: the config read line does not name {repo}"
+sk -q 'way-of-working:transcript-reader' || bad "$skill: does not name way-of-working:transcript-reader"
+if sk -q 'runs only `jq`'; then bad "$skill: still says the reader runs only jq"; fi
+sk -qF 'path match only, not confirmed to be this repo' || bad "$skill: no caveat text"
+sk -q 'confirms in this session' || bad "$skill: no confirmation wording ('confirms in this session')"
+if sk -qF 'is filed or surfaced, never written to memory'; then bad "$skill: old filing rule is back"; fi
+sk -qF 'with no normalization, so the match is POSIX-only' || bad "$skill: no POSIX-only statement for the cross-session path match"
+sk -qF 'is not filed, noted as "confirmed again" on an existing item, written to memory or landed as a fix' || bad "$skill: no not-filed clause for held material"
+sk -qF 'ask the human once, in one message that lists every held item' || bad "$skill: no single question about the held items"
+sk -qF 'Each held item needs its own confirmation' || bad "$skill: no per-item confirmation wording"
+sk -qF 'first** for `{repo}`, `{backlog}`,' || bad "$skill: the config read line does not name {repo}"
 
-grep -qF 'the reader broke that rule' "$skill" || bad "$skill: no reader-broke-the-rule sentence"
-grep -qF "any of the screen's path shapes" "$skill" || bad "$skill: no 'any of the screen's path shapes' wording"
-grep -qF "leak-screen.sh" "$skill" || bad "$skill: does not name leak-screen.sh"
-grep -qF "transcript-reader report dropped" "$skill" || bad "$skill: no drop line text"
-grep -qF "\`empty\`" "$skill" || bad "$skill: no backticked empty status word"
-if grep -qF "only \`ok\` or \`failed\`" "$skill"; then bad "$skill: old status wording is back"; fi
+sk -qF 'the reader broke that rule' || bad "$skill: no reader-broke-the-rule sentence"
+sk -qF "any of the screen's path shapes" || bad "$skill: no 'any of the screen's path shapes' wording"
+sk -qF "leak-screen.sh" || bad "$skill: does not name leak-screen.sh"
+sk -qF "transcript-reader report dropped" || bad "$skill: no drop line text"
+sk -qF "\`empty\`" || bad "$skill: no backticked empty status word"
+if sk -qF "only \`ok\` or \`failed\`"; then bad "$skill: old status wording is back"; fi
+
+sk -qF 'confirm each item by writing its own number and saying yes to both parts' || bad "$skill: the held-items question does not state the reply form"
+sk -qF 'a range or "all" confirms nothing' || bad "$skill: no range-or-all sentence"
+sk -qF "The reply is the human's next message after the question; a later message confirms nothing" || bad "$skill: no next-message limit on the reply"
+sk -qF 'The routing report goes in the same message as the question, before it, with the held material shown as deferred' || bad "$skill: the routing report is not given with the question"
+sk -qF 'The reply gets a short follow-up giving the route of each item it confirmed, or saying it confirmed none' || bad "$skill: no follow-up for the reply"
+if sk -qF 'The routing report is given after the reply'; then bad "$skill: old routing-report timing is back"; fi
+sk -qF 'Only a message the human types in this session counts' || bad "$skill: no typed-message boundary"
+sk -qF "confirmed only when the human's own reply names its number and affirms both" || bad "$skill: no own-reply confirmation rule"
 
 [ "$fail" = 0 ] && echo "retro-reader: ok"
 exit "$fail"
