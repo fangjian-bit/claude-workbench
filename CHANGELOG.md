@@ -21,6 +21,8 @@ the GitHub release notes.
 
 ## [Unreleased]
 
+## [0.25.0] — 2026-10-24
+
 **⚠️ Migration** — in each repo that labels by type, rename the four type labels in place
 (`gh label edit bug --name type/bug`, and likewise `feature`, `chore`, `docs`), which keeps them on
 existing issues and PRs. Where the host launcher (`wow-review`) files findings into that repo (the reviewed
