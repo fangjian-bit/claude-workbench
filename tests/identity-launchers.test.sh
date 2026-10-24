@@ -684,9 +684,12 @@ if mklink_dir "$lanes" "$tmp/lanes.real"; then
 else skip "a directory link cannot be made here; the lanes-directory link fixture did not run"; fi
 rm -rf "$lanes" "$tmp/lanes.real"; $real_git -C "$crepo" worktree prune
 lane_setup; rm -rf "$lanes"; $real_git -C "$crepo" worktree prune
+# The probe maps both lw=unsafe and lw=missing to unsafe-dir, so this fixture cannot tell the guard's link
+# branch from its missing branch. The sweep dangling-link fixture (sec_laned, not run under MSYS) and the
+# static guard_order check are what pin test -L before test -e.
 if mklink_dir "$lanes" "$tmp/lanes.gone"; then
   run_lane -Issue 5 -Hash "$PH"; probe_refuses 'the lanes directory a link to a missing target' 'in the container is missing, a link'
-else skip "a directory link cannot be made here; the probe dangling-link fixture did not run"; fi
+else skip "a directory link to a missing target cannot be made here (on MSYS, New-Item may refuse a junction whose target does not exist); the probe dangling-link fixture did not run"; fi
 rm -rf "$lanes"; $real_git -C "$crepo" worktree prune
 lane_setup; : >"$stubdir/it.owner"; run_lane -Issue 5 -Hash "$PH"; probe_refuses 'the lanes directory not owned by the user' 'in the container is missing, a link'
 rm -f "$stubdir/it.owner"
@@ -832,7 +835,10 @@ check "static: the guard tests -L before -e" guard_order
 lane_rest() { lane_line "$1" | sed "s/^  [\$]script:LanesGuard + '//; s/'\$//"; }
 guard_first() { lane_line "$1" | grep -q "^  [\$]script:LanesGuard + '.*'\$"; }
 # a test or [ command, any one-letter flag, then $L or ${L} with optional slashes or dots. The check is
-# lexical: it does not catch the lanes path re-tested through another name ($1, or a copy such as M=$L).
+# lexical: it does not catch the lanes path re-tested through another name ($1, or a copy such as M=$L), an
+# option terminator before the operand (test -d -- $L), or binary forms such as -ef, -nt and -ot (with the
+# lanes variable on either side), and other spellings. It over-catches a trailing /.. (test -d $L/.., which
+# tests the parent), which is harmless.
 dir_test_re='(test|\[)[[:space:]]+-[A-Za-z][[:space:]]+\$(L|[{]L[}])[/.]*([^A-Za-z0-9_$/.]|$)'
 dir_test_in() { printf '%s\n' "$1" | grep -Eq "$dir_test_re"; }
 not_dir_test_in() { ! dir_test_in "$1"; }
