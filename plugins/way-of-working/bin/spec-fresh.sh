@@ -7,7 +7,8 @@
 # stale and the build does not use it. A `paths` mode prints those checked paths and makes no git
 # call. Callers: /way-of-working:resume's map body read (and its stale branch's re-run) and the
 # coder agent's, each after `spec-comment.sh check` says `ok` and before `spec-comment.sh body`;
-# /way-of-working:spec-task runs the `shape` mode on a draft before posting it; bin/lane-groups.sh
+# /way-of-working:spec-task runs the `shape` mode on a draft before posting it, and bin/spec-answer.sh runs it on an
+# escalated comment's body (#790); bin/lane-groups.sh
 # runs `check` and `paths`, in its own clause: after its own `.id` and `.updated_at` compare, not
 # after `spec-comment.sh check`.
 #

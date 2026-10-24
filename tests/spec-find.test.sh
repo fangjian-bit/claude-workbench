@@ -62,11 +62,11 @@ fi
 
 proj() { # <body-or-@null> -> the projected rows for one comment, tab-separated
   if [ "$1" = "@null" ]; then
-    jq -n '[{id: 11, updated_at: "2026-09-21T09:00:00Z", issue_url: "u", user: {login: "l", id: 5}, body: null}]' >"$tmp/proj.json"
+    jq -n '[{id: 11, updated_at: "2026-09-21T09:00:00Z", created_at: "2026-09-21T09:00:00Z", issue_url: "u", user: {login: "l", id: 5}, body: null}]' >"$tmp/proj.json"
   elif [ "$1" = "@missing" ]; then
-    jq -n '[{id: 11, updated_at: "2026-09-21T09:00:00Z", issue_url: "u", user: {login: "l", id: 5}}]' >"$tmp/proj.json"
+    jq -n '[{id: 11, updated_at: "2026-09-21T09:00:00Z", created_at: "2026-09-21T09:00:00Z", issue_url: "u", user: {login: "l", id: 5}}]' >"$tmp/proj.json"
   else
-    jq -n --arg b "$1" '[{id: 11, updated_at: "2026-09-21T09:00:00Z", issue_url: "u", user: {login: "l", id: 5}, body: $b}]' >"$tmp/proj.json"
+    jq -n --arg b "$1" '[{id: 11, updated_at: "2026-09-21T09:00:00Z", created_at: "2026-09-21T09:00:00Z", issue_url: "u", user: {login: "l", id: 5}, body: $b}]' >"$tmp/proj.json"
   fi
   jq -r "$prog" "$tmp/proj.json"
 }
@@ -105,6 +105,28 @@ $E")"
 assert_eq "projection: a spec-task-: first line yields nothing" "" "$(proj "spec-task-: issue=7 base=main sha=$SHA")"
 row="$(proj "spec-task: issue=7 base=feat/x-y.z sha=$SHA")"
 assert_eq "projection: a base with / and - matches and column 7 reads back whole" "feat/x-y.z" "$(printf '%s\n' "$row" | awk -F '\t' '{print $7}')"
+
+# the answer grammar (#790): nine fields, created_at last
+want_ans="$(printf '11\t2026-09-21T09:00:00Z\tu\tl\t5\t33\tapply\tspec-task-answer\t2026-09-21T09:00:00Z')"
+want_amd="$(printf '11\t2026-09-21T09:00:00Z\tu\tl\t5\t33\tamend\tspec-task-answer\t2026-09-21T09:00:00Z')"
+A="spec-task-answer: escalated=33 choice=apply"
+assert_eq "projection: an apply answer line is kept with nine fields" "$want_ans" "$(proj "$A
+the rest")"
+assert_eq "projection: an amend answer line is kept with nine fields" "$want_amd" "$(proj "spec-task-answer: escalated=33 choice=amend
+change one")"
+assert_eq "projection: a CRLF answer line is kept, CR trimmed" "$want_ans" "$(proj "$A$(printf '\r')
+the rest")"
+assert_eq "projection: choice=other yields nothing" "" "$(proj "spec-task-answer: escalated=33 choice=other")"
+assert_eq "projection: escalated=0 yields nothing" "" "$(proj "spec-task-answer: escalated=0 choice=apply")"
+assert_eq "projection: escalated=012 yields nothing" "" "$(proj "spec-task-answer: escalated=012 choice=apply")"
+assert_eq "projection: an answer line with a trailing space yields nothing" "" "$(proj "$A ")"
+assert_eq "projection: an answer line that is not the first line yields nothing" "" "$(proj "intro
+$A")"
+case "$(proj "$A
+$SENTINEL")" in
+  *"$SENTINEL"*) echo "FAIL - projection: a sentinel on an answer's second line reached the output" >&2; fail=1 ;;
+  *) echo "ok - projection: a sentinel on an answer's second line never appears in the output" ;;
+esac
 
 # --- part 2: the script -------------------------------------------------------------------
 fakebin="$tmp/fakebin"
@@ -640,6 +662,96 @@ expect "pending: a newer escalated row and a newer unreacted row" "pending 1002,
 nc; approved 1001 maint1 101; addesc 10002 maint1 101; runp 1001
 expect "pending: an escalated id with more digits than after-id is greater" "pending 10002"
 
+# --- answer (#790) ---
+TE1="2026-09-21T09:00:00Z" # the target's last edit
+TA1="2026-09-21T09:10:00Z" # an answer posted after it
+runa() {
+  rc=0
+  out="$(PATH="$fakebin:$PATH" FX_DIR="$cd_" FX_MARK="$SENTINEL" sh "$cd_/bin/spec-find.sh" answer "$ISSUE" "$cd_/project.yml" 2>"$cd_/err" </dev/null)" || rc=$?
+  err="$(cat "$cd_/err")"
+}
+# addans <id> <login> <uid> <esc-id> <choice> [created] [updated] [issue_url]
+addans() {
+  a_created="${6:-$TA1}"
+  a_updated="${7:-$a_created}"
+  a_url="${8:-https://api.github.com/repos/$BACKLOG/issues/$ISSUE}"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$a_updated" "$a_url" "$2" "$3" "$4" "$5" spec-task-answer "$a_created" >>"$cd_/list.tsv"
+}
+
+nc; addesc 1001 "dev-app[bot]" 201 "$TE1"; addans 1002 maint1 101 1001 apply; runa
+expect "answer: an apply answer to the escalated row" "answer 1001 $TE1 1002 $TA1 apply"
+
+nc; addesc 1001 maint1 101 "$TE1"; addans 1002 maint2 102 1001 amend; runa
+expect "answer: an amend answer" "answer 1001 $TE1 1002 $TA1 amend"
+
+nc; addesc 1001 maint1 101 "$TE1"; addesc 1003 maint1 101 "$TE1"; addans 1002 maint1 101 1001 apply; addans 1004 maint1 101 1003 amend; runa
+expect "answer: the newest of two escalated rows is the target" "answer 1003 $TE1 1004 $TA1 amend"
+
+nc; addesc 1001 maint1 101 "$TE1"; addesc 10002 maint1 101 "$TE1"; addans 10003 maint1 101 10002 apply; runa
+expect "answer: ids compare as digit strings, the longer is larger" "answer 10002 $TE1 10003 $TA1 apply"
+
+nc; addesc 1001 maint1 101 "$TE1"; runa
+expect "none: no answer" "none"
+
+nc; addesc 1001 maint1 101 "$TE1"; addesc 1003 maint1 101 "$TE1"; addans 1002 maint1 101 1001 apply; runa
+expect "none: an answer naming an older escalated id" "none"
+
+nc; addesc 1001 maint1 101 "$TE1"; addans 1002 maint1 101 1001 apply "$TE1"; runa
+expect "none: an answer posted in the same second as the target's last edit" "none"
+
+nc; addesc 1001 maint1 101 "$TE1"; addans 1002 maint1 101 1001 apply "2026-09-21T08:59:59Z"; runa
+expect "none: an answer posted before the target's last edit" "none"
+
+nc; addesc 1001 maint1 101 "$TE1"; addans 1002 maint1 101 1001 apply "$TA1" "2026-09-21T09:20:00Z"; runa
+expect "none: an edited answer (created_at not updated_at)" "none"
+
+nc; addesc 1001 maint1 101 "$TE1"; addans 1002 "dev-app[bot]" 201 1001 apply; runa
+expect "none: an answer by the dev App" "none"
+
+nc; addesc 1001 maint1 101 "$TE1"; addans 1002 outsider 555 1001 apply; runa
+expect "none: an answer by an undeclared id" "none"
+
+nc; addesc 1001 maint1 101 "$TE1"; addans 1002 maint1 101 1001 apply "$TA1" "$TA1" "https://api.github.com/repos/acme/app/issues/8"; runa
+expect "none: an answer on another issue's URL" "none"
+
+nc; addesc 1001 maint1 101 "$TE1"; addans 1002 maint1 101 1001 apply; addans 1003 maint2 102 1001 amend; runa
+expect "ambiguous: two qualifying answers" "ambiguous 1002,1003"
+
+nc; addesc 1001 maint1 101 "$TE1"; addans 1002 maint1 101 1001 apply; addans 1002 maint1 101 1001 apply; runa
+expect "answer: a repeated answer row is de-duplicated" "answer 1001 $TE1 1002 $TA1 apply"
+
+nc; use_gi_stub dev_app; addesc 1001 "dev-app[bot]" 201 "$TE1"; addans 1002 maint1 101 1001 apply; runa
+expect "unreadable: a role mismatch on an answer row" "unreadable"
+
+nc; addesc 1001 maint1 101 "$TE1"; addans 1002 maint1 101 1001 apply; flag 'FX_LIST_FAIL=1'; runa
+expect "unreadable: a failed listing" "unreadable"
+
+nc; approved 1001 maint1 101; addans 1002 maint1 101 1001 apply; runa
+expect "not-escalated: find would say found" "not-escalated"
+
+nc; addrow 1001 maint1 101; addesc 1002 maint1 101 "$TE1"; addans 1003 maint1 101 1002 apply; runa
+expect "not-escalated: find would say unreacted" "not-escalated"
+
+nc; addans 1002 maint1 101 1001 apply; runa
+expect "not-escalated: find would say none" "not-escalated"
+
+nc; addesc 1001 maint1 101 "$TE1"; addans 1002 maint1 101 1001 apply; printf '%s' "2026-09-21T09:01:00Z" >"$cd_/upd/1001"; addrow 1005 maint1 101; printf '%s' "2026-09-21T09:30:00Z" >"$cd_/upd/1005"; runa
+expect "moved: wins over not-escalated" "moved 1005"
+
+# answer rows leave find and pending alone
+nc; addesc 1001 maint1 101 "$TE1"; addans 1002 maint1 101 1001 apply; run
+expect "find: an answer row beside an escalated row changes nothing" "escalated 1001"
+nc; approved 1001 maint1 101; addans 1002 maint1 101 1001 apply; run
+expect "find: an answer row beside a found spec changes nothing" "found 1001 $T1"
+nc; approved 1001 maint1 101; addesc 1003 maint1 101; addans 1004 maint1 101 1003 apply; runp 1001
+expect "pending: an answer row changes nothing" "pending 1003"
+nc; addesc 1001 maint1 101 "$TE1"; addans 1002 maint1 101 1001 apply; if grep -q 'issues/comments/' "$cd_/gh.log"; then :; fi; runa
+if grep -q 'issues/comments/' "$cd_/gh.log"; then
+  echo "FAIL - answer: a reactions or second read was made with only an escalated row and an answer" >&2; fail=1
+else
+  echo "ok - answer: no reaction or second read for escalated and answer rows"
+fi
+
 # --- exit 2, nothing on stdout ---
 nc; approved 1001 maint1 101
 ISSUE=abc; run
@@ -658,6 +770,9 @@ rc=0; out="$(PATH="$fakebin:$PATH" FX_DIR="$cd_" sh "$cd_/bin/spec-find.sh" find
 expect "exit 2: a missing project file" "" 2
 rc=0; out="$(cd "$cd_/bin" && PATH="$fakebin:$PATH" FX_DIR="$cd_" sh spec-find.sh find 7 ../project.yml 2>/dev/null)" || rc=$?
 expect "exit 2: a slash-less \$0" "" 2
+
+rc=0; out="$(PATH="$fakebin:$PATH" FX_DIR="$cd_" sh "$cd_/bin/spec-find.sh" answer 7 2>/dev/null)" || rc=$?
+expect "exit 2: answer with a wrong argument count" "" 2
 
 nc; approved 1001 maint1 101; rm "$cd_/bin/gh-identity.sh"; run
 expect "exit 2: a missing gh-identity.sh" "" 2

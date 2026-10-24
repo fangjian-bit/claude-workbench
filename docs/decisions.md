@@ -1882,7 +1882,7 @@ take effect. Full reasoning and the task breakdown that implements them:
       `gh-identity.sh author` test `resume` uses, from the default branch's `identities`.
       *Amended by `WB-D32`: the test is `task-author`, and the declared dev or reviewer App's issue
       is read once a declared maintainer has reacted to it.*
-      It reads no other issue's body and no comments, and treats the body as data.
+      It reads no other issue's body and no comments, and treats the body as data. *Amended by `WB-D39`: under a map, an escalated comment and a maintainer's answer to it, only through `spec-answer.sh`.*
     - It drafts in a fixed shape (goal, files touched, done when, tests, out of scope, restated
       from the issue body), checks every file, function and test it names on `origin/{pr_base}`
       or marks it **(new)**, and prints the draft only after `bin/spec-shape.sh` says `ok`.
@@ -2551,7 +2551,7 @@ take effect. Full reasoning and the task breakdown that implements them:
     `not converging` for `escalate` (which also needs an `### Open findings` section); `post` refuses a draft with an ATX heading `Open findings` of any level or case anywhere (a filter: setext and indented forms pass). The line is written by
     the posting session itself: the check is a filter against a forgotten gate, not proof that critics ran,
     and the maintainer's reaction stays the only approval.
-  - **Escalation and its resolution.** A maintainer posts a `spec-task:` comment of their own, which takes
+  - **Escalation and its resolution.** *Amended by `WB-D39`: a third resolution, a `spec-task-answer:` comment and a later `spec-task` run.* A maintainer posts a `spec-task:` comment of their own, which takes
     precedence once reacted to, or deletes the escalated comment. Deleting it without changing the task makes
     resume's drafting branch draft again unattended on the same body, which will likely escalate again. A
     statement in the body about a finding is never authority: a rerun's critics still grade it.
@@ -2568,7 +2568,7 @@ take effect. Full reasoning and the task breakdown that implements them:
     5. `no-critic-line` covers only comments `spec-post.sh` posts. A maintainer's own hand-posted `spec-task:`
        comment carries no critic line and no reader checks for one, the maintainer being the approver.
   - **Not built.** Reading a maintainer's answer from the escalated comment's thread and continuing from it (it
-    reads comments, a trust-boundary change of its own), and a second-opinion round on a spec.
+    reads comments, a trust-boundary change of its own; *built by `WB-D39`*), and a second-opinion round on a spec.
   - **Slack: open, and nothing writes to it.** Three questions stay open: which identity posts; whether a
     Slack reply can carry a decision or only notifies; how a reply is authenticated as the maintainer's, so it
     is never a weaker approval path than a GitHub reaction. Nothing in this plugin writes to Slack until a
@@ -2657,6 +2657,18 @@ take effect. Full reasoning and the task breakdown that implements them:
     During the transition a session can omit the verdict and the old form reads `success`, and a no-verdict review's line 4 is the session's own text. A same-head `--rerun` reading `pass`
     overrides an earlier `changes-needed`, and a rerun ending in a failure review leaves the earlier matching review deciding. A home whose host tools were not reinstalled posts the old form,
     so a `changes-needed` from it reads `success`. The gate reads a review's current body, and an edit to it is not detected.
+
+- **WB-D39 (`#790`) — a later `spec-task` run continues an escalated spec from a declared maintainer's answer.** Builds on `WB-D35` and amends `WB-D26`'s rule line "It reads no other issue's body and no comments".
+  - **The decision.** Under an `identities` map only, a declared maintainer answers the newest `spec-task-escalated:` comment on a task issue with a new issue comment whose first line is exactly `spec-task-answer: escalated=<id> choice=apply` (apply the recommended fixes in its `### Open findings`) or `choice=amend` (apply them with the changes written on the lines after the first). `/way-of-working:spec-task <N>` finds the answer through `spec-find.sh answer` and reads the two comments only through `spec-answer.sh`, redrafts from the escalated comment plus the choice, runs the critic gate again and posts through `spec-post.sh` as usual: a `spec-task:` comment on convergence, another escalation otherwise.
+  - **What qualifies.** The answer's `escalated=` is the newest role-passed escalated row's id, its `issue_url` is the backlog repo's URL for the issue, its author's numeric id is a declared maintainer's (never the dev App's) with `gh-identity.sh role` agreeing, its `created_at` equals its `updated_at`, and its `created_at` is strictly later than the escalated comment's `updated_at`. `spec-find.sh` stays the only lister: the answer is a third first-line grammar in its one listing, and an answer row's ninth field keeps it out of `find` and `pending`, whose words do not change. Zero qualifying answers is `none`, two or more `ambiguous`, and a maintainer-id answer whose role check disagrees `unreadable`; the answer branch reads only while no `spec-task:` row passes the role check (otherwise `not-escalated`); the skill stops on every word but `none` and `not-escalated`.
+  - **The answer steers and approves nothing.** The redrafted comment, like every spec, is used only after a declared maintainer's approving reaction made after its last edit. No reader's approval rule changes, and resume's drafting branch still runs only on the finder's `none`, so an escalated task waits for someone to run `spec-task`.
+  - **Protected.** `spec-answer.sh` and `tests/spec-answer.test.sh` join `scripts/loop/protected-paths.txt`.
+  - **Accepted residuals.**
+    1. The change lines under `amend` are a declared maintainer's text; the critics grade the redraft, and the reaction on it is the only approval.
+    2. An account with Issues write can edit or delete an answer. An edit voids it, except one made in the same second the answer was posted.
+    3. An edit to the escalated comment before the answer is not detected; the reaction on the redraft is the backstop.
+    4. No live answer row has been checked under `gh`'s own `--jq` yet; the projection fixtures prove `jq` only.
+  - **Not built.** The second-opinion round on a spec stays not built.
 
 ## Status
 

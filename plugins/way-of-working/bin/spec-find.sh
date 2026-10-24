@@ -2,10 +2,12 @@
 # Which comment on a task issue is its approved spec? One implementation of the selection
 # WB-D29's binding rules for marker readers set out, so the readers do not each carry it in
 # prose (#662). Its callers: /way-of-working:resume, the coder agent,
-# scripts/lanes/lane.sh, bin/lane-state.sh, bin/lane-groups.sh and /way-of-working:architect-review (each runs it in the Bash call that uses its result).
+# scripts/lanes/lane.sh, bin/lane-state.sh, bin/lane-groups.sh, /way-of-working:architect-review and
+# /way-of-working:spec-task (the `answer` mode, #790); each runs it in the Bash call that uses its result.
 #
 # Usage: spec-find.sh find <issue> <project.yml>
 #        spec-find.sh pending <issue> <project.yml> <after-id>
+#        spec-find.sh answer <issue> <project.yml>
 #
 #   <issue>        the task issue number, digits with no leading zero
 #   <project.yml>  the DEFAULT branch's committed copy (the callers' $DEF_YML_FILE), never the
@@ -19,6 +21,21 @@
 # `spec-task:` rows that passed the role check, are not approved candidates and have an id greater
 # than <after-id>, plus the role-passed escalated rows with an id greater than <after-id>, compared
 # as digit strings: the longer is larger, equal lengths compare as strings) or `pending none`.
+#
+# `answer` (#790, WB-D39) finds the declared maintainer's answer to the newest escalated comment, under
+# the same configuration reads, the same one listing and the same static and role checks. The listing's
+# regex alternates a third first-line grammar, `spec-task-answer: escalated=<id> choice=apply|amend`; an
+# answer row is projected with a ninth field (its `created_at`), so the `NF != 8` rule keeps it out of
+# `find` and `pending`, whose words do not change. Its words, the first that applies winning:
+# `unreadable` (as for `find`), `moved <id>` (as for `find`), `not-escalated` (the word `find` would
+# print on this listing is not `escalated`), `none` (no answer row qualifies), `ambiguous <id>,<id>[,...]`
+# (two or more qualify) and `answer <esc-id> <esc-updated_at> <ans-id> <ans-updated_at> <choice>`. The
+# target is the role-passed escalated row with the largest id. An answer qualifies only when its
+# `escalated=` is the target's id, its `issue_url` is the backlog repo's URL for <issue>, its author's
+# numeric id is a declared maintainer's (never the dev App's), `gh-identity.sh role` says `maintainer`
+# for it (anything else is `unreadable`), its `created_at` equals its `updated_at` and is strictly later
+# than the target's `updated_at` (YYYY-MM-DDTHH:MM:SSZ, compared as strings). The author-id filter runs
+# before the role check. No reactions are read for an answer row.
 #
 # It makes its own `gh` calls: one paginated listing of the issue's comments, then, for each
 # `spec-task:` comment that clears the static and role checks, that comment's reactions and a second
@@ -70,7 +87,7 @@
 # YYYY-MM-DDTHH:MM:SSZ; a failure prints `unreadable`.
 #
 # Exits 2, printing nothing to stdout, when an argument is bad (the wrong count, a mode other
-# than `find` or `pending`, an issue or <after-id> that is not digits with no leading zero),
+# than `find`, `pending` or `answer`, an issue or <after-id> that is not digits with no leading zero),
 # <project.yml> is unreadable,
 # `$0` has no slash, or a sibling gh-identity.sh or spec-reaction.sh is not beside this script.
 # Like spec-comment.sh it uses only the SIBLING copies: a slash-less `$0` would resolve
@@ -83,13 +100,13 @@ LC_ALL=C
 export LC_ALL
 
 usage() {
-  echo "usage: spec-find.sh find <issue> <project.yml> | spec-find.sh pending <issue> <project.yml> <after-id>" >&2
+  echo "usage: spec-find.sh find <issue> <project.yml> | spec-find.sh pending <issue> <project.yml> <after-id> | spec-find.sh answer <issue> <project.yml>" >&2
   exit 2
 }
 [ "$#" -ge 1 ] || usage
 mode="$1"
 case "$mode" in
-  find) [ "$#" -eq 3 ] || usage ;;
+  find | answer) [ "$#" -eq 3 ] || usage ;;
   pending) [ "$#" -eq 4 ] || usage ;;
   *) usage ;;
 esac
@@ -155,7 +172,7 @@ for app_key in dev_app reviewer_app loop_app; do
 done
 
 # --- the one listing ---------------------------------------------------------------------
-gh api --paginate "repos/$backlog/issues/$issue/comments" --jq '.[] | (((.body // "") + "\n") | split("\n")[0] | rtrimstr("\r")) as $l | select($l | test("^spec-task(-escalated)?: issue=[1-9][0-9]* base=[A-Za-z0-9._/][A-Za-z0-9._/-]* sha=[0-9a-f]{40}$")) | ($l | split(" ")) as $f | [(.id|tostring), .updated_at, .issue_url, .user.login, (.user.id|tostring), ($f[1] | ltrimstr("issue=")), ($f[2] | ltrimstr("base=")), ($f[0] | rtrimstr(":"))] | @tsv' >"$tmp/list.tsv" 2>/dev/null || out unreadable
+gh api --paginate "repos/$backlog/issues/$issue/comments" --jq '.[] | (((.body // "") + "\n") | split("\n")[0] | rtrimstr("\r")) as $l | select($l | test("^(spec-task(-escalated)?: issue=[1-9][0-9]* base=[A-Za-z0-9._/][A-Za-z0-9._/-]* sha=[0-9a-f]{40}|spec-task-answer: escalated=[1-9][0-9]* choice=(apply|amend))$")) | ($l | split(" ")) as $f | [(.id|tostring), .updated_at, .issue_url, .user.login, (.user.id|tostring), ($f[1] | ltrimstr("issue=") | ltrimstr("escalated=")), ($f[2] | ltrimstr("base=") | ltrimstr("choice=")), ($f[0] | rtrimstr(":"))] + (if $f[0] == "spec-task-answer:" then [.created_at] else [] end) | @tsv' >"$tmp/list.tsv" 2>/dev/null || out unreadable
 
 # --- the static rules --------------------------------------------------------------------
 # Rows are de-duplicated on id (first kept), then each must have exactly 8 fields, one of the two
@@ -185,6 +202,8 @@ cand_n=0
 cand_updated=
 role_ids=
 esc_ids=
+esc_target=
+esc_target_updated=
 pend_ids=
 n=0
 # gt <a> <b> -- yes when digit string a is larger than b: the longer is larger, equal lengths compare as
@@ -201,6 +220,9 @@ while IFS="$US" read -r c_id c_login c_uid c_kind c_updated; do
   [ "$got" = "$want" ] || out unreadable
   if [ "$c_kind" = spec-task-escalated ]; then
     esc_ids="${esc_ids:+$esc_ids,}$c_id"
+    if [ -z "$esc_target" ] || [ "$(gt "$c_id" "$esc_target")" = yes ]; then
+      esc_target="$c_id" esc_target_updated="$c_updated"
+    fi
     if [ "$mode" = pending ] && [ "$(gt "$c_id" "$after")" = yes ]; then
       pend_ids="${pend_ids:+$pend_ids,}$c_id"
     fi
@@ -229,6 +251,51 @@ done <"$tmp/rows"
 
 # --- the word ----------------------------------------------------------------------------
 [ -z "$moved_id" ] || out "moved $moved_id"
+if [ "$mode" = answer ]; then
+  # `find` prints `escalated` only with no candidate, no role-passed spec-task row and an escalated row.
+  [ "$cand_n" -eq 0 ] && [ -z "$role_ids" ] && [ -n "$esc_target" ] || out not-escalated
+  case "$esc_target_updated" in
+    [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) : ;;
+    *) out unreadable ;;
+  esac
+  # Answer rows (nine fields): dedupe on id, the author id a declared maintainer's (never the dev App's),
+  # digit ids, the target's id, the backlog repo's URL, a choice, created_at equal to updated_at and later
+  # than the target's updated_at. Output is id, login, user id, updated_at, choice, US-separated.
+  SF_URL="https://api.github.com/repos/$backlog/issues/$issue" SF_MAINT=",$maint_ids," SF_TARGET="$esc_target" awk -F '\t' '
+    BEGIN {
+      url = ENVIRON["SF_URL"]; maint = ENVIRON["SF_MAINT"]; target = ENVIRON["SF_TARGET"]
+      us = sprintf("%c", 31)
+    }
+    seen[$1]++ { next }
+    NF != 9 || $8 "" != "spec-task-answer" { next }
+    $1 !~ /^[0-9]+$/ || $5 !~ /^[0-9]+$/ { next }
+    $3 "" != url "" || $6 "" != target "" { next }
+    index(maint, "," $5 ",") == 0 { next }
+    $7 "" != "apply" && $7 "" != "amend" { next }
+    { print $1 us $4 us $5 us $2 us $9 us $7 }
+  ' "$tmp/list.tsv" >"$tmp/arows" 2>/dev/null || out unreadable
+  ans_n=0 ans_ids= ans_line=
+  while IFS="$US" read -r a_id a_login a_uid a_updated a_created a_choice; do
+    case "$a_id" in '' | *[!0-9]*) out unreadable ;; esac
+    case "$a_uid" in '' | *[!0-9]*) out unreadable ;; esac
+    got="$(sh "$gi" role "$a_login" "$a_uid" "$yml" 2>/dev/null </dev/null)" || out unreadable
+    [ "$got" = maintainer ] || out unreadable
+    for ts in "$a_updated" "$a_created"; do
+      case "$ts" in
+        [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) : ;;
+        *) out unreadable ;;
+      esac
+    done
+    [ "$a_created" = "$a_updated" ] || continue
+    [ "$(SF_A="$a_created" SF_B="$esc_target_updated" awk 'BEGIN { print (ENVIRON["SF_A"] "" > ENVIRON["SF_B"] "") ? "yes" : "no" }')" = yes ] || continue
+    ans_n=$((ans_n + 1))
+    ans_ids="${ans_ids:+$ans_ids,}$a_id"
+    ans_line="answer $esc_target $esc_target_updated $a_id $a_updated $a_choice"
+  done <"$tmp/arows"
+  [ "$ans_n" -gt 0 ] || out none
+  [ "$ans_n" -lt 2 ] || out "ambiguous $ans_ids"
+  out "$ans_line"
+fi
 if [ "$mode" = pending ]; then
   out "pending ${pend_ids:-none}"
 fi

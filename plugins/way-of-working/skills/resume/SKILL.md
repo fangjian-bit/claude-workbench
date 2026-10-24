@@ -235,7 +235,8 @@ edited it. **Default to the full checklist whenever unsure.**
          🚀) is needed on spec comment <ids> on #N, after its last edit.`
        - `escalated <ids>` — `Spec approval: waiting — #N is escalated to a human
          (spec-task-escalated: comment <ids>); a reaction on it does nothing: a maintainer posts a
-         spec-task: comment, which takes precedence, or deletes the escalated comment.` (`#746`)
+         spec-task: comment, which takes precedence, deletes the escalated comment, or answers it
+         with a spec-task-answer: comment and runs /way-of-working:spec-task <N>.` (`#746`, `#790`)
        - `ambiguous <ids>` — `Spec approval: waiting — more than one approved spec on #N
          (<ids>); remove the reaction from all but one.`
        - `moved <id>` — `Spec approval: waiting — spec comment <id> changed during the read;

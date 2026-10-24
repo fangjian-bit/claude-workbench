@@ -366,6 +366,7 @@ description and cannot be mistaken for the human's approval.
   (`bin/spec-post.sh`)**. A declared maintainer reacts on GitHub, and once they have,
   under a map, the readers find it. Critic-gates every draft first (critic-gate's spec mode, unattended, by rule), then posts it, or
   posts it as an escalation with its open findings when the gate hits the cap or stops converging.
+  Under a map, a declared maintainer's `spec-task-answer:` comment on the newest escalated comment steers a redraft of it on a later run (`WB-D39`).
   Never edits, deletes or reacts (`WB-D29`); its one label write is the escalation's. Runs on `models.architect`.
 - **`/way-of-working:park-sprint <next-id>`** — set the live sprint aside mid-flight:
   snapshot its cursor into tracked `.ai/parked/<id>-*`, seed the live cursor for the next

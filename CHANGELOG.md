@@ -23,6 +23,7 @@ the GitHub release notes.
 
 ### Added
 
+- **A later `spec-task` run continues an escalated spec from a maintainer's answer (`#790`, `WB-D39`).** Under an `identities` map, a declared maintainer answers the newest `spec-task-escalated:` comment with a `spec-task-answer: escalated=<id> choice=apply|amend` comment; `spec-find.sh answer` finds it, the new `spec-answer.sh` is the only reader that prints either comment, and `spec-task` redrafts, critic-gates and posts as usual. The redraft still needs a maintainer's reaction. `spec-find.sh find` and `pending` print what they printed before.
 - **`scripts/invariants-check.sh` check 25 fails when an agent is missing from a manifest description (`#932`).**
   Every `plugins/*/agents/*.md` frontmatter `name` must appear as a whole token in the `description`
   of its plugin's `plugin.json` and in the `description` of the matching `marketplace.json` entry, so
