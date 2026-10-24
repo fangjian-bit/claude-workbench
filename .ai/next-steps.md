@@ -1,18 +1,16 @@
 # Cursor — claude-workbench
 
-**Now:** **Sprint 17** (cursor id `sprint-17`) on [milestone 24, *Green gate in parallel*](https://github.com/glunk-works/claude-workbench/milestone/24), with wave 4 on [milestone 25, *Review follow-ups: tests, docs and guards*](https://github.com/glunk-works/claude-workbench/milestone/25). Status: **implementing**. Live lanes: `lane-state.sh list`.
+**Now:** **Sprint 17** (cursor id `sprint-17`) on [milestone 24, *Green gate in parallel*](https://github.com/glunk-works/claude-workbench/milestone/24), with the work on [milestone 25, *Review follow-ups: tests, docs and guards*](https://github.com/glunk-works/claude-workbench/milestone/25). Status: **implementing**. Live lanes: `lane-state.sh list`.
 
-**Just done (2026-10-23, driver session in the container, opus):**
-- **#1016 with #1015 merged** (PR #1027, `0495241`): the broker task's stops end the broker `pwsh`, and its trigger repeats every minute. Lane 1016 cleaned up with `lane.sh done`.
-- **Two hotfixes from the host checks, built in this driver session at the maintainer's request:**
-  - PR #1031 (`5450357`): `Disable-`/`Enable-ScheduledTask` take no `-Confirm`; the reinstall failed on it. A parser-based check now guards it.
-  - PR #1034 (`6ed7ef9`, closes the reopened #1016): the Store app-alias `pwsh` reports the `-File` path unquoted, so the matcher accepts it quoted or bare.
-  - Critic passes: #1031 architect, 3 rounds, converged; #1034 architect, 2 rounds, converged. A second-opinion round was offered for each and skipped by the maintainer.
-- **Host checks passed on the glunk home** (the only home running a broker): `-Unregister` leaves no broker, a re-register leaves one, a killed broker restarts within a minute, no window opens. The 603id home gets a file refresh only (`install-host-tools.ps1`) until a broker is deployed there.
-- **Milestone 24 description:** #1016 (12f) and #1018 (12g) added to the build order; Wave 3 marked done.
+**Just done (2026-10-23 to 24, driver session in the container, opus):**
+- **Wave 4 merged** (all specs checked against their transcripts and the tree before the maintainer reacted; light refreshes for #1012, #932, #939 when a merge changed a listed path in text the spec did not cite): #1012 (PR #1040), #1009 (#1038), #1006 (#1041), #996 (#1039), #993 (#1037), #1003 (#1044), #925 (#1051), #974 (#1045), #932 (#1053), #939 with five folded (#1062). Each lane PR was checked against its spec and its review before the approve call.
+- **First review follow-ups placed on milestone 25 and merged:** #1048 (+#1052, PR #1057), #1050 (#1058), #1049 (#1059), #1046 (+#1047, #1060), #1042 (+#1043, #1061). The driver made the fold edits on the lead issues' bodies.
+- **Second review follow-ups placed on milestone 25** (build order items 44 to 52), folds appended to the leads: #1066 (+#1067, #1068), #1054 (+#1055, #1056), #1063 (+#1064, #1065). The maintainer has reacted on all three leads and on #986.
+- **#790 spec light-refreshed after #1060** (comment 6377190450, reacted) and its lane prepped; not yet launched.
+- Milestone 25 description kept current through `milestone-desc.sh` (Build order and Lanes).
 
-**Next:** on **opus** (driver). Start no build here; `next_action` holds the steps: check the ten wave 4 spec comments and their transcripts, confirm their files are disjoint with `lane-groups.sh 25`, and prep their lanes in batches on the maintainer's reactions.
+**Next:** on **opus** (driver). Start no build here; `next_action` holds the steps: launch the #790 lane, check the specs for #986 (CI lane), #1066, #1054 and #1063 once posted, then prep their lanes on the maintainer's reactions.
 
-**HITL Gate: NONE OPEN** — next gate: the maintainer reacts to each wave 4 spec comment before its lane is prepped, and approves each lane PR
+**HITL Gate: NONE OPEN** — next gate: the maintainer reacts to each spec comment before its lane is prepped, and approves each lane PR
 
 **Pointers:** [docs/decisions.md](../docs/decisions.md) · [milestone 24](https://github.com/glunk-works/claude-workbench/milestone/24) · [milestone 25](https://github.com/glunk-works/claude-workbench/milestone/25) · [.ai/parked/](parked/)
