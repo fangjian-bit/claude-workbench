@@ -8,7 +8,8 @@
 # known-wrong form from coming back, which is exactly what happened here.
 #
 # Adding a check: it must correspond to a defect that actually shipped (check 24 is an
-# exception: it guards the gate's own wholeness). Speculative
+# exception: it guards the gate's own wholeness; check 25 is another: its defect was merged,
+# not released). Speculative
 # invariants belong in the skill's own prose, not in a gate.
 set -euo pipefail
 
@@ -1388,7 +1389,8 @@ if want 25; then
 # stale on main until #928 (closing #915) fixed them by hand, before any release. Nothing tied the
 # descriptions to plugins/*/agents/. (Unlike most checks here the defect was merged, not released.)
 # For each plugin directory that holds an agents/*.md file, the frontmatter `name` of every agent
-# must appear as a whole token (no letter, digit, `_` or `-` on either side) in the `description`
+# must appear as a whole token (no letter, digit, `_` or `-` on either side, and no `:` right before
+# it, so a skill mention such as `/way-of-working:NAME` does not name an agent called NAME) in the `description`
 # of that plugin's .claude-plugin/plugin.json and in the `description` of the one
 # .claude-plugin/marketplace.json `plugins[]` entry with the plugin's name. Hits name the agent file
 # and the manifest, never the agent name or any description text. A name that is missing, repeated
@@ -1457,7 +1459,7 @@ if [ "$mfagents_jq" -eq 1 ]; then
       if ! [[ "$mfagents_val" =~ ^[A-Za-z0-9_-]+$ ]]; then
         mfagents_hits+="  $f: frontmatter name is empty or outside [A-Za-z0-9_-]"$'\n'; continue
       fi
-      mfagents_re="(^|[^A-Za-z0-9_-])${mfagents_val}(\$|[^A-Za-z0-9_-])"
+      mfagents_re="(^|[^:A-Za-z0-9_-])${mfagents_val}(\$|[^A-Za-z0-9_-])"
       if [ "$mfagents_pok" -eq 1 ] && ! [[ "$mfagents_pdesc" =~ $mfagents_re ]]; then
         mfagents_hits+="  $f: not named in the description of $mfagents_pj"$'\n'
       fi

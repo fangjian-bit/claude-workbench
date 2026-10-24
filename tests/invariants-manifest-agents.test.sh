@@ -8,8 +8,8 @@
 #
 # Every case but the first control runs just check 25 (`--only 25`); that control runs the full checker.
 #
-# Permitted toolset: POSIX sh, sed, grep and jq (one fixture edits a manifest with it; the checker
-# needs jq too, so this test skips, loudly, without it). No yq, no python.
+# Permitted toolset: POSIX sh, sed, grep and jq (several fixtures edit a manifest with it; the checker
+# needs it too, so this test skips, loudly, without it). No yq, no python.
 set -eu
 
 command -v jq >/dev/null 2>&1 || { echo "SKIP - jq is not on PATH; check 25 cannot run" >&2; exit 0; }
@@ -135,6 +135,78 @@ assert_fires "a missing marketplace.json fires" "$d"
 d="$(tree noagents)"
 rm -rf "$d"/plugins/*/agents
 assert_fires "a tree with no agent files fires" "$d"
+
+d="$(tree colon)"
+newagent "$d"
+for m in "$(plugin_json "$d")" "$(market "$d")"; do
+  sed 's|architect/coder|/way-of-working:zzqagent architect/coder|' "$m" >"$m.new" && mv "$m.new" "$m"
+  grep -qF ':zzqagent' "$m" || { echo "FAIL - colon fixture edit did not apply to $m" >&2; fail=1; }
+done
+assert_fires "an agent named only after a colon (a skill mention) fires" "$d"
+
+# Rewrite a JSON file with a jq program.
+jqedit() { # <file> <program>
+  jq "$2" "$1" >"$1.new" && mv "$1.new" "$1"
+}
+
+d="$(tree nopj)"
+rm -f "$(plugin_json "$d")"
+assert_fires "a missing plugin.json fires" "$d"
+
+d="$(tree badpj)"
+printf '{"name": "way-of-working", "description": ' >"$(plugin_json "$d")"
+assert_fires "a plugin.json that is not valid JSON fires" "$d"
+
+d="$(tree pjarr)"
+jqedit "$(plugin_json "$d")" '.description = [.description]'
+assert_fires "a non-string plugin.json description fires" "$d"
+
+d="$(tree pjempty)"
+jqedit "$(plugin_json "$d")" '.description = ""'
+assert_fires "an empty plugin.json description fires" "$d"
+
+d="$(tree badmp)"
+printf '{"plugins": [' >"$(market "$d")"
+assert_fires "a marketplace.json that is not valid JSON fires" "$d"
+
+d="$(tree mparr)"
+jqedit "$(market "$d")" '(.plugins[] | select(.name == "way-of-working") | .description) |= [.]'
+assert_fires "a non-string marketplace entry description fires" "$d"
+
+d="$(tree mpempty)"
+jqedit "$(market "$d")" '(.plugins[] | select(.name == "way-of-working") | .description) = ""'
+assert_fires "an empty marketplace entry description fires" "$d"
+
+d="$(tree unclosed)"
+printf -- '---\nname: zzqagent\n' >"$d/plugins/way-of-working/agents/zzqagent.md"
+addname "$(plugin_json "$d")" zzqagent
+addname "$(market "$d")" zzqagent
+assert_fires "an agent file with an unclosed frontmatter block fires" "$d"
+
+d="$(tree quoted)"
+printf -- '---\nname: "zzqagent"\ndescription: x\n---\nbody\n' >"$d/plugins/way-of-working/agents/zzqagent.md"
+addname "$(plugin_json "$d")" zzqagent
+addname "$(market "$d")" zzqagent
+assert_silent "a quoted agent name named in both descriptions is silent" "$d"
+
+d="$(tree crlf)"
+printf -- '---\r\nname: zzqagent\r\ndescription: x\r\n---\r\nbody\r\n' >"$d/plugins/way-of-working/agents/zzqagent.md"
+addname "$(plugin_json "$d")" zzqagent
+addname "$(market "$d")" zzqagent
+assert_silent "a CRLF agent file named in both descriptions is silent" "$d"
+
+# jq missing: bash by absolute path, PATH one empty directory (the checker then exits 127 after
+# its message, as cat is not there either; only the message is asserted).
+d="$(tree nojq)"
+bash_bin="$(command -v bash)"
+mkdir -p "$tmp/emptybin"
+nojq_out="$( ( cd "$d" || exit 1; rc=0; PATH="$tmp/emptybin" "$bash_bin" "$script" --only 25 2>&1 >/dev/null || rc=$?; [ "$rc" -ne 2 ] || : >"$tmp/usage-exit" ) || true )"
+if printf '%s\n' "$nojq_out" | grep -qF -- "$MSG" && printf '%s\n' "$nojq_out" | grep -qF -- 'jq not found on PATH'; then
+  echo "ok - check 25 fires when jq is not on PATH"
+else
+  echo "FAIL - check 25 fires when jq is not on PATH: expected it to fire" >&2
+  fail=1
+fi
 
 [ ! -e "$tmp/usage-exit" ] || { echo "FAIL - the checker exited 2 (usage) in at least one case" >&2; fail=1; }
 

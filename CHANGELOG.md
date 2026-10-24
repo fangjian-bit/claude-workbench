@@ -26,7 +26,8 @@ the GitHub release notes.
 - **`scripts/invariants-check.sh` check 25 fails when an agent is missing from a manifest description (`#932`).**
   Every `plugins/*/agents/*.md` frontmatter `name` must appear as a whole token in the `description`
   of its plugin's `plugin.json` and in the `description` of the matching `marketplace.json` entry, so
-  an agent added without a description edit (as `transcript-reader` was in `#911`) fails CI.
+  an agent added without a description edit (as `transcript-reader` was in `#911`) fails CI. A name
+  right after a `:` (a skill's `/way-of-working:NAME` mention) does not count.
 
 ### Fixed
 
