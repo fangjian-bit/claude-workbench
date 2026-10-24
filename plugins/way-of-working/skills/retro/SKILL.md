@@ -66,7 +66,8 @@ gh issue create --repo {backlog.repo} --title "…" --body "…"
 no-backlog branch rather than guessing a path. See `reference/project-schema.md`.
 
 ## When to run
-- At the end of a working session, before `/way-of-working:handoff` or `/way-of-working:archive-sprint` (optional, never a gate).
+- At the end of a working session, before `/way-of-working:handoff`; at a sprint close, on a yes to
+  the offer `/way-of-working:archive-sprint` makes after its report (optional, never a gate).
 - On demand — "look for improvements" / "review how that went."
 - **NOT automatically every session.** Most sessions yield nothing worth recording, and
   auto-firing is itself friction.
@@ -244,7 +245,10 @@ Explicitly reject:
    question states the reply form: confirm each item by writing its own number and saying yes
    to both parts; a range or "all" confirms nothing. An item is confirmed only when the
    human's own reply names its number and affirms both. The reply is the human's next message
-   after the question; a later message confirms nothing. Route each confirmed item through the
+   after the question; a later message confirms nothing. A reply that only asks a question (for
+   example "what is item 2?") is still the reply, confirms nothing and leaves every held item
+   deferred; the human can run `/way-of-working:retro` again, and that run's held items and
+   numbers are its own. Route each confirmed item through the
    *Route each survivor* step with only the other-session part the question showed. The
    routing report goes in the same message as the question, before it, with the held material
    shown as deferred. The reply gets a short follow-up giving the route of each item it

@@ -45,11 +45,16 @@ type label (`WB-D40`).
 ### Fixed
 
 - **`cursor-drift.sh` lists both paths of a rename, so a file renamed into `.ai/parked/` from outside the allowlist reads `drift` (`#1074`).**
+- **`/way-of-working:retro`'s *When to run* follows archive-sprint's retro offer (`#1075`, `#1076`, `#1077`).**
+  At a sprint close retro runs on a yes to the offer `/way-of-working:archive-sprint` makes after
+  its report, not before it. Step 6 now says a reply that only asks a question confirms nothing
+  and leaves every held item deferred. The `#1066` entry below is rewrapped, its wording unchanged.
 - **`/way-of-working:retro`'s held-items question states the reply form, and the routing report no longer waits on a reply (`#1066`, `#1067`, `#1068`).**
-  The question tells the human to confirm each item by its own number with a yes to both parts
-  (a range or "all" confirms nothing; only the human's next message is the reply), the routing report goes in the same message as the
-  question with the held material deferred, and the reply gets a short follow-up. The retro
-  test's greps on the skill now match across line breaks, and the hold paragraph is rewrapped.
+  The question tells the human to confirm each item by its own number with a yes to both parts (a
+  range or "all" confirms nothing; only the human's next message is the reply), the routing report
+  goes in the same message as the question with the held material deferred, and the reply gets a
+  short follow-up. The retro test's greps on the skill now match across line breaks, and the hold
+  paragraph is rewrapped.
 - **`/way-of-working:retro` asks once about held cross-session items (`#939`, `#940`, `#927`).**
   The *Implement the cheap; propose the rest* step now asks the human in one message, listing
   every held item numbered with its caveat, and routes each item the human's reply confirms
