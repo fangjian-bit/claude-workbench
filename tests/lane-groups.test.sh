@@ -10,13 +10,14 @@
 # --jq with jq, so the pull-request filter and the description projection under test are the real
 # ones.
 #
-# Permitted toolset: POSIX sh, jq, yq (mikefarah v4) and git; the suite skips, loudly, without them.
+# Permitted toolset: POSIX sh, jq, yq (mikefarah v4) and git; the suite skips whole, loudly, without
+# jq or yq, and skips only its scratch-repository section, loudly, without git.
 set -eu
 
 root_dir="$(cd "$(dirname "$0")/.." && pwd)"
 bin_src="$root_dir/plugins/way-of-working/bin"
 
-for tool in jq yq git; do
+for tool in jq yq; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     echo "skip - lane-groups.sh fixtures: no $tool on PATH" >&2
     exit 0
@@ -344,50 +345,54 @@ assert_eq "a failing final pass prints only unreadable" "unreadable" "$got"
 assert_eq "a failing final pass exits 0" "0" "$rc"
 assert_eq "the stub awk final pass was called once" "1" "$calls"
 
-echo "# the real spec-fresh.sh check, in a scratch repository"
+if ! command -v git >/dev/null 2>&1; then
+  echo "SKIP - the real spec-fresh.sh check in a scratch repository: git not on PATH; section not run" >&2
+else
+  echo "# the real spec-fresh.sh check, in a scratch repository"
 
-bin2="$tmp/bin2"
-mkdir -p "$bin2"
-cp "$bin_src/lane-groups.sh" "$bin_src/spec-fresh.sh" "$bin_src/plan-depends.sh" "$bin/spec-find.sh" "$bin2/"
-chmod 755 "$bin2"/*.sh
-O="$tmp/origin.git"; W="$tmp/work"
-git init -q --bare "$O"
-git -C "$O" symbolic-ref HEAD refs/heads/main
-git init -q "$W"
-git -C "$W" symbolic-ref HEAD refs/heads/main
-git -C "$W" config user.name t
-git -C "$W" config user.email t@example.invalid
-git -C "$W" config commit.gpgsign false
-git -C "$W" remote add origin "$O"
-mkdir -p "$W/plugins"
-printf 'a1\n' >"$W/plugins/a.sh"; printf 'b1\n' >"$W/plugins/b.sh"
-git -C "$W" add -A && git -C "$W" commit -q -m a && git -C "$W" push -q origin refs/heads/main:refs/heads/main
-commit_a="$(git -C "$W" rev-parse HEAD)"
-printf 'a2\n' >"$W/plugins/a.sh"
-git -C "$W" add -A && git -C "$W" commit -q -m b && git -C "$W" push -q origin refs/heads/main:refs/heads/main
+  bin2="$tmp/bin2"
+  mkdir -p "$bin2"
+  cp "$bin_src/lane-groups.sh" "$bin_src/spec-fresh.sh" "$bin_src/plan-depends.sh" "$bin/spec-find.sh" "$bin2/"
+  chmod 755 "$bin2"/*.sh
+  O="$tmp/origin.git"; W="$tmp/work"
+  git init -q --bare "$O"
+  git -C "$O" symbolic-ref HEAD refs/heads/main
+  git init -q "$W"
+  git -C "$W" symbolic-ref HEAD refs/heads/main
+  git -C "$W" config user.name t
+  git -C "$W" config user.email t@example.invalid
+  git -C "$W" config commit.gpgsign false
+  git -C "$W" remote add origin "$O"
+  mkdir -p "$W/plugins"
+  printf 'a1\n' >"$W/plugins/a.sh"; printf 'b1\n' >"$W/plugins/b.sh"
+  git -C "$W" add -A && git -C "$W" commit -q -m a && git -C "$W" push -q origin refs/heads/main:refs/heads/main
+  commit_a="$(git -C "$W" rev-parse HEAD)"
+  printf 'a2\n' >"$W/plugins/a.sh"
+  git -C "$W" add -A && git -C "$W" commit -q -m b && git -C "$W" push -q origin refs/heads/main:refs/heads/main
 
-run2() { (cd "$W" && "$bin2/lane-groups.sh" "$@" 2>/dev/null); }
-reset; list 5 11 12
-printf '**Build order:**\n1. #11: a. [depends_on: none]\n2. #12: b. [depends_on: none]\n' | desc 5
-orig_sha=$SHA
-SHA=$commit_a
-spec 11 101 '- `plugins/a.sh`'
-spec 12 102 '- `plugins/b.sh`'
-want="$(row 11 stale plugins/a.sh - -)$nl$(row 12 found plugins/b.sh - -)${nl}group${tab}1${tab}#12"
-assert_eq "real check: a changed listed path is stale, an unchanged one found" "$want" "$(run2 5 "$yml")"
+  run2() { (cd "$W" && "$bin2/lane-groups.sh" "$@" 2>/dev/null); }
+  reset; list 5 11 12
+  printf '**Build order:**\n1. #11: a. [depends_on: none]\n2. #12: b. [depends_on: none]\n' | desc 5
+  orig_sha=$SHA
+  SHA=$commit_a
+  spec 11 101 '- `plugins/a.sh`'
+  spec 12 102 '- `plugins/b.sh`'
+  want="$(row 11 stale plugins/a.sh - -)$nl$(row 12 found plugins/b.sh - -)${nl}group${tab}1${tab}#12"
+  assert_eq "real check: a changed listed path is stale, an unchanged one found" "$want" "$(run2 5 "$yml")"
 
-SHA=$orig_sha
-spec 11 101 '- `plugins/a.sh`'
-SHA=$commit_a
-want="$(row 11 unreadable '?' '?' -)$nl$(row 12 found plugins/b.sh - -)${nl}group${tab}1${tab}#12"
-assert_eq "real check: a sha= that is not a commit reads unreadable for that row only" "$want" "$(run2 5 "$yml")"
+  SHA=$orig_sha
+  spec 11 101 '- `plugins/a.sh`'
+  SHA=$commit_a
+  want="$(row 11 unreadable '?' '?' -)$nl$(row 12 found plugins/b.sh - -)${nl}group${tab}1${tab}#12"
+  assert_eq "real check: a sha= that is not a commit reads unreadable for that row only" "$want" "$(run2 5 "$yml")"
 
-spec 11 101 '- `plugins/a.sh`'
-mkdir -p "$tmp/nocheckout"
-got=$( (cd "$tmp/nocheckout" && GIT_CEILING_DIRECTORIES="$tmp" "$bin2/lane-groups.sh" 5 "$yml" 2>/dev/null) )
-want="$(row 11 unreadable '?' '?' -)$nl$(row 12 unreadable '?' '?' -)${nl}group none"
-assert_eq "real check: a run from outside a checkout reads unreadable for both rows" "$want" "$got"
-SHA=$orig_sha
+  spec 11 101 '- `plugins/a.sh`'
+  mkdir -p "$tmp/nocheckout"
+  got=$( (cd "$tmp/nocheckout" && GIT_CEILING_DIRECTORIES="$tmp" "$bin2/lane-groups.sh" 5 "$yml" 2>/dev/null) )
+  want="$(row 11 unreadable '?' '?' -)$nl$(row 12 unreadable '?' '?' -)${nl}group none"
+  assert_eq "real check: a run from outside a checkout reads unreadable for both rows" "$want" "$got"
+  SHA=$orig_sha
+fi
 
 
 [ "$fail" -eq 0 ]
