@@ -178,6 +178,26 @@ squash_delta parked-non-ascii ".ai/parked/café-state.json"
 assert_eq "cursor-sync: a non-ASCII parked filename is not quoted into drift" \
   "cursor-sync" "$("$script" "$last")"
 
+# --- drift: a rename into .ai/parked/ also lists the path it left ------------
+# With rename detection (git's default) the move below lists only
+# .ai/parked/plan.md and would read cursor-sync; --no-renames adds docs/plan.md,
+# outside the allowlist. The premise is checked with renames forced on, so the
+# fixture exercises detection whatever the caller's git config says.
+new_repo rename-into-parked
+echo plan >docs-plan.tmp && mkdir docs && mv docs-plan.tmp docs/plan.md
+mkdir -p .ai && echo cursor >.ai/next-steps.md
+git add docs/plan.md .ai/next-steps.md && git commit -qm "plan and ledger"
+last="$(git rev-parse HEAD)"
+mkdir -p .ai/parked
+git mv docs/plan.md .ai/parked/plan.md && git commit -qm "move plan into parked"
+detected="$(git -c diff.renames=true diff --name-only "$last" HEAD)"
+if [ "$detected" != ".ai/parked/plan.md" ]; then
+  echo "FAIL - fixture invariant broken: rename detection did not list only the new path, got [$detected]" >&2
+  fail=1
+fi
+assert_eq "drift: a file renamed into .ai/parked/ from outside the allowlist" \
+  "drift" "$("$script" "$last")"
+
 # --- shell portability: the drift verdict under a lastpipe shell -------------
 # POSIX lets a shell run the last stage of a pipeline in the current
 # environment (ksh93 does; bash does under `shopt -s lastpipe`). An `exit`

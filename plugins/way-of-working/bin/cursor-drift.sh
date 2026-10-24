@@ -57,7 +57,10 @@ fi
 # Off, only double-quote, backslash and control characters are still quoted --
 # always, regardless of the setting -- so a path carrying a newline cannot split
 # into two lines that match separately; it arrives quoted and reads as drift.
-paths="$(git -c diff.relative=false -c core.quotePath=false diff --name-only "$last_commit" HEAD)"
+# --no-renames lists a rename as its old path and its new one: with rename
+# detection a file moved from outside the allowlist into .ai/parked/ would list
+# only its new path and read as cursor-sync, hiding the file that left.
+paths="$(git -c diff.relative=false -c core.quotePath=false diff --no-renames --name-only "$last_commit" HEAD)"
 
 # Two distinct commits with identical trees (an empty commit, a revert pair) give
 # an empty path list. That is not a cursor-sync; fail closed.

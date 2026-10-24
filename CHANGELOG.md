@@ -44,6 +44,7 @@ type label (`WB-D40`).
 
 ### Fixed
 
+- **`cursor-drift.sh` lists both paths of a rename, so a file renamed into `.ai/parked/` from outside the allowlist reads `drift` (`#1074`).**
 - **`/way-of-working:retro`'s held-items question states the reply form, and the routing report no longer waits on a reply (`#1066`, `#1067`, `#1068`).**
   The question tells the human to confirm each item by its own number with a yes to both parts
   (a range or "all" confirms nothing; only the human's next message is the reply), the routing report goes in the same message as the
