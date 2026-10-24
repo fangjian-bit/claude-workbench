@@ -683,6 +683,11 @@ if mklink_dir "$lanes" "$tmp/lanes.real"; then
   run_lane -Issue 5 -Hash "$PH"; probe_refuses 'the lanes directory a link' 'in the container is missing, a link'
 else skip "a directory link cannot be made here; the lanes-directory link fixture did not run"; fi
 rm -rf "$lanes" "$tmp/lanes.real"; $real_git -C "$crepo" worktree prune
+lane_setup; rm -rf "$lanes"; $real_git -C "$crepo" worktree prune
+if mklink_dir "$lanes" "$tmp/lanes.gone"; then
+  run_lane -Issue 5 -Hash "$PH"; probe_refuses 'the lanes directory a link to a missing target' 'in the container is missing, a link'
+else skip "a directory link cannot be made here; the probe dangling-link fixture did not run"; fi
+rm -rf "$lanes"; $real_git -C "$crepo" worktree prune
 lane_setup; : >"$stubdir/it.owner"; run_lane -Issue 5 -Hash "$PH"; probe_refuses 'the lanes directory not owned by the user' 'in the container is missing, a link'
 rm -f "$stubdir/it.owner"
 lane_setup; $real_git -C "$crepo" worktree remove --force "$lanes/5"; run_lane -Issue 5 -Hash "$PH"; probe_refuses 'the worktree missing' 'is not a worktree'
@@ -826,14 +831,25 @@ check "static: the guard tests -L before -e" guard_order
 # the string a function concatenates after the guard
 lane_rest() { lane_line "$1" | sed "s/^  [\$]script:LanesGuard + '//; s/'\$//"; }
 guard_first() { lane_line "$1" | grep -q "^  [\$]script:LanesGuard + '.*'\$"; }
+# a test or [ command, any one-letter flag, then $L or ${L} with optional slashes or dots. The check is
+# lexical: it does not catch the lanes path re-tested through another name ($1, or a copy such as M=$L).
+dir_test_re='(test|\[)[[:space:]]+-[A-Za-z][[:space:]]+\$(L|[{]L[}])[/.]*([^A-Za-z0-9_$/.]|$)'
+dir_test_in() { printf '%s\n' "$1" | grep -Eq "$dir_test_re"; }
+not_dir_test_in() { ! dir_test_in "$1"; }
 no_dir_test() { # no lanes-directory test of its own in the remainder
-  ! lane_rest "$1" | grep -q -e 'test -L \$L;' -e 'test -e \$L;' -e 'test -d \$L;' -e 'test -O \$L;'
+  ! lane_rest "$1" | grep -Eq "$dir_test_re"
 }
 for fn in Get-LaneProbeScript Get-SpecPrepScript Get-SpecCleanupScript Get-SpecSweepScript; do
   check "static: $fn is a function of exactly one line" test "$(lane_fn $fn | wc -l | tr -d ' ')" -eq 3
   check "static: $fn returns the guard followed by one single-quoted string" guard_first $fn
   check "static: $fn's own string holds none of & | ^ % ! or a double quote, nor an inner single quote" clean_line "  '$(lane_rest $fn)'"
   check "static: $fn spells no lanes-directory test of its own" no_dir_test $fn
+done
+for t in '[ -e $L ]' 'test -O ${L};' 'test -d $L/;' 'test -x $L;' 'if test -h $L; then' 'test -d $L ;' 'test -L $L'; do
+  check "static: the lanes-directory test pattern catches: $t" dir_test_in "$t"
+done
+for t in 'test -d $L/$N;' 'test -e $L/record-$F;' 'test $lw = ok;'; do
+  check "static: the lanes-directory test pattern passes: $t" not_dir_test_in "$t"
 done
 sweep_pure() { ! { guard_line; lane_rest Get-SpecSweepScript; } | grep -q -w -e kill -e rm -e mkdir -e git; }
 check "static: the guard and Get-SpecSweepScript hold none of kill, rm, mkdir or git as a whole word" sweep_pure

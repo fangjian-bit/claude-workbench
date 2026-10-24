@@ -43,11 +43,13 @@
     8. The interactive session, through Invoke-Session. In spec mode the session and the cleanup after
        it sit in a try whose finally runs the cleanup.
 
-  The scripts for step 7 and for the spec cleanup are single-quoted one-liners returned by the four
-  Get-*Script functions below, each the shared lanes-directory guard followed by its own one-liner. Nothing variable is spliced into one: the lanes directory and the repo
-  directory (launcher literals), the issue number, hash, commit, base name, worktree leaf, spec issue list and launch seconds go in as
-  positional arguments, each validated here first. None holds & | ^ % ! or a double quote, nor does any
-  other docker argument (Resolve-Tool may resolve a docker.cmd, which runs through cmd.exe).
+  The scripts for step 7 and for the spec cleanup are returned by the four Get-*Script functions
+  below, each the shared lanes-directory guard ($script:LanesGuard) followed by a single-quoted
+  one-liner of its own. Nothing variable is spliced into one: the lanes directory and the repo
+  directory (launcher literals), the issue number, hash, commit, base name, worktree leaf, spec
+  issue list and launch seconds go in as positional arguments, each validated here first. None
+  holds & | ^ % ! or a double quote, nor does any other docker argument (Resolve-Tool may resolve
+  a docker.cmd, which runs through cmd.exe).
 
   Exit codes: 0 for -SpecSweep when it listed; 2 for a bad or missing argument (a usage line on stderr, before any external call, except the sh run
   that converts an MSYS-form -WowHome);
