@@ -27,8 +27,11 @@
 # regex alternates a third first-line grammar, `spec-task-answer: escalated=<id> choice=apply|amend`; an
 # answer row is projected with a ninth field (its `created_at`), so the `NF != 8` rule keeps it out of
 # `find` and `pending`, whose words do not change. Its words, the first that applies winning:
-# `unreadable` (as for `find`), `moved <id>` (as for `find`), `not-escalated` (the word `find` would
-# print on this listing is not `escalated`), `none` (no answer row qualifies), `ambiguous <id>,<id>[,...]`
+# `unreadable` (as for `find`), `moved <id>` (as for `find`), `ignored <id>[,<id>...]` or `not-escalated`
+# (the word `find` would print on this listing is not `escalated`: `ignored` when the listing holds
+# answer-shaped rows, comma-joined in listing order, which passed only the static filters and the
+# declared-maintainer author-id filter, no target, time or role check, no reactions and no comment
+# text read; `not-escalated` when it holds none), `none` (no answer row qualifies), `ambiguous <id>,<id>[,...]`
 # (two or more qualify) and `answer <esc-id> <esc-updated_at> <ans-id> <ans-updated_at> <choice>`. The
 # target is the role-passed escalated row with the largest id. An answer qualifies only when its
 # `escalated=` is the target's id, its `issue_url` is the backlog repo's URL for <issue>, its author's
@@ -253,7 +256,26 @@ done <"$tmp/rows"
 [ -z "$moved_id" ] || out "moved $moved_id"
 if [ "$mode" = answer ]; then
   # `find` prints `escalated` only with no candidate, no role-passed spec-task row and an escalated row.
-  [ "$cand_n" -eq 0 ] && [ -z "$role_ids" ] && [ -n "$esc_target" ] || out not-escalated
+  if ! { [ "$cand_n" -eq 0 ] && [ -z "$role_ids" ] && [ -n "$esc_target" ]; }; then
+    # The answer branch does not apply. Name the maintainer's answer-shaped rows (static and author-id
+    # filters only: no target, time or role check) so the skill can say they are not used (#1078).
+    SF_URL="https://api.github.com/repos/$backlog/issues/$issue" SF_MAINT=",$maint_ids," awk -F '\t' '
+      BEGIN { url = ENVIRON["SF_URL"]; maint = ENVIRON["SF_MAINT"] }
+      seen[$1]++ { next }
+      NF != 9 || $8 "" != "spec-task-answer" { next }
+      $1 !~ /^[0-9]+$/ || $5 !~ /^[0-9]+$/ { next }
+      $3 "" != url "" || index(maint, "," $5 ",") == 0 { next }
+      $7 "" != "apply" && $7 "" != "amend" { next }
+      { print $1 }
+    ' "$tmp/list.tsv" >"$tmp/ignored" 2>/dev/null || out unreadable
+    ign_ids=
+    while read -r i_id; do
+      case "$i_id" in '' | *[!0-9]*) out unreadable ;; esac
+      ign_ids="${ign_ids:+$ign_ids,}$i_id"
+    done <"$tmp/ignored"
+    [ -z "$ign_ids" ] || out "ignored $ign_ids"
+    out not-escalated
+  fi
   case "$esc_target_updated" in
     [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) : ;;
     *) out unreadable ;;

@@ -727,16 +727,40 @@ nc; addesc 1001 maint1 101 "$TE1"; addans 1002 maint1 101 1001 apply; flag 'FX_L
 expect "unreadable: a failed listing" "unreadable"
 
 nc; approved 1001 maint1 101; addans 1002 maint1 101 1001 apply; runa
-expect "not-escalated: find would say found" "not-escalated"
+expect "ignored: find would say found" "ignored 1002"
 
 nc; addrow 1001 maint1 101; addesc 1002 maint1 101 "$TE1"; addans 1003 maint1 101 1002 apply; runa
-expect "not-escalated: find would say unreacted" "not-escalated"
+expect "ignored: find would say unreacted" "ignored 1003"
 
 nc; addans 1002 maint1 101 1001 apply; runa
-expect "not-escalated: find would say none" "not-escalated"
+expect "ignored: find would say none" "ignored 1002"
+
+nc; approved 1001 maint1 101; runa
+expect "not-escalated: find would say found, no answer row" "not-escalated"
+
+nc; addrow 1001 maint1 101; addesc 1002 maint1 101 "$TE1"; runa
+expect "not-escalated: find would say unreacted, no answer row" "not-escalated"
+
+nc; runa
+expect "not-escalated: find would say none, no answer row" "not-escalated"
+
+nc; approved 1001 maint1 101; addans 1002 "dev-app[bot]" 201 1001 apply; runa
+expect "not-escalated: an answer by the dev App does not count" "not-escalated"
+
+nc; approved 1001 maint1 101; addans 1002 outsider 555 1001 apply; runa
+expect "not-escalated: an answer by an undeclared id does not count" "not-escalated"
+
+nc; approved 1001 maint1 101; addans 1002 maint1 101 1001 apply "$TA1" "$TA1" "https://api.github.com/repos/acme/app/issues/8"; runa
+expect "not-escalated: an answer on another issue's URL does not count" "not-escalated"
+
+nc; approved 1001 maint1 101; addans 1002 maint1 101 1001 apply; addans 1003 maint2 102 1001 amend; runa
+expect "ignored: two answer rows, both ids in listing order" "ignored 1002,1003"
+
+nc; approved 1001 maint1 101; addans 1002 maint1 101 1001 apply; addans 1002 maint1 101 1001 apply; runa
+expect "ignored: a repeated answer row is listed once" "ignored 1002"
 
 nc; addesc 1001 maint1 101 "$TE1"; addans 1002 maint1 101 1001 apply; printf '%s' "2026-09-21T09:01:00Z" >"$cd_/upd/1001"; addrow 1005 maint1 101; printf '%s' "2026-09-21T09:30:00Z" >"$cd_/upd/1005"; runa
-expect "moved: wins over not-escalated" "moved 1005"
+expect "moved: wins over ignored" "moved 1005"
 
 # answer rows leave find and pending alone
 nc; addesc 1001 maint1 101 "$TE1"; addans 1002 maint1 101 1001 apply; run
