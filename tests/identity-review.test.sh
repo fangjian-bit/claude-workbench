@@ -10,7 +10,8 @@
 # container was created with, so the launcher's preflight reads what it asked for. stdin is closed
 # throughout, to prove nothing prompts.
 #
-# Permitted toolset: POSIX sh and its standard utilities, jq and yq (skipped, loudly, if absent).
+# Permitted toolset: POSIX sh and its standard utilities, jq, yq and timeout (skipped, loudly, if absent; a
+# failure instead when WOW_TESTS_REQUIRE_TOOLS is exactly 1, which ci.yml sets).
 #
 # Concurrency (#955): the sections run at once, each in a subshell with its own scratch directory ($tmp: its
 # case tree and its out, err and log scratch files) over the stubs, which are written once before any section
@@ -29,7 +30,7 @@
 # tool timeout at least 52 s (twice the 26 s). On a container whose `timeout` is uutils the bound
 # is about 1550 s: run it in the background, or stop and ask the maintainer to remove a uutils
 # copy from ~/.local/bin or recreate the container (DEV-CONTAINER.md, Lanes). CI runs this suite
-# alone (both `tests` shards in ci.yml leave it out with -x, and the `tests-review-launcher` job runs
+# alone (both test shards in ci.yml, `tests-1` and `tests-2`, leave it out with -x, and the `tests-review-launcher` job runs
 # it on its own), while the local green gate has `scripts/test-all.sh` start it with its pool, under
 # load; a failure seen only in the local gate may be a timing problem, so rerun the suite alone,
 # and if it still fails, treat it as a launcher bug.
@@ -39,6 +40,10 @@ root_dir="$(cd "$(dirname "$0")/.." && pwd)"
 
 for t in jq yq timeout; do
   if ! command -v "$t" >/dev/null 2>&1; then
+    if [ "${WOW_TESTS_REQUIRE_TOOLS:-}" = 1 ]; then
+      echo "FAIL - $t not on PATH; wow-review fixtures would not run" >&2
+      exit 1
+    fi
     echo "SKIP - $t not on PATH; wow-review fixtures not run" >&2
     exit 0
   fi

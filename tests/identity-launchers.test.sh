@@ -36,13 +36,18 @@
 # another section wrote. Each section's output goes to files that are replayed in section order; the
 # suite fails if any section reports a FAIL through `check` or exits non-zero.
 #
-# Permitted toolset: POSIX sh, its standard utilities, pwsh, git, yq and jq (skipped, loudly, if any is absent).
+# Permitted toolset: POSIX sh, its standard utilities, pwsh, git, yq and jq (skipped, loudly, if any is absent; a
+# failure instead when WOW_TESTS_REQUIRE_TOOLS is exactly 1, which ci.yml sets).
 set -eu
 
 root_dir="$(cd "$(dirname "$0")/.." && pwd)"
 
 for t in pwsh git yq jq; do
   if ! command -v "$t" >/dev/null 2>&1; then
+    if [ "${WOW_TESTS_REQUIRE_TOOLS:-}" = 1 ]; then
+      echo "FAIL - $t not on PATH; identity-launchers fixtures would not run" >&2
+      exit 1
+    fi
     echo "SKIP - $t not on PATH; identity-launchers fixtures not run" >&2
     exit 0
   fi

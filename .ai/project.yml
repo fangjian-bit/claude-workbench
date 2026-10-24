@@ -57,14 +57,14 @@ rulesets:
   - name: main-required-checks
     source: repo
     rule_types: [required_status_checks]
-    required_checks: [lint, coupling, invariants, architect-review]
+    required_checks: [lint, coupling, invariants, architect-review, tests-1, tests-2, tests-launchers, tests-review-launcher, pr-title]
   - name: protected-integration-branches
     source: repo
     rule_types: [deletion, non_fast_forward, pull_request]
 ruleset:
   name: main-required-checks
   rule_types: [required_status_checks]
-  required_checks: [lint, coupling, invariants, architect-review]
+  required_checks: [lint, coupling, invariants, architect-review, tests-1, tests-2, tests-launchers, tests-review-launcher, pr-title]
 
 # ── the fresh-session review gate ────────────────────────────────────────────
 review:

@@ -278,8 +278,8 @@
 # DOES catch a `mklink /J` junction under Git Bash's `find`; untested by CI either way,
 # see below.
 #
-# This repo's CI (`.github/workflows/ci.yml`) runs `tests/review-sandbox.test.sh` in
-# its `tests` job, on Ubuntu only, and not as a required check. So every
+# This repo's CI (`.github/workflows/ci.yml`) runs `tests/review-sandbox.test.sh`
+# on Ubuntu only. So every
 # Windows-specific path in this script (the leftover-process skip, the junction check
 # above) is exercised only on a maintainer's machine, never mechanically.
 set -eu

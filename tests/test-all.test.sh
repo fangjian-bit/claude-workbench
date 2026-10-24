@@ -17,6 +17,10 @@
 # -x identity-review.test.sh each leave that file's verdict line out and the rest of the run
 # unchanged, two -x options leave both out, and -x with no value, an empty value, a value with a
 # slash and a value naming no file exit 2 with the usage on stderr and run nothing.
+# The -s cases: a skipping suite appears in FILE with its skip line, a run with no skips writes the
+# none line, FILE's earlier contents are kept, exit code and stdout match the run without -s, and a
+# missing value, a relative FILE naming an existing file and a FILE that does not exist each exit 2
+# with no suite started.
 # Needs bash (the runner is a bash script). Permitted toolset: POSIX sh, plus bash, grep, sed
 # and sleep.
 set -eu
@@ -280,5 +284,50 @@ assert_eq "-x from another directory exits 0" 0 "$rc"
 assert_lacks "-x from another directory: verdict line gone" "$t7/out" "tests/extra.test.sh"
 run "$t7" -h
 assert_has "-h shows -x" "$t7/out" "-x NAME"
+
+# --- -s FILE appends the skipped suites ---
+sf="$tmp/summary.md"
+printf 'earlier line\n' >"$sf"
+run "$t1"
+want_rc="$rc"
+cp "$t1/out" "$tmp/out.nos"
+run "$t1" -s "$sf"
+assert_eq "-s: same exit code" "$want_rc" "$rc"
+assert_eq "-s: same stdout" "$(cat "$tmp/out.nos")" "$(cat "$t1/out")"
+assert_has "-s: earlier contents kept" "$sf" "earlier line"
+assert_has "-s: section heading" "$sf" "### test-all skips"
+assert_has "-s: SKIP-form suite named" "$sf" "tests/skipa.test.sh"
+assert_has "-s: skip-form suite named" "$sf" "tests/skipb.test.sh"
+assert_has "-s: SKIP line carried" "$sf" "SKIP - stub"
+assert_has "-s: skip line carried" "$sf" "skip - stub"
+assert_lacks "-s: a passing suite not named" "$sf" "tests/pass.test.sh"
+assert_lacks "-s: a failing suite not named" "$sf" "tests/fail.test.sh"
+assert_eq "-s: first line is the earlier content" "earlier line" "$(head -n 1 "$sf")"
+# a run with no skips
+t10="$tmp/t10"
+make_tree "$t10" 0
+rm -f "$t10/tests/skipa.test.sh" "$t10/tests/skipb.test.sh"
+: >"$sf"
+run "$t10" -s "$sf"
+assert_eq "-s no skips: exits 0" 0 "$rc"
+assert_has "-s no skips: none line" "$sf" "No suite skipped."
+assert_lacks "-s no skips: no fence" "$sf" '```'
+# bad -s values exit 2 and start no suite
+: >"$sf"
+mkdir -p "$tmp/sdir"
+touch "$tmp/rel.md"
+for sv in "$tmp/nosuch.md" "$tmp/sdir" "rel.md"; do
+  rm -f "$t1"/state/*.marker "$t1"/state/*.done
+  cp "$tmp/rel.md" "$t1/rel.md"
+  run "$t1" -s "$sv"
+  assert_eq "-s '$sv' exits 2" 2 "$rc"
+  assert_has "-s '$sv' prints usage on stderr" "$t1/err" "Usage: bash scripts/test-all.sh"
+  assert_eq "-s '$sv' runs nothing" "" "$(cat "$t1/out")"
+  assert_eq "-s '$sv' started no suite" 0 "$(ls "$t1"/state/*.done 2>/dev/null | wc -l | tr -d ' ')"
+done
+run "$t1" -s
+assert_eq "-s with no value exits 2" 2 "$rc"
+run "$t1" -h
+assert_has "-h shows -s" "$t1/out" "-s FILE"
 
 exit "$fail"

@@ -1,14 +1,20 @@
 #!/usr/bin/env bash
 # Runs every tests/*.test.sh, N at a time, and reports one verdict per file.
 #
-# Usage: bash scripts/test-all.sh [-j N] [-x NAME]...
+# Usage: bash scripts/test-all.sh [-j N] [-x NAME]... [-s FILE]
 #   -j N     run at most N files at once. N is one to three decimal digits with no leading
 #            zero. Default: the CPU count (`nproc`, else `getconf _NPROCESSORS_ONLN`, else 4).
 #   -x NAME  leave tests/NAME out of the run; repeatable. NAME is the file name, byte for byte,
 #            of a tests/*.test.sh file the glob finds (a pool file or a held-out one).
+#   -s FILE  after the run, before the final count line, append a Markdown section to FILE (CI
+#            passes $GITHUB_STEP_SUMMARY): each `skip` suite with its `SKIP - ` and `skip - ` lines
+#            in a fenced code block, or one line saying no suite skipped. It changes neither the
+#            exit code nor stdout. FILE is an absolute path to an existing, writable file (the
+#            script changes to the repo root before running suites); anything else exits 2 before
+#            any suite starts.
 #   -h       print this usage on stdout and exit 0.
-# A bad -j value, a bad -x value (none, or one naming no such file), a missing value or any
-# other argument prints the usage on stderr and exits 2.
+# A bad -j value, a bad -x value (none, or one naming no such file), a bad -s value, a missing
+# value or any other argument prints the usage on stderr and exits 2.
 #
 # The files are found by a glob (sorted), so a new tests/X.test.sh is picked up with no list to
 # edit; every matching file runs, tracked or not. Each runs as `sh tests/NAME` from the repo
@@ -31,7 +37,9 @@
 # every suite when the runner is KILLed, may leave its own children and temp directory behind.
 # The runner waits for each stopped suite, so a suite that traps TERM delays the exit.
 #
-# Tool notes for some suites (a suite missing a tool it needs reports `skip`, loudly):
+# Tool notes for some suites (a suite missing a tool it needs reports `skip`, loudly; but
+# tests/identity-review.test.sh, tests/identity-launchers.test.sh and tests/review-verdict.test.sh
+# fail instead when WOW_TESTS_REQUIRE_TOOLS is exactly 1, which ci.yml sets):
 #   - tests/invariants-only.test.sh needs `yq`, `jq` and `git` for its run-each-id-alone case and
 #     skips that case loudly without them.
 #   - `yq` also: tests/review-base-anchor.test.sh, tests/schema-complete.test.sh,
@@ -60,16 +68,18 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: bash scripts/test-all.sh [-j N] [-x NAME]...
+Usage: bash scripts/test-all.sh [-j N] [-x NAME]... [-s FILE]
   -j N     run at most N test files at once (one to three digits, no leading zero);
            default: the CPU count
   -x NAME  leave tests/NAME out of the run (a tests/*.test.sh file name); repeatable
+  -s FILE  append the skipped suites to FILE (absolute path of an existing, writable file)
   -h       print this usage
 EOF
 }
 
 jobs=""
 xs=()   # -x names, checked against the glob after the cd below
+summary=""   # -s FILE
 while [ "$#" -gt 0 ]; do
   case "$1" in
     -h)
@@ -98,6 +108,25 @@ while [ "$#" -gt 0 ]; do
       fi
       xs+=("$2")
       shift 2
+      ;;
+    -s)
+      if [ "$#" -lt 2 ]; then
+        usage >&2
+        exit 2
+      fi
+      summary="$2"
+      shift 2
+      case "$summary" in
+        /*) ;;
+        *)
+          usage >&2
+          exit 2
+          ;;
+      esac
+      if [ ! -f "$summary" ] || [ ! -w "$summary" ]; then
+        usage >&2
+        exit 2
+      fi
       ;;
     *)
       usage >&2
@@ -245,6 +274,7 @@ done
 pass=0
 fail=0
 skip=0
+skipped=""   # the -s section's body: one block per skipped suite
 i=0
 while [ "$i" -lt "$total" ]; do
   log="$logdir/$i.log"
@@ -261,6 +291,13 @@ while [ "$i" -lt "$total" ]; do
   echo "$verdict tests/${names[$i]}"
   if [ "$verdict" = skip ]; then
     grep -E '^(SKIP|skip) - ' "$log" | sed 's/^/  /'
+    skipped="$skipped
+\`tests/${names[$i]}\`
+
+\`\`\`
+$(grep -E '^(SKIP|skip) - ' "$log")
+\`\`\`
+"
   fi
   i=$((i + 1))
 done
@@ -273,6 +310,14 @@ while [ "$i" -lt "$total" ]; do
   fi
   i=$((i + 1))
 done
+
+if [ -n "$summary" ]; then
+  if [ "$skip" -eq 0 ]; then
+    printf '\n### test-all skips\n\nNo suite skipped.\n' >>"$summary"
+  else
+    printf '\n### test-all skips\n%s' "$skipped" >>"$summary"
+  fi
+fi
 
 echo "test-all: $pass pass, $fail fail, $skip skip"
 [ "$fail" -eq 0 ]

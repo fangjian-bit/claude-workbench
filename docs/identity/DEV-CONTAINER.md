@@ -533,7 +533,7 @@ removes it. The login lives on the volume; the binary does not.
 - **The check after a rebuild**: `command -v pwsh` prints `/usr/local/bin/pwsh`, `pwsh --version`
   names the pinned version, and `sh tests/identity-launchers.test.sh` and
   `sh tests/identity-broker.test.sh` no longer print their pwsh SKIP line (the broker suite's Task
-  Scheduler case still skips off Windows, as in CI).
+  Scheduler case skips off Windows and runs in CI's `tests-windows` job).
 
 ## Not adopted here yet
 

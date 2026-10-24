@@ -4,7 +4,7 @@ name: pr-title
 # types, which leave out `edited`, so retitling a PR would not re-run the check there, and
 # adding `edited` to ci.yml would re-run every job in it on each PR body edit.
 #
-# Not a required check yet. The job runs the PR's own script against the PR's own
+# The job runs the PR's own script against the PR's own
 # CLAUDE.md, so it catches scope drift, not a PR that edits the area list, the script or
 # this workflow.
 

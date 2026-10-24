@@ -8,7 +8,8 @@
 # shows that a sed-mutated copy of either file fails the comparison, and runs canned review
 # lists through the program.
 #
-# Permitted toolset: POSIX sh and its standard utilities, awk and jq (skipped, loudly, if absent).
+# Permitted toolset: POSIX sh and its standard utilities, awk and jq (skipped, loudly, if absent; a
+# failure instead when WOW_TESTS_REQUIRE_TOOLS is exactly 1, which ci.yml sets).
 set -eu
 
 root_dir="$(cd "$(dirname "$0")/.." && pwd)"
@@ -16,6 +17,10 @@ wf="$root_dir/.github/workflows/architect-review-gate.yml"
 wr="$root_dir/scripts/identity/wow-review"
 
 if ! command -v jq >/dev/null 2>&1; then
+  if [ "${WOW_TESTS_REQUIRE_TOOLS:-}" = 1 ]; then
+    echo "FAIL - jq not on PATH; review-verdict fixtures would not run" >&2
+    exit 1
+  fi
   echo "SKIP - jq not on PATH; review-verdict fixtures not run" >&2
   exit 0
 fi
