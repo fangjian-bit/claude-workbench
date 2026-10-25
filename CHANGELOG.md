@@ -23,7 +23,12 @@ the GitHub release notes.
 
 ### Changed
 
+- The five callers of `declared-ids.sh` carry a pointer to its five-way parser note, so a change to its `ok` line is visible as a five-way edit from the caller side (`#1115`).
 - `/way-of-working:critic-gate`'s rule step now gives one inline Bash block that reads the default branch's `.ai/project.yml`, validates the critic names and runs `critic-select.sh`, so a session never composes that read itself; `critic-select.sh`'s refusal cases each get a fixture (`#1120`, `#1121`).
+
+### Fixed
+
+- `gh-identity.sh` and the architect-review label read refuse a maintainer id not in canonical decimal instead of matching nobody, so every `gh-identity.sh` caller that gates refuses such a config until it is corrected (`#1114`).
 
 ## [0.26.0] — 2026-10-25
 

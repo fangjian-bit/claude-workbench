@@ -246,7 +246,10 @@ to its printed `base=`: nothing below means anything against the wrong repo or b
      reactions file. Read the ids from `$DEF_YML_FILE`, never the working tree: `yq -r
      '[.identities.maintainer | explode(.) | .[].id | tag] | unique | join(",")' "$DEF_YML_FILE"` must print
      exactly `!!int` (a string or missing `id`, or an empty list, is "ids unreadable"), then
-     `IDS=$(yq -r '.identities.maintainer | explode(.) | map(.id) | join(",")' "$DEF_YML_FILE")`.
+     `IDS=$(yq -r '.identities.maintainer | explode(.) | map(.id) | join(",")' "$DEF_YML_FILE")`,
+     refusing an `IDS` that is not comma-separated canonical decimal (`case ",$IDS," in
+     *[!0-9,]*|*,0*)`, the test `declared-ids.sh` runs on its list; a hex, underscore, signed or
+     leading-zero id is "ids unreadable").
      Run `spec-reaction.sh "$CUP" "$IDS" <"$T/reactions.tsv"`. Only `approved` loads the spec,
      and writes this label in the review body, naming the issue the spec came from, with
      "maintainer-authored" or "dev-App-authored" from the role above: "<role>-authored spec,

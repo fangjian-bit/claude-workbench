@@ -220,6 +220,37 @@ else
   run classify 'acme-review[bot]' 2002 "$tmp/bad.yml"
   expect "string id never matches" "" 2
 
+  # a maintainer id not in canonical decimal is refused, not matched against nobody (#1114)
+  for badid in 0x3E9 1_001 01001 +1001; do
+    mk noncanon "identities:
+  maintainer:
+    - { login: alice-dev, id: $badid }
+  dev_app: null
+  reviewer_app: null
+  loop_app: null"
+    run task-author alice-dev 1001 "$tmp/noncanon.yml"
+    expect "task-author: maintainer id [$badid] is refused" "" 2
+    run role alice-dev 1001 "$tmp/noncanon.yml"
+    expect "role: maintainer id [$badid] is refused" "" 2
+  done
+  mk mixedcanon 'identities:
+  maintainer:
+    - { login: alice-dev, id: 1001 }
+    - { login: bob, id: 0x3E9 }
+  dev_app: null
+  reviewer_app: null
+  loop_app: null'
+  run task-author alice-dev 1001 "$tmp/mixedcanon.yml"
+  expect "task-author: a canonical maintainer beside a non-canonical one is refused" "" 2
+  mk onlycanon 'identities:
+  maintainer:
+    - { login: alice-dev, id: 1001 }
+  dev_app: null
+  reviewer_app: null
+  loop_app: null'
+  run task-author alice-dev 1001 "$tmp/onlycanon.yml"
+  expect "task-author: a canonical maintainer alone is trusted" trusted 0
+
   # single-entry files, where a wrongly accepted entry would print user/app
   mk onlystrid 'identities:
   maintainer:

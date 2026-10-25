@@ -19,7 +19,7 @@
 #                  Also (#759), under a map and for a maintainer or App author: a declared App's id
 #                  (dev_app, reviewer_app, loop_app) on the maintainer list, an App entry that is
 #                  neither null nor well formed or has a non-canonical id, or a maintainer list with an
-#                  entry that is not well formed or whose id is not canonical decimal.
+#                  entry that is not well formed.
 #   repo-mismatch  the default branch's project.yml `.repo` is not the origin's repository
 #   bad-backlog    `backlog.repo` (null or absent means the origin's repository) is not owner/name
 #   bad-base       `pr_base` is empty, begins with `-` or holds an unusual character
@@ -29,7 +29,8 @@
 #   loop-identity  the author is `orchestration.loop_identity`, before any trust check
 #   untrusted      the author is not trusted (`gh-identity.sh task-author`: not a declared maintainer,
 #                  dev App or reviewer App, or the loop App). It also covers a config `gh-identity.sh`
-#                  could not judge (exit 2: a malformed `identities`, an id declared twice), so the
+#                  could not judge (exit 2: a malformed `identities`, an id declared twice, a maintainer id
+#                  not in canonical decimal, #1114), so the
 #                  word can mean a broken config, not only a hostile author.
 #   unreacted      the author is the declared dev or reviewer App (`agent`, WB-D32, #664) and no
 #                  declared maintainer has reacted approvingly to the issue strictly after the time its
@@ -293,6 +294,7 @@ if [ -n "$loopid" ] && [ "$(fold "$login")" = "$(fold "$loopid")" ]; then stop l
 # count as a maintainer's. Sets maint_ids, or stops `unreadable` unless the helper exits 0 with exactly
 # `ok <ids> <dev>`: three fields, a non-empty list, a dev id of `-` or digits with no leading zero.
 declared_ids() {
+  # One of five copies of the declared-ids.sh ok-line parser (spec-find, spec-comment, spec-answer, spec-issue, spec-post); a change to that line edits all five (declared-ids.sh header, #1105).
   di_line="$(sh "$di" "$tmp/def.yml" </dev/null 2>/dev/null)" || stop unreadable
   case "$di_line" in
     *"

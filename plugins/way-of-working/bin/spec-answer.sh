@@ -94,6 +94,7 @@ verdict() {
     *) word=unreadable; return ;;
   esac
   # The declared ids come from declared-ids.sh (#1079); its line is held to `ok <ids> <dev>` here.
+  # One of five copies of the declared-ids.sh ok-line parser (spec-find, spec-comment, spec-answer, spec-issue, spec-post); a change to that line edits all five (declared-ids.sh header, #1105).
   di_line="$(sh "$di" "$yml" </dev/null 2>/dev/null)" || { word=unreadable; return; }
   case "$di_line" in
     *"

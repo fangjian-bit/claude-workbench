@@ -153,6 +153,7 @@ esac
 
 # The declared ids come from declared-ids.sh (#1079), whose line is held to its shape here: exactly
 # `ok <ids> <dev>`, three fields, a non-empty list, a dev id of `-` or digits with no leading zero.
+# One of five copies of the declared-ids.sh ok-line parser (spec-find, spec-comment, spec-answer, spec-issue, spec-post); a change to that line edits all five (declared-ids.sh header, #1105).
 di_line="$(sh "$di" "$yml" </dev/null 2>/dev/null)" || out unreadable
 case "$di_line" in
   *"

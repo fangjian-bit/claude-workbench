@@ -52,7 +52,8 @@
 #                   spec-reaction.sh, run on the comment's
 #                   `updated_at`, the maintainer ids read from <project.yml> (only under a map,
 #                   `identities.maintainer`, aliases expanded, every `id` an !!int above 0 and canonical decimal, at
-#                   least one; anything else is `unreacted`) and the reactions file. Only
+#                   least one; anything else is `unreacted`, except a maintainer id not in canonical decimal,
+#                   which `gh-identity.sh role` refuses first, so it reads `untrusted`, #1114) and the reactions file. Only
 #                   `approved` passes. No file, a missing or unreadable file, an exit 2 from
 #                   spec-reaction.sh and any other word are `unreacted`, never `unreadable`, which
 #                   still covers the comment file only. A legacy comment (identities null) carries
@@ -174,6 +175,7 @@ reaction_word() {
   # the maintainer list could approve its own text (the dev App and the reviewer App have Issues write; the
   # loop App is treated as the same class). A maintainer author is approved by any declared maintainer's
   # reaction, their own included. Anything but an `ok` line of three fields is unreacted.
+  # One of five copies of the declared-ids.sh ok-line parser (spec-find, spec-comment, spec-answer, spec-issue, spec-post); a change to that line edits all five (declared-ids.sh header, #1105).
   di_line="$(sh "$di" "$yml" </dev/null 2>/dev/null)" || { echo unreacted; return; }
   case "$di_line" in
     *"
