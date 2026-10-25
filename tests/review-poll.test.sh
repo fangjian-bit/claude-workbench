@@ -33,6 +33,7 @@ assert_eq() { # assert_eq <label> <expected> <actual>
   if [ "$2" = "$3" ]; then ok "$1"; else bad "$1: expected [$2], got [$3]"; fi
 }
 has() { grep -qF -- "$2" "$1" 2>/dev/null; }   # has <file> <fixed string>
+nothas() { ! has "$@"; }   # nothas <file> <fixed string>
 lines() { if [ -f "$1" ]; then wc -l <"$1" | tr -d ' '; else echo 0; fi; }
 
 stubs="$tmp/stubs"
@@ -85,6 +86,11 @@ echo "$n $*" >>"$S/mint.calls"
 out= prev=
 for a in "$@"; do [ "$prev" != --out ] || out=$a; prev=$a; done
 [ ! -e "$S/mint.fail.$1" ] || exit 1
+# mint.hold holds this call's number: wait until launch 1 has written its exit code into the run dir
+# (the dir of --out), so a gather cannot finish before it. Only the "exit 75 with a free slot" case writes it.
+if [ -e "$S/mint.hold" ] && [ "$(cat "$S/mint.hold")" = "$n" ]; then
+  i=0; while [ ! -e "$(dirname "$out")/fl/1.rc" ] && [ "$i" -lt 400 ]; do "$REAL_SLEEP" 0.05; i=$((i + 1)); done
+fi
 tok=$(printf 'ghs_Tokenxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx%03d' "$n")
 printf '%s\n2999-01-01T00:00:00Z\n' "$tok" >"$out"
 echo "$tok" >>"$S/mint.tokens"
@@ -435,11 +441,15 @@ for c in 75 2 124; do
   check "exit $c in flight: the poll lock is gone" test ! -e "$home/review-state/.poll-lock"
 done
 
-# a stop code is noticed with a free slot: a pool of 3 with head 7 exiting 75 at once starts no further launch
-three_heads; echo 75 >"$STUB/review.rc.o_r_7"; release o_r_7; release o_r_8; release o_r_9; T_MAX=3 runbg
+# a stop code is noticed with a free slot: a pool of 3 with head 7 exiting 75 at once starts no further launch.
+# mint.hold holds the second gather's mint until launch 7's exit code is on disk, so the reap after the
+# second launch always sees 75 and head 9 never starts, however the runner schedules the background launch.
+three_heads; echo 75 >"$STUB/review.rc.o_r_7"; release o_r_7; release o_r_8; release o_r_9; echo 2 >"$STUB/mint.hold"; T_MAX=3 runbg
 finish
 assert_eq "exit 75 with a free slot: exit 0" 0 "$rc"
 check "exit 75 with a free slot: not all three heads launched" test "$(reviews)" -lt 3
+check "exit 75 with a free slot: head 9 never launched" nothas "$STUB/review.calls" "o/r 9"
+check "exit 75 with a free slot: the stopping exit is logged" has "$home/$log" "wow-review exit 75"
 
 # exit 6 stops that repo only
 new_case; addpr o r 7 "$SHA1" false success none; addpr o r 8 "$SHA2" false success none

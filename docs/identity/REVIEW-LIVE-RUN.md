@@ -208,7 +208,7 @@ Several identity homes can run `wow-review` against one Docker daemon. Give each
 glunk-wow-review-poll>`; registering under the same task name replaces the first home's task.
 A hand run against that home sets `WOW_HOME` to it and runs that home's installed `wow-review`.
 
-Each home's launcher applies `WOW_REVIEW_MAX` (from its own environment) to its own containers, and its sweep removes only its own
+Each home's launcher applies `WOW_REVIEW_MAX` (from its own environment) to its own containers (under that home's poller, the value the poller validated and passed to the launch, 2 when unset, not `wow-review`'s own default of 1), and its sweep removes only its own
 containers: those labelled `wow.review.home` with the key in `$WOW_HOME/review-state/.home-key`, or
 carrying no home label. There is no cap across homes. The homes stop counting and sweeping each
 other's runs only once every home on the daemon has this change installed; a home still on an
