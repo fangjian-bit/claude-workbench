@@ -181,8 +181,9 @@ assert_eq "cursor-sync: a non-ASCII parked filename is not quoted into drift" \
 # --- drift: a rename into .ai/parked/ also lists the path it left ------------
 # With rename detection (git's default) the move below lists only
 # .ai/parked/plan.md and would read cursor-sync; --no-renames adds docs/plan.md,
-# outside the allowlist. The premise is checked with renames forced on, so the
-# fixture exercises detection whatever the caller's git config says.
+# outside the allowlist. The premise and the assertion both run with renames forced
+# on through git's environment config, so the fixture exercises detection, and
+# fails on a script that drops --no-renames, whatever the caller's git config says.
 new_repo rename-into-parked
 echo plan >docs-plan.tmp && mkdir docs && mv docs-plan.tmp docs/plan.md
 mkdir -p .ai && echo cursor >.ai/next-steps.md
@@ -190,13 +191,14 @@ git add docs/plan.md .ai/next-steps.md && git commit -qm "plan and ledger"
 last="$(git rev-parse HEAD)"
 mkdir -p .ai/parked
 git mv docs/plan.md .ai/parked/plan.md && git commit -qm "move plan into parked"
-detected="$(git -c diff.renames=true diff --name-only "$last" HEAD)"
+detected="$(GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=diff.renames GIT_CONFIG_VALUE_0=true \
+  git diff --name-only "$last" HEAD)"
 if [ "$detected" != ".ai/parked/plan.md" ]; then
   echo "FAIL - fixture invariant broken: rename detection did not list only the new path, got [$detected]" >&2
   fail=1
 fi
 assert_eq "drift: a file renamed into .ai/parked/ from outside the allowlist" \
-  "drift" "$("$script" "$last")"
+  "drift" "$(GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=diff.renames GIT_CONFIG_VALUE_0=true "$script" "$last")"
 
 # --- shell portability: the drift verdict under a lastpipe shell -------------
 # POSIX lets a shell run the last stage of a pipeline in the current
