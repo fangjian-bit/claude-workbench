@@ -247,7 +247,8 @@ Explicitly reject:
    human's own reply names its number and affirms both. The reply is the human's next message
    after the question; a later message confirms nothing. A reply that only asks a question (for
    example "what is item 2?") is still the reply, confirms nothing and leaves every held item
-   deferred; the human can run `/way-of-working:retro` again, and that run's held items and
+   deferred; the human can run `/way-of-working:retro` again,
+   naming the window this run said it used, and that run's held items and
    numbers are its own. Route each confirmed item through the
    *Route each survivor* step with only the other-session part the question showed. The
    routing report goes in the same message as the question, before it, with the held material

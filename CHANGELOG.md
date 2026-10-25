@@ -21,6 +21,12 @@ the GitHub release notes.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`/way-of-working:retro`'s run-again remedy names the window the first run used (`#1092`).**
+  After a reply that only asks a question, the human runs retro again naming the window the first
+  run said it used, so a sprint close's transcripts are not left outside the second run's window.
+
 ## [0.25.0] — 2026-10-24
 
 **⚠️ Migration** — in each repo that labels by type, rename the four type labels in place
