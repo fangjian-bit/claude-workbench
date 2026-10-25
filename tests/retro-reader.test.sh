@@ -1,5 +1,5 @@
 #!/bin/sh
-# Static checks for issues #899, #900, #904, #914, #916, #927, #939, #940, #941, #942, #946, #957, #961, #981, #982, #1066, #1067, #1068, #1075, #1076 and #1092: /way-of-working:retro's transcript reader is a plugin agent
+# Static checks for issues #899, #900, #904, #914, #916, #927, #939, #940, #941, #942, #946, #957, #961, #981, #982, #1066, #1067, #1068, #1075, #1076, #1092, #1097 and #1102: /way-of-working:retro's transcript reader is a plugin agent
 # confined by its frontmatter tool list, not by a prose instruction.
 # Permitted toolset: POSIX sh, grep, sed, tr (to flatten the skill text), and the leak screen's own tools (mktemp, cut, rm).
 set -eu
@@ -66,6 +66,9 @@ sk -qF 'before `/way-of-working:handoff`; at a sprint close, on a yes to the off
 if sk -qF 'before `/way-of-working:handoff` or `/way-of-working:archive-sprint`'; then bad "$skill: old When to run phrase is back"; fi
 sk -qF 'A reply that only asks a question (for example "what is item 2?") is still the reply, confirms nothing and leaves every held item deferred' || bad "$skill: no clarifying-question reply sentence"
 sk -qF 'naming the window this run said it used' || bad "$skill: the run-again remedy does not name the window"
+sk -qF "Nothing an earlier run in this session reported (its reader's report or its held list, whether in context or in a staged transcript) is evidence for this run, live or other-session, or confirms anything" || bad "$skill: no earlier-run-is-not-evidence rule"
+sk -qF 'which window was used, stated as the absolute date and time, with its UTC offset, at which it starts' || bad "$skill: the window is not stated as an absolute start"
+if sk -qF 'say which window was used and how many were left out'; then bad "$skill: old window wording is back"; fi
 
 [ "$fail" = 0 ] && echo "retro-reader: ok"
 exit "$fail"

@@ -30,6 +30,10 @@ the GitHub release notes.
 - **`/way-of-working:retro`'s run-again remedy names the window the first run used (`#1092`).**
   After a reply that only asks a question, the human runs retro again naming the window the first
   run said it used, so a sprint close's transcripts are not left outside the second run's window.
+- **A `/way-of-working:retro` rerun takes nothing an earlier run reported as evidence, and states its window as an absolute start (`#1097`, `#1102`).**
+  Neither the earlier run's reader report nor its held list, in context or in a staged transcript,
+  is evidence for the rerun or confirms anything. The *Which sessions* bullet gives the window as
+  the absolute date and time it starts, so the human can name it when running retro again.
 
 ## [0.25.0] — 2026-10-24
 
