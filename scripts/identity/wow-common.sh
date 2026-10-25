@@ -29,6 +29,8 @@
 #                          clone}. Never mounted.
 #   review-state/          wow-review's lock and its dedupe ledger (<owner>/<name>/<N>/<sha>/).
 #   review-state/.home-key  the home's container-label key (wow.review.home), never to be removed while that home has containers, networks or volumes.
+#   review-state/.live/<id>  a live run's lease (wow-review), touched every 60 seconds while its launcher lives; the overdue sweep
+#                          leaves a container whose run's lease is under 5 minutes old. Removed by the launcher's trap.
 #   review-poll.json       {"repos": ["owner/name", ...]}, the repos wow-review-poll polls (the maintainer writes it).
 #   review-poll.log        wow-review-poll's decision log, rotated to review-poll.log.1 past 1 MiB.
 #   review-state/.poll-lock  wow-review-poll's own lock directory, separate from wow-review's .lock.
@@ -45,7 +47,7 @@
 # reviewer-token (default review-tokens/<repo>/, or the path --out names), the session and filing
 # tokens (wow-review-mint --read / --file, written only to the path --out names), and the .mint.* file
 # mint.sh stages beside any token it writes. wow-review (the launcher) also writes its own review-sessions/,
-# review-host/, review-state/ and review-logs/ entries. wow-review-poll writes review-poll.log (and .1),
+# review-host/, review-state/ (its lock, ledger and .live/ lease files) and review-logs/ entries. wow-review-poll writes review-poll.log (and .1),
 # review-state/.poll-lock and review-host/poll-<id>/. wow-driver.ps1 writes driver/<leaf>.json and its same-directory
 # temp file. Nothing else under $WOW_HOME is modified.
 #

@@ -195,7 +195,7 @@ Once every item above has passed or been accepted by the maintainer as unanswere
 7), and the cleanup above has merged, and not before, register the poller that launches
 `wow-review` for open PR heads without a human. Create `$WOW_HOME/review-poll.json`, shaped
 `{"repos": ["owner/name"]}`, then run `scripts/identity/register-review-poll-task.ps1` from a
-PowerShell 7.2+ prompt (`-IntervalMinutes` 2 to 60, default 5; pass `-Sh` as Git for Windows' `bin\sh.exe`, never `usr\bin\sh.exe`). Its decisions are in
+PowerShell 7.2+ prompt (`-IntervalMinutes` 2 to 60, default 5; pass `-Sh` as Git for Windows' `bin\sh.exe`, never `usr\bin\sh.exe`). The poller runs up to `WOW_REVIEW_MAX` reviews at once (1 to 9, default 2), each its own fresh session; the per-home cap in `wow-review` is unchanged, and the poller passes its value to each launch. The task sets only `WOW_HOME`, so the value comes from the user's environment, and setting it there raises the cap for hand runs too. Its decisions are in
 `$WOW_HOME/review-poll.log`. The task starts pwsh through `conhost.exe --headless`, so a tick opens no window; running the script again brings an older registration up to date. To stop it, run the same script with `-Unregister`.
 
 ### A second home's poller (#815)
@@ -215,7 +215,7 @@ other's runs only once every home on the daemon has this change installed; a hom
 earlier copy keeps the daemon-wide behaviour.
 
 To stop a second home's poller, run the same script with `-Unregister` and that same `-TaskName`.
-Stopping the task can kill a live launch outright, and no other home sweeps its containers, so
+Stopping the task can kill live launches outright, and no other home sweeps its containers, so
 once no launch of that home is running, list the containers, networks and volumes labelled
 `wow.review.home=<the key in its .home-key>` (for example `docker ps -a --filter
 label=wow.review.home=<key>`) and remove them by hand.

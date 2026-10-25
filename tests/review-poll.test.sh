@@ -95,13 +95,29 @@ cat >"$stubs/wow-review" <<'STUB'
 S=$STUB_DIR
 echo "$*" >>"$S/review.calls"
 [ -n "${WOW_HOME:-}" ] || echo "no WOW_HOME" >>"$S/review.bad"
+echo "${WOW_REVIEW_MAX:-unset}" >>"$S/review.max"
 key=$(printf '%s' "$*" | tr '/ ' '__')
 echo "wow-review ran for $*"
 [ ! -f "$S/hook.sh" ] || sh "$S/hook.sh"
+# A case with a blocks file holds each launch until its release file (release.<key>) exists, and records
+# when it starts and ends so overlap can be observed; it gives up after about 30 seconds.
+if [ -e "$S/blocks" ]; then
+  echo "start $key" >>"$S/events"
+  i=0
+  while [ ! -e "$S/release.$key" ] && [ "$i" -lt 600 ]; do "$REAL_SLEEP" 0.05; i=$((i + 1)); done
+  echo "end $key" >>"$S/events"
+fi
 if [ -e "$S/review.rc.$key" ]; then exit "$(cat "$S/review.rc.$key")"; fi
 exit "$(cat "$S/review.rc.default" 2>/dev/null || echo 0)"
 STUB
-chmod +x "$stubs/docker" "$stubs/gh" "$stubs/wow-review-mint"
+# The poller's 5 second wait between passes is cut to 0.05; every other sleep is real.
+real_sleep=$(command -v sleep)
+cat >"$stubs/sleep" <<'STUB'
+#!/bin/sh
+[ "$1" != 5 ] || set -- 0.05
+exec "$REAL_SLEEP" "$@"
+STUB
+chmod +x "$stubs/docker" "$stubs/gh" "$stubs/wow-review-mint" "$stubs/sleep"
 
 # --- a case: a fresh $WOW_HOME, bin/ and stub directory -------------------------------------
 SHA1=1111111111111111111111111111111111111111
@@ -132,7 +148,7 @@ new_case() {
   cp "$root_dir/scripts/identity/wow-review-poll" "$root_dir/scripts/identity/wow-common.sh" "$home/bin/"
   for f in token-check.sh gh-identity.sh review-gate-state.sh; do cp "$root_dir/plugins/way-of-working/bin/$f" "$home/bin/"; done
   cp "$stubs/wow-review-mint" "$stubs/wow-review" "$home/bin/"
-  : >"$STUB/gh.calls"; : >"$STUB/mint.calls"; : >"$STUB/review.calls"
+  : >"$STUB/gh.calls"; : >"$STUB/mint.calls"; : >"$STUB/review.calls"; : >"$STUB/events"
   printf '{"repos": ["o/r"]}\n' >"$home/review-poll.json"
   mkrepo o r
 }
@@ -158,7 +174,7 @@ addpr() {
 
 runp() { # runp <args...>: the poller from the fake bin, stdin closed, the stubs first on PATH
   rc=0
-  env PATH="$stubs:$orig_path" STUB_DIR="$STUB" WOW_HOME="$home" sh "$home/bin/wow-review-poll" "$@" <&- >"$tmp/out" 2>"$tmp/err" || rc=$?
+  env PATH="$stubs:$orig_path" REAL_SLEEP="$real_sleep" STUB_DIR="$STUB" WOW_HOME="$home" WOW_REVIEW_MAX="${T_MAX-1}" sh "$home/bin/wow-review-poll" "$@" <&- >"$tmp/out" 2>"$tmp/err" || rc=$?
 }
 reviews() { lines "$STUB/review.calls"; }
 log="review-poll.log"
@@ -179,7 +195,7 @@ esac
 STUB
       chmod +x "$cyg/cygpath" ;;
   esac
-  env PATH="$cyg:$stubs:$orig_path" STUB_DIR="$STUB" WOW_HOME="$wv" sh "$home/bin/wow-review-poll" <&- >"$tmp/out" 2>"$tmp/err" || rc=$?
+  env PATH="$cyg:$stubs:$orig_path" REAL_SLEEP="$real_sleep" STUB_DIR="$STUB" WOW_HOME="$wv" WOW_REVIEW_MAX=1 sh "$home/bin/wow-review-poll" <&- >"$tmp/out" 2>"$tmp/err" || rc=$?
 }
 
 # =========================================================================================
@@ -329,6 +345,158 @@ new_case; touch "$STUB/mint.fail.r"; runp
 assert_eq "a failed mint: no review" 0 "$(reviews)"
 check "a failed mint: the run dir is gone" rundir_gone
 check "a failed mint: logged" has "$home/$log" "the session-token mint failed"
+
+# =========================================================================================
+# the pool (#1107): up to WOW_REVIEW_MAX launches in flight. The stub holds each launch until its release file.
+three_heads() { new_case; addpr o r 7 "$SHA1" false success none; addpr o r 8 "$SHA2" false success none; addpr o r 9 "$SHA3" false success none; : >"$STUB/blocks"; }
+# runbg: the poller in the background; wait_events <n> waits for n lines of the events file; finish waits for the poller.
+runbg() {
+  rc=0
+  env PATH="$stubs:$orig_path" REAL_SLEEP="$real_sleep" STUB_DIR="$STUB" WOW_HOME="$home" WOW_REVIEW_MAX="${T_MAX-1}" sh "$home/bin/wow-review-poll" <&- >"$tmp/out" 2>"$tmp/err" &
+  bgpid=$!
+}
+finish() { rc=0; wait "$bgpid" || rc=$?; }
+wait_events() { # wait_events <pattern> <count>: until the events file holds that many matching lines (about 20 s)
+  i=0
+  while [ "$(grep -c "$1" "$STUB/events" 2>/dev/null)" -lt "$2" ] && [ "$i" -lt 400 ]; do "$real_sleep" 0.05; i=$((i + 1)); done
+  [ "$(grep -c "$1" "$STUB/events" 2>/dev/null)" -ge "$2" ]
+}
+release() { : >"$STUB/release.$1"; }
+settle() { "$real_sleep" 0.5; }   # long enough for a poller that would wrongly start another launch to do so
+max_inflight() { # the highest number of started-but-not-ended launches in the events file
+  awk '$1 == "start" { n++; if (n > m) m = n } $1 == "end" { n-- } END { print m + 0 }' "$STUB/events"
+}
+
+three_heads; T_MAX= runbg
+check "default pool: two launches start" wait_events '^start' 2
+settle
+assert_eq "default pool: the third waits while two are in flight" 2 "$(grep -c '^start' "$STUB/events")"
+release o_r_7
+check "default pool: the third starts once one has ended" wait_events '^start' 3
+release o_r_8; release o_r_9
+finish
+assert_eq "default pool: exit 0" 0 "$rc"
+assert_eq "default pool: never more than two in flight" 2 "$(max_inflight)"
+assert_eq "default pool: three launches" 3 "$(reviews)"
+assert_eq "default pool: each launch carries WOW_REVIEW_MAX=2" "2
+2
+2" "$(cat "$STUB/review.max")"
+check "default pool: every launch ended before the poller exited" test "$(grep -c '^end' "$STUB/events")" = 3
+check "default pool: every token was revoked" revoked_all
+check "default pool: the run dir is gone" rundir_gone
+check "default pool: the poll lock is gone" test ! -e "$home/review-state/.poll-lock"
+
+three_heads; T_MAX=1 runbg
+check "max 1: the first launch starts" wait_events '^start' 1
+settle
+assert_eq "max 1: no second launch while the first runs" 1 "$(grep -c '^start' "$STUB/events")"
+release o_r_7
+check "max 1: the second starts after the first ended" wait_events '^start' 2
+release o_r_8; release o_r_9
+finish
+assert_eq "max 1: launches never overlap" 1 "$(max_inflight)"
+assert_eq "max 1: each launch carries WOW_REVIEW_MAX=1" "1
+1
+1" "$(cat "$STUB/review.max")"
+
+three_heads; T_MAX=3 runbg
+check "max 3: three launches start together" wait_events '^start' 3
+release o_r_7; release o_r_8; release o_r_9
+finish
+assert_eq "max 3: three in flight at once" 3 "$(max_inflight)"
+
+for v in 0 10 abc 01 -1 2.5; do
+  new_case; addpr o r 7 "$SHA1" false success none; T_MAX=$v runp
+  assert_eq "WOW_REVIEW_MAX [$v]: exit 1" 1 "$rc"
+  check "WOW_REVIEW_MAX [$v]: said so" has "$tmp/err" "WOW_REVIEW_MAX must be 1 to 9"
+  assert_eq "WOW_REVIEW_MAX [$v]: no gh call" 0 "$(lines "$STUB/gh.calls")"
+  assert_eq "WOW_REVIEW_MAX [$v]: no mint" 0 "$(lines "$STUB/mint.calls")"
+  assert_eq "WOW_REVIEW_MAX [$v]: no review" 0 "$(reviews)"
+done
+
+# a stop code with another launch in flight: that launch runs to its own end, nothing new starts
+for c in 75 2 124; do
+  three_heads; echo "$c" >"$STUB/review.rc.o_r_7"; T_MAX=2 runbg
+  check "exit $c in flight: both launches start" wait_events '^start' 2
+  release o_r_7
+  check "exit $c in flight: the first has ended" wait_events '^end' 1
+  settle
+  assert_eq "exit $c in flight: no third launch" 2 "$(grep -c '^start' "$STUB/events")"
+  check "exit $c in flight: the poller still waits for the other launch" kill -0 "$bgpid"
+  release o_r_8
+  finish
+  assert_eq "exit $c in flight: the poller exits 0" 0 "$rc"
+  assert_eq "exit $c in flight: the other launch ran to its own end" 2 "$(grep -c '^end' "$STUB/events")"
+  assert_eq "exit $c in flight: two launches in all" 2 "$(reviews)"
+  check "exit $c in flight: the stopping exit is logged" has "$home/$log" "wow-review exit $c"
+  check "exit $c in flight: the other exit is logged" has "$home/$log" "o/r#8 "
+  check "exit $c in flight: every token was revoked" revoked_all
+  check "exit $c in flight: the run dir is gone" rundir_gone
+  check "exit $c in flight: the poll lock is gone" test ! -e "$home/review-state/.poll-lock"
+done
+
+# a stop code is noticed with a free slot: a pool of 3 with head 7 exiting 75 at once starts no further launch
+three_heads; echo 75 >"$STUB/review.rc.o_r_7"; release o_r_7; release o_r_8; release o_r_9; T_MAX=3 runbg
+finish
+assert_eq "exit 75 with a free slot: exit 0" 0 "$rc"
+check "exit 75 with a free slot: not all three heads launched" test "$(reviews)" -lt 3
+
+# exit 6 stops that repo only
+new_case; addpr o r 7 "$SHA1" false success none; addpr o r 8 "$SHA2" false success none
+mkrepo o2 r2; addpr o2 r2 5 "$SHA3" false success none
+printf '{"repos": ["o/r", "o2/r2"]}\n' >"$home/review-poll.json"
+: >"$STUB/blocks"; echo 6 >"$STUB/review.rc.o_r_7"; T_MAX=2 runbg
+check "exit 6 in flight: both launches of the first repo start" wait_events '^start' 2
+release o_r_7
+check "exit 6 in flight: the next repo is still polled" wait_events '^start' 3
+release o_r_8; release o2_r2_5
+finish
+assert_eq "exit 6 in flight: exit 0" 0 "$rc"
+assert_eq "exit 6 in flight: the launches" "o/r 7
+o/r 8
+o2/r2 5" "$(cat "$STUB/review.calls")"
+check "exit 6 in flight: logged" has "$home/$log" "no new launch for o/r this run"
+
+# a head in flight is not launched a second time
+three_heads; T_MAX=2 runbg
+check "no double launch: two start" wait_events '^start' 2
+release o_r_7; release o_r_8; release o_r_9
+finish
+assert_eq "no double launch: each head once" "o/r 7
+o/r 8
+o/r 9" "$(sort "$STUB/review.calls")"
+
+# a failed gather with a launch in flight
+three_heads; T_MAX=2 runbg
+check "failed gather: two start" wait_events '^start' 2
+: >"$STUB/gh/repos_o_r_pulls_state_open.fail"
+release o_r_7
+settle
+release o_r_8
+finish
+assert_eq "failed gather: exit 0" 0 "$rc"
+assert_eq "failed gather: no further launch" 2 "$(reviews)"
+check "failed gather: every token was revoked" revoked_all
+check "failed gather: the run dir is gone" rundir_gone
+check "failed gather: the poll lock is gone" test ! -e "$home/review-state/.poll-lock"
+
+# a signal: nothing more is launched, the launches in flight are waited for, then the run dir and lock go
+three_heads; T_MAX=2 runbg
+check "signal: two start" wait_events '^start' 2
+kill -TERM "$bgpid"
+settle
+check "signal: the poller waits for the launches in flight" kill -0 "$bgpid"
+check "signal: the run dir is still there while they run" sh -c "ls -d '$home'/review-host/poll-* >/dev/null 2>&1"
+check "signal: the poll lock is still held while they run" test -d "$home/review-state/.poll-lock"
+release o_r_7; release o_r_8
+finish
+assert_eq "signal: exit 143" 143 "$rc"
+assert_eq "signal: no third launch" 2 "$(reviews)"
+check "signal: both launches ended before the poller" test "$(grep -c '^end' "$STUB/events")" = 2
+check "signal: every token was revoked" revoked_all
+check "signal: the run dir is gone" rundir_gone
+check "signal: the poll lock is gone" test ! -e "$home/review-state/.poll-lock"
+
 
 # the WOW_HOME check: the drive-letter forms the registration script and the operator write
 new_case; addpr o r 7 "$SHA1" false success none; runw 'C:\wowhome'

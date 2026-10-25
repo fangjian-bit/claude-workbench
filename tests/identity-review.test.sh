@@ -76,9 +76,10 @@ mkdir "$stubs"
 cat >"$stubs/sleep" <<'STUB'
 #!/bin/sh
 # The gate poll's 15 second pause is skipped and the injector poll's 0.2 second pause is cut to
-# 0.02; every other sleep is real.
+# 0.02, as is the lock wait's 2 second pause; every other sleep is real.
 [ "$1" != 15 ] || exit 0
 [ "$1" != 0.2 ] || set -- 0.02
+[ "$1" != 2 ] || set -- 0.02
 exec "$REAL_SLEEP" "$@"
 STUB
 
@@ -206,7 +207,7 @@ case $cmd in
   network)
     sub=$1; shift
     case $sub in
-      create) echo "docker-net-create $*" >>"$S/events"; printf '%s\n' "$*" >>"$S/net.create"; exit 0 ;;
+      create) echo "docker-net-create $*" >>"$S/events"; printf '%s\n' "$*" >>"$S/net.create"; ls -A "$WOW_HOME/review-state/.live" >>"$S/lease.seen" 2>/dev/null; exit 0 ;;
       connect) exit 0 ;;
       rm) echo "docker-net-rm $*" >>"$S/events"; exit 0 ;;
       inspect)
@@ -293,26 +294,27 @@ case $cmd in
       case $1 in --filter) flt=${2#label=}; shift ;; --format) fmt=$2; shift ;; -q) q=1 ;; esac
       shift
     done
-    # A preexisting record is "<id> <role label> [<deadline>] [home=<key>]": the home= field cannot be read as a deadline.
+    # A preexisting record is "<id> <role label> [<deadline>] [home=<key>] [run=<id>]": the home= and run= fields cannot be read as a deadline.
     {
       [ -f "$S/preexisting" ] && cat "$S/preexisting"
       for f in "$S"/ct/*.args; do
         [ -f "$f" ] || continue
-        b=$(basename "$f" .args); lab=; dl=0; hm=; p=
+        b=$(basename "$f" .args); lab=; dl=0; hm=; rn=; p=
         while IFS= read -r l; do
-          [ "$p" = --label ] && case $l in wow.review.deadline=*) dl=${l#*=} ;; wow.review.home=*) hm=home=${l#*=} ;; wow.review=1|wow.review.holder=1|wow.review.sidecar=1) lab=$l ;; esac
+          [ "$p" = --label ] && case $l in wow.review.deadline=*) dl=${l#*=} ;; wow.review.home=*) hm=home=${l#*=} ;; wow.review.run=*) rn=run=${l#*=} ;; wow.review=1|wow.review.holder=1|wow.review.sidecar=1) lab=$l ;; esac
           p=$l
         done <"$f"
-        [ -n "$lab" ] && echo "$b $lab $dl $hm"
+        [ -n "$lab" ] && echo "$b $lab $dl $hm $rn"
       done
-    } | while read -r id lab r1 r2; do
+    } | while read -r id lab r1 r2 r3; do
       [ "$lab" = "$flt" ] || continue
       grep -qxF "$id" "$S/removed" 2>/dev/null && continue
-      dl= hm=
-      for r in $r1 $r2; do case $r in home=*) hm=${r#home=} ;; *) dl=$r ;; esac; done
+      dl= hm= rn=
+      for r in $r1 $r2 $r3; do case $r in home=*) hm=${r#home=} ;; run=*) rn=${r#run=} ;; *) dl=$r ;; esac; done
       if [ "$q" = 1 ]; then echo "$id"
       else
         case $fmt in
+          *wow.review.run*) echo "$id|$dl|$hm|$rn" ;;
           *wow.review.deadline*) echo "$id|$dl|$hm" ;;
           *) echo "$id|$hm" ;;
         esac
@@ -433,7 +435,7 @@ orig_path=$(printf '%s\n' "$PATH" | tr ':' '\n' | grep -v '^/mnt/' | paste -sd: 
 reset_logs() {
   rm -rf "$STUB/inputs" "$STUB/state" "$STUB/ct" "$STUB/logs"
   mkdir -p "$STUB/inputs"
-  for x in events docker.calls gh.calls gh.seq gh.bad mint.calls mint.n mint.tokens mint.bad revoked issue.n killed rmed removed net.create vol.create wait.notes outbox.calls inject-stdin; do rm -f "$STUB/$x"; done
+  for x in events docker.calls gh.calls gh.seq gh.bad mint.calls mint.n mint.tokens mint.bad revoked issue.n killed rmed removed net.create vol.create wait.notes outbox.calls inject-stdin lease.seen; do rm -f "$STUB/$x"; done
   rm -f "$STUB"/gh/*.reads
   : >"$STUB/events"; : >"$STUB/docker.calls"; : >"$STUB/gh.calls"; : >"$STUB/mint.calls"
 }
@@ -726,7 +728,16 @@ for who_call in "session|$cs" "proxy|$pr" "injector|$ij" "holder|$hold"; do
 done
 assert_eq "golden: the proxy and the holder carry the home label right after run" 2 "$(grep -c "^CALL \[run\] \[--label\] \[wow.review.home=$hk\]" "$STUB/docker.calls")"
 assert_eq "golden: the injector and the session carry the home label right after create" 2 "$(grep -c "^CALL \[create\] \[--label\] \[wow.review.home=$hk\]" "$STUB/docker.calls")"
-check "golden: the sweep lists id, deadline and home, pipe-separated" has "$STUB/docker.calls" '[--format] [{{.ID}}|{{.Label "wow.review.deadline"}}|{{.Label "wow.review.home"}}]'
+check "golden: the sweep lists id, deadline, home and run, pipe-separated" has "$STUB/docker.calls" '[--format] [{{.ID}}|{{.Label "wow.review.deadline"}}|{{.Label "wow.review.home"}}|{{.Label "wow.review.run"}}]'
+# the run label (#1107): one run ID on all four containers, whose lease exists before the first network and is gone after cleanup
+rid=$(printf '%s' "$hold" | sed -n 's/.*\[wow.review.run=\([0-9]*-[0-9]*\)\].*/\1/p')
+case $rid in [0-9]*-[0-9]*) ok "golden: the holder's run label is a run ID" ;; *) bad "golden: the holder's run label is '$rid'" ;; esac
+for who_call in "session|$cs" "proxy|$pr" "injector|$ij" "holder|$hold"; do
+  who=${who_call%%|*}; call=${who_call#*|}
+  case $call in *"[--label] [wow.review.run=$rid]"*) ok "golden: the $who carries the run label" ;; *) bad "golden: the $who lacks the run label: $call" ;; esac
+done
+check "golden: the lease existed before the first network was created" has "$STUB/lease.seen" "$rid"
+check "golden: cleanup removed the lease" test ! -e "$home/review-state/.live/$rid"
 check "golden: the cap lists id and home, pipe-separated" has "$STUB/docker.calls" '[--format] [{{.ID}}|{{.Label "wow.review.home"}}]'
 assert_eq "golden: both network create calls carry the home label" 2 "$(grep -c -- "^--label wow.review.home=$hk " "$STUB/net.create")"
 assert_eq "golden: both volume create calls carry the home label" 2 "$(grep -c -- "^--label wow.review.home=$hk " "$STUB/vol.create")"
@@ -901,6 +912,16 @@ assert_eq "fresh held lock: another run's lock survives this run's trap" other-r
 check "fresh held lock: no entry" test ! -d "$(entry_dir)"
 
 new_case
+mkdir -p "$home/review-state/.lock"; echo other-run >"$home/review-state/.lock/id"
+( "$real_sleep" 0.5; rm -rf "$home/review-state/.lock" ) &
+lw_pid=$!
+run o/r 7
+wait "$lw_pid"
+assert_eq "lock released within the wait: the run proceeds" 0 "$rc"
+check "lock released within the wait: the run holds an entry" test -d "$(entry_dir)"
+check "lock released within the wait: the lock is gone afterwards" test ! -d "$home/review-state/.lock"
+
+new_case
 mkdir -p "$home/review-state/.lock"; echo other-run >"$home/review-state/.lock/id"; touch -t 202001010000 "$home/review-state/.lock"
 run o/r 7
 assert_eq "backdated lock: cleared, the run proceeds" 0 "$rc"
@@ -944,6 +965,23 @@ assert_eq "overdue sweep: the run proceeds under a cap of 2" 0 "$rc"
 for c in old1 oldh nodl sidep sidei sidend; do check "overdue sweep: $c removed" has "$STUB/events" "docker-rm $c"; done
 check "overdue sweep: a container with a future deadline is left running" test "$(grep -c 'docker-rm fresh1' "$STUB/events")" = 0
 check "overdue sweep: a sidecar with a future deadline is left running" test "$(grep -c 'docker-rm sidefut' "$STUB/events")" = 0
+
+# the lease and the run label in the overdue sweep (#1107): the lease is fresh, stale or missing, the deadline near or far past
+new_case
+now=$(date +%s); near=$(( now - 120 )); far=$(( now - 2400 ))
+mkdir -p "$home/review-state/.live"
+: >"$home/review-state/.live/5-5"
+: >"$home/review-state/.live/6-6"; touch -d "@$(( now - 600 ))" "$home/review-state/.live/6-6"
+: >"$home/review-state/.live/8-8"
+printf '%s\n' "keep1 wow.review=1 $near run=5-5" "stale1 wow.review.holder=1 $near run=6-6" "miss1 wow.review.sidecar=1 $near run=7-7" \
+  "ceil1 wow.review=1 $far run=8-8" "nolab1 wow.review=1 $near" "badlab1 wow.review.holder=1 $near run=abc" "badlab2 wow.review.sidecar=1 $near run=1-2-3" \
+  "futur1 wow.review.sidecar=1 9999999999 run=7-7" >"$STUB/preexisting"
+T_MAX=9; run o/r 7; unset T_MAX
+assert_eq "lease sweep: the run proceeds" 0 "$rc"
+for c in stale1 miss1 ceil1 nolab1 badlab1 badlab2; do check "lease sweep: $c removed" has "$STUB/events" "docker-rm $c"; done
+check "lease sweep: an overdue container with a fresh lease is left" test "$(grep -c 'docker-rm keep1' "$STUB/events")" = 0
+check "lease sweep: a container whose deadline is in the future is left, whatever its lease" test "$(grep -c 'docker-rm futur1' "$STUB/events")" = 0
+check "lease sweep: another run's lease file is not removed by this run" test -e "$home/review-state/.live/5-5"
 
 # the home key and the per-home cap and sweep (#815)
 new_case

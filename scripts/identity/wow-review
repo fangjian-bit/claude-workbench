@@ -26,7 +26,8 @@
 # overdue sweep removes, only this home's own containers: those labelled wow.review.home with this home's
 # key (the .home-key file in its review-state directory), or carrying no home label (made by a launcher
 # from before the label). The cap is per home and there is no cross-home cap; each home's launcher applies
-# WOW_REVIEW_MAX from its own environment to its own containers.
+# WOW_REVIEW_MAX from its own environment to its own containers. A lock held by another launcher is
+# waited for, 150 tries 2 seconds apart (300 seconds), before exit 75; the wait is fixed.
 #
 # Exit codes (the interface wow-review-poll builds on):
 #    0  a review was posted and confirmed
@@ -34,7 +35,7 @@
 #    4  nothing to post: exempt or already reviewed, each verified on the host
 #    5  this head already has a ledger entry (--rerun repeats it)
 #    6  not an App-mode gated repo (the default branch's .ai/project.yml says so)
-#   75  busy: the lock is held or the cap is reached; try later
+#   75  busy: the lock was held through the 300-second wait, or the cap is reached; try later
 #  103  a review was posted but the author is not the declared reviewer App (unconfirmed)
 #  104  a review posted, or may have, and the response is unconfirmed
 #    2  usage
@@ -106,8 +107,11 @@
 #  - A launcher killed outright (its EXIT trap never runs) leaves its session, holder, proxy and
 #    injector containers running until a later launcher of the same home, or of another home while either home's installed copy
 #    predates the home label, that reaches its sweep (past the lock and
-#    ledger checks) removes them once their deadline has passed: the time the launcher began creating
-#    its networks and sidecars, plus the timeout, plus 600 seconds. If no such later launcher reaches its sweep, nothing
+#    ledger checks) removes them once their deadline has passed (the time the launcher began creating
+#    its networks and sidecars, plus the timeout, plus 600 seconds) and the run's lease has gone stale
+#    (not touched for 5 minutes). A killed launcher's lease file is left behind. A reused PID, or an unreaped
+#    launcher, that answers `kill -0` keeps the lease fresh until the ceiling, 1800 seconds past the
+#    deadline. If no such later launcher reaches its sweep, nothing
 #    removes them. Until then nothing bounds the session, since only the killed launcher's bounded
 #    wait did: it can keep running, and keep spending the Claude credential's quota through the
 #    injector (which holds that credential in memory), until it ends on its own (the review
@@ -126,17 +130,20 @@
 #    or not. The run's two networks and two volumes are also left, and no sweep removes them.
 #  - The 600-second margin is shared with the network and sidecar creation of section 7 and the docker
 #    and mint calls between taking the deadline and the start of the wait (each foreground docker
-#    call bounded at 120 seconds, not by the margin), so with
-#    docker slow the deadline can pass while the run is still going, and any later launcher of the same home, or of another home while either home's installed copy
-#    predates the home label, that reaches its sweep (past the lock and ledger checks) can then remove the live run's containers,
-#    its sidecars included, before that run ends; its cap count then reads 0 and it runs too. This
-#    holds under the default WOW_REVIEW_MAX=1, since the sweeps run before the cap is counted and
-#    the live run releases the lock right after `dk start` and its inspect, before its bounded wait. Such a
-#    launcher is a maintainer running wow-review by hand (a --rerun of the same head, as the failure
-#    body invites, or a run for another PR); a wow-review-poll launch while a hand-started run is
-#    live, or a hand run while a poll's launch is live, since the poll lock serialises polls only;
-#    or a launcher of another home on the same Docker daemon while either home's installed copy predates the
-#    home label.
+#    call bounded at 120 seconds, not by the margin), so with docker slow the deadline can pass while
+#    the run is still going. A live run is no longer swept while its lease is fresh: each run touches a
+#    lease file under review-state/.live/ every 60 seconds while its launcher answers `kill -0`, and the
+#    sweep leaves an overdue container whose run's lease is under 5 minutes old. A live run can still be
+#    swept: when it is still going 1800 seconds past its deadline; when its lease went stale while it
+#    lived (the heartbeat died, or the host slept for more than 5 minutes); or by a launcher of this
+#    home started from a copy that predates this change (which sweeps by the deadline alone). The home
+#    label clause stays: a launcher of another home on the same Docker daemon, while either home's
+#    installed copy predates the home label, can sweep it too. The swept run's cap count then reads 0
+#    and the sweeper runs too. Such a launcher is a maintainer running wow-review by hand (a --rerun
+#    of the same head, as the failure body invites, or a run for another PR), a wow-review-poll
+#    launch while a hand-started run is live, a hand run while a poll's launches are live (since the
+#    poll lock serialises polls only), or another launch of the same poll run, which keeps up to
+#    WOW_REVIEW_MAX in flight.
 #  - A checks-pending stop can be forced up to three times per head by a PR job that holds a
 #    required context unfinished. The cap is the bound.
 #  - Two launchers can race on a stale lock.
@@ -205,7 +212,7 @@ S="wow-review-session-$ID" H="wow-review-holder-$ID" I="wow-review-inject-$ID" P
 NET="wow-review-net-$ID" EXT="wow-review-ext-$ID" WORK="wow-review-work-$ID" OUTV="wow-review-outbox-$ID"
 
 LAUNCHER_PID=$$
-MDIR= HDIR= LOG= LOCK= ENTRY= NEWENTRY=0 FREE=0 HAVELOCK=0 DOCKER_USED=0 REFPID= WAITPID= INJPID=
+MDIR= HDIR= LOG= LOCK= ENTRY= NEWENTRY=0 FREE=0 HAVELOCK=0 DOCKER_USED=0 REFPID= WAITPID= INJPID= HBPID= LEASE=
 CRED= TOK= MINT_ALSO= TAG= pin= TIMEDOUT=0 DL=0 NCOPY=0 INST=
 
 logl() {
@@ -271,6 +278,16 @@ stop_refresher() {
   return 0
 }
 
+stop_heartbeat() {
+  if [ -n "$HBPID" ]; then
+    kill -TERM -- "-$HBPID" 2>/dev/null || :
+    kill -TERM "$HBPID" 2>/dev/null || :
+    wait "$HBPID" 2>/dev/null || :
+    HBPID=
+  fi
+  return 0
+}
+
 release_lock() {
   if [ "$HAVELOCK" = 1 ] && [ -n "$LOCK" ] && [ -d "$LOCK" ] && [ "$(cat "$LOCK/id" 2>/dev/null)" = "$ID" ]; then
     rm -rf "$LOCK"
@@ -284,6 +301,7 @@ cleanup() {
   trap '' HUP INT TERM
   set +e +u
   stop_refresher
+  stop_heartbeat
   [ -z "$WAITPID" ] || kill "$WAITPID" 2>/dev/null
   [ -z "$INJPID" ] || kill "$INJPID" 2>/dev/null
   # What the ledger rule needs is read before the host directory goes.
@@ -300,6 +318,7 @@ cleanup() {
     dk network rm "$NET" "$EXT" >/dev/null 2>&1
     dk volume rm -f "$WORK" "$OUTV" >/dev/null 2>&1
   fi
+  [ -z "$LEASE" ] || rm -f "$LEASE"
   [ -z "$MDIR" ] || rm -rf "$MDIR"
   [ -z "$HDIR" ] || rm -rf "$HDIR"
   release_lock
@@ -457,13 +476,21 @@ take_lock() {
   if mkdir "$LOCK" 2>/dev/null; then printf '%s\n' "$ID" >"$LOCK/id"; HAVELOCK=1; return 0; fi
   return 1
 }
+# A lock held and not stale is waited for: 150 tries, 2 seconds apart (300 seconds), then exit 75. Concurrent
+# launches from the poller hold it from the ledger check until after `docker start`, any image build included.
 if ! take_lock; then
   if [ -n "$(find "$LOCK" -prune -mmin +60 2>/dev/null)" ]; then
     mv "$LOCK" "$LOCK.stale.$ID" 2>/dev/null && rm -rf "$LOCK.stale.$ID"
     logl "cleared a stale lock"
     take_lock || fail "the lock is held" 75 busy
   else
-    fail "the lock is held" 75 busy
+    lw=0
+    while [ "$lw" -lt 150 ]; do
+      sleep 2
+      lw=$((lw + 1))
+      if take_lock; then break; fi
+    done
+    [ "$HAVELOCK" = 1 ] || fail "the lock is held" 75 busy
   fi
 fi
 
@@ -499,13 +526,26 @@ now=$(date +%s)
 # A container is this home's own when its wow.review.home label equals the key or is empty (absent, or
 # made by a launcher from before the label). The label is the last field of a "|"-separated format line,
 # so an empty one does not shift the others.
+# An overdue container is removed only when it has no run label (or one not shaped like a run ID), its
+# run's lease under review-state/.live/ is missing or over 5 minutes old, or its deadline is over 1800
+# seconds past. The run label is the last field, so an empty one does not shift the others.
 sweep() { # sweep <label>
-  dk ps -a --filter "label=$1" --format '{{.ID}}|{{.Label "wow.review.deadline"}}|{{.Label "wow.review.home"}}' 2>/dev/null | tr -d '\r' | while IFS='|' read -r cid dl hl; do
+  dk ps -a --filter "label=$1" --format '{{.ID}}|{{.Label "wow.review.deadline"}}|{{.Label "wow.review.home"}}|{{.Label "wow.review.run"}}' 2>/dev/null | tr -d '\r' | while IFS='|' read -r cid dl hl rl; do
     [ -n "$cid" ] || continue
     [ -z "$hl" ] || [ "$hl" = "$HK" ] || continue
     case $dl in ''|*[!0-9]*) dl=0 ;; esac
     if [ "$dl" -le "$now" ]; then
-      if dk rm -f "$cid" >/dev/null 2>&1; then logl "removed an overdue container $cid"; fi
+      case $rl in
+        ''|*[!0-9-]*|-*|*-|*-*-*) held=0 ;;
+        *-*) held=1 ;;
+        *) held=0 ;;
+      esac
+      if [ "$held" = 1 ]; then
+        if [ ! -e "$STATE/.live/$rl" ] || [ -n "$(find "$STATE/.live/$rl" -prune -mmin +5 2>/dev/null)" ] || [ $((now - dl)) -gt 1800 ]; then held=0; fi
+      fi
+      if [ "$held" = 0 ]; then
+        if dk rm -f "$cid" >/dev/null 2>&1; then logl "removed an overdue container $cid"; fi
+      fi
     fi
   done
   return 0
@@ -548,18 +588,37 @@ CRED=$(head -n 1 "$CF" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:
 # compresses unless told not to, and refuses max-file=1 with compression on, at start, after create succeeded.
 # json-file accepts compress=false too.
 HARDEN="--read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit 512"
+# The lease: written in the foreground before the deadline is taken, so it exists before any container does.
+# A background heartbeat touches it every 60 seconds while this launcher answers kill -0.
+LEASE="$STATE/.live/$ID"
+(umask 077 && mkdir -p -- "$STATE/.live" && : >"$LEASE") || fail "cannot create the lease $LEASE"
+heartbeat() {
+  trap 'kill "$HP" 2>/dev/null; exit 0' TERM HUP INT
+  CRED= TOK=
+  while :; do
+    sleep 60 &
+    HP=$!
+    wait "$HP"
+    kill -0 "$LAUNCHER_PID" 2>/dev/null || exit 0
+    touch -c "$LEASE" 2>/dev/null || :
+  done
+}
+set -m
+heartbeat </dev/null >/dev/null 2>&1 &
+HBPID=$!
+set +m
 DL=$(( $(date +%s) + TMO + 600 ))
 dk network create --label "wow.review.home=$HK" --internal -o com.docker.network.bridge.gateway_mode_ipv4=isolated "$NET" >/dev/null || fail "cannot create the internal network"
 dk network create --label "wow.review.home=$HK" "$EXT" >/dev/null || fail "cannot create the external network"
 # shellcheck disable=SC2086
 dkp run --label "wow.review.home=$HK" -d --name "$P" --network "$NET" $HARDEN --memory 256m --tmpfs /tmp:rw,nosuid,size=16m \
-  --label wow.review.sidecar=1 --label "wow.review.deadline=$DL" \
+  --label wow.review.sidecar=1 --label "wow.review.deadline=$DL" --label "wow.review.run=$ID" \
   --log-opt max-size=10m --log-opt max-file=1 --log-opt compress=false \
   -e "LOOP_ALLOW_HOSTS=github.com,api.github.com" --entrypoint python3 "$TAG" /opt/review/proxy.py >/dev/null || fail "cannot start the proxy"
 dk network connect "$EXT" "$P" >/dev/null || fail "cannot connect the proxy to the external network"
 # shellcheck disable=SC2086
 dkp create --label "wow.review.home=$HK" -i --name "$I" --network "$NET" $HARDEN --memory 256m --tmpfs /tmp:rw,nosuid,size=16m \
-  --label wow.review.sidecar=1 --label "wow.review.deadline=$DL" \
+  --label wow.review.sidecar=1 --label "wow.review.deadline=$DL" --label "wow.review.run=$ID" \
   --log-opt max-size=10m --log-opt max-file=1 --log-opt compress=false \
   -e "LOOP_CREDENTIAL_ENV=CLAUDE_CODE_OAUTH_TOKEN" --entrypoint python3 "$TAG" /opt/review/inject.py >/dev/null || fail "cannot create the injector"
 dk network connect "$EXT" "$I" >/dev/null || fail "cannot connect the injector to the external network"
@@ -580,7 +639,7 @@ done
 dk volume create --label "wow.review.home=$HK" --opt type=tmpfs --opt device=tmpfs --opt o=size=2g,uid=1000,gid=1000 "$WORK" >/dev/null || fail "cannot create the work volume"
 dk volume create --label "wow.review.home=$HK" --opt type=tmpfs --opt device=tmpfs --opt o=size=64m,uid=1000,gid=1000 "$OUTV" >/dev/null || fail "cannot create the outbox volume"
 dkp run --label "wow.review.home=$HK" -d --name "$H" --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
-  --label wow.review.holder=1 --label "wow.review.deadline=$DL" \
+  --label wow.review.holder=1 --label "wow.review.deadline=$DL" --label "wow.review.run=$ID" \
   --log-opt max-size=10m --log-opt max-file=1 --log-opt compress=false \
   --mount "type=volume,source=$OUTV,target=/review-out,readonly,volume-nocopy=true" \
   --entrypoint sleep "$TAG" infinity >/dev/null || fail "cannot start the outbox holder"
@@ -590,7 +649,7 @@ dkp run --label "wow.review.home=$HK" -d --name "$H" --network none --read-only 
 # allows execution, so noexec on the home tmpfs stopped the plugin's own scripts without stopping anything the
 # session could not already run.
 # nosuid stays, and so does Docker's default nodev.
-dkp create --label "wow.review.home=$HK" --name "$S" --label wow.review=1 --label "wow.review.deadline=$DL" --network "$NET" \
+dkp create --label "wow.review.home=$HK" --name "$S" --label wow.review=1 --label "wow.review.deadline=$DL" --label "wow.review.run=$ID" --network "$NET" \
   --read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit 512 --memory 4g --cgroupns private --ipc private \
   --log-opt max-size=10m --log-opt max-file=1 --log-opt compress=false \
   --tmpfs /tmp:rw,nosuid,size=512m --tmpfs /home/app:rw,exec,nosuid,uid=1000,gid=1000,mode=0700,size=1g \

@@ -6,7 +6,8 @@
 # Run every few minutes by a per-user scheduled task (register-review-poll-task.ps1). For each
 # repo in $WOW_HOME/review-poll.json it finds the open, non-draft PRs whose head has no ledger
 # entry, whose review gate is not green, and whose other required checks have all passed, and
-# runs `wow-review <owner/repo> <N>` for each of those heads, one at a time. The poller decides
+# runs `wow-review <owner/repo> <N>` for each of those heads, up to WOW_REVIEW_MAX at once. Each
+# review stays its own fresh session, with its own containers, networks and tokens. The poller decides
 # only whether to launch. It posts nothing: wow-review stays the one place that reviews, posts,
 # dedupes and caps. It never passes --rerun, so a head with a ledger entry is never repeated.
 #
@@ -18,24 +19,52 @@
 # Config: $WOW_HOME/review-poll.json, {"repos": ["owner/name", ...]}. A missing file is "nothing
 # to poll" (exit 0). A file that is not that shape exits 1. A bad entry is logged and skipped.
 #
-# Tunable (environment): WOW_REVIEW_TIMEOUT (seconds, 1 to 6000, default 5400), the same variable
-# wow-review reads; the poller bounds each launch at that plus 900 seconds.
+# Tunables (environment, validated before any call): WOW_REVIEW_MAX (1 to 9, default 2, the reviews
+# in flight at once) and WOW_REVIEW_TIMEOUT (seconds, 1 to 6000, default 5400), the same variable
+# wow-review reads. The poller passes the validated WOW_REVIEW_MAX to each launch, so wow-review's
+# own cap (per home, default 1 for a hand run) admits that many poller launches. The poller bounds
+# each launch at the timeout plus 1200 seconds, which covers wow-review's 300-second wait for its lock.
 #
-# What a wow-review exit code does here:
-#   0, 3, 4, 5   logged; the next head
-#   6            not an App-mode gated repo: logged; the rest of that repo is skipped
-#   75           busy: logged; the whole run stops (the next tick tries again)
-#   103, 104     logged as UNCONFIRMED; the next head (wow-review keeps the ledger entry, so the
+# The pool. One pool spans the whole run, across repos: at most WOW_REVIEW_MAX launches are in
+# flight. Before each launch the poller gathers again (a fresh read token, revoked as soon as the
+# choice is made) and launches the first qualifying head not already launched in this run; with the
+# pool full it waits for one launch to end first. A repo with no qualifying head left is left behind
+# while its launches keep running, and after the last repo the poller waits for every launch in
+# flight. Each launch writes its exit code to a file of its own in the run directory, polled every
+# few seconds (POSIX sh has no `wait -n`), and each pass touches the poll lock. A launch with no
+# such file LAUNCH_TMO plus 900 seconds after it started counts as ended with an unknown code, a
+# stop code, so the wait is bounded even when a launch's wrapper dies; that can come before such a
+# launch's own cleanup has ended.
+#
+# What a wow-review exit code does here (a launch in flight is never killed by another's exit):
+#   0, 1, 3, 4, 5   logged; the slot is free, nothing else changes
+#   103, 104     logged as UNCONFIRMED; the slot is free (wow-review keeps the ledger entry, so the
 #                head is not relaunched)
-#   1            logged; the next head
-#   2, 124 (the timeout fired), anything else: logged; the whole run stops
+#   6            not an App-mode gated repo: logged; no new launch for that repo for the rest of the run
+#   75           busy: logged; no new launch for the rest of the run (the next tick tries again)
+#   2, 124 (the timeout fired), anything else, an unknown code: logged; no new launch for the rest of the run
+# After a stop code the launches already in flight run to their own end (or bound), each exit is
+# logged, and the run exits 0 as usual.
+#
+# Signals. On HUP, INT or TERM the poller launches nothing more, revokes its token, waits for the
+# launches in flight under the same bound, and only then removes the run directory and the poll lock.
+#
+# Limits. A head that qualifies while the poller is in its final wait waits for the next poll. On the
+# first launch after an install, the image build (or slow docker calls) can hold wow-review's launcher lock past the
+# 300-second wait, so the second launch exits 75 and the run makes no new launch. A log rotation
+# while launches are writing can move their remaining output to review-poll.log.1, or lose it. A
+# Claude rate-limit or overload failure that ends a session before it writes its outcome makes
+# wow-review post the fixed `no-outbox` failure review and keep the ledger entry, so that head needs a
+# human `--rerun`; a bounded WOW_REVIEW_MAX (default 2, at most 9) is what keeps that unlikely, and
+# the poller adds no automatic retry.
 #
 # Exit codes of this command: 0 the run completed (individual repos and heads that failed are in
 # the log), 1 an environment or config failure, 2 usage.
 #
 # Tokens. Each choice of the next head mints a fresh read-only session token (wow-review-mint --read), used for the pre-
 # filter reads only and revoked as soon as that choice is made, before the review it chose runs. An
-# EXIT trap revokes any still live and removes the run directory. A killed poller leaves its
+# EXIT trap revokes any still live and removes the run directory. The poller holds no token while
+# it waits, and each launch's tokens are that launch's own to revoke. A killed poller leaves its
 # review-host/poll-<id>/ behind and the tokens in it live until their own hour ends, the residual
 # wow-review states. No PR title, body, comment, diff or author text is read.
 set -eu
@@ -76,7 +105,9 @@ stop() { logp "$2"; printf '%s: %s
 
 TMO=${WOW_REVIEW_TIMEOUT:-5400}
 in_range "$TMO" 1 6000 || stop 1 "WOW_REVIEW_TIMEOUT must be 1 to 6000 seconds"
-LAUNCH_TMO=$((TMO + 900))
+MAXN=${WOW_REVIEW_MAX:-2}
+in_range "$MAXN" 1 9 || stop 1 "WOW_REVIEW_MAX must be 1 to 9"
+LAUNCH_TMO=$((TMO + 1200))
 
 exec </dev/null
 PATH="$here:$PATH"; export PATH
@@ -96,7 +127,7 @@ ID="$(date +%s)-$$"
 STATE="$wow_home/review-state"
 LOCK="$STATE/.poll-lock"
 RUN="$wow_home/review-host/poll-$ID"
-HAVELOCK=0 TOK=
+HAVELOCK=0 TOK= PEND= LSEQ=0 STOPALL=0
 
 tc() { sh "$here/token-check.sh" "$@"; }
 gid() { sh "$here/gh-identity.sh" "$@"; }
@@ -125,11 +156,75 @@ revoke_all() {
   return 0
 }
 
+# ---- the pool: launches in flight ------------------------------------------------------------
+# PEND holds the ids of the launches in flight; $RUN/fl/<id>.info is "repo num s12 start-epoch" and
+# $RUN/fl/<id>.rc the exit code the launch wrote when it ended.
+count_pending() { set -- $PEND; echo $#; }
+touch_lock() { if [ -d "$LOCK" ]; then touch -c "$LOCK" 2>/dev/null || :; fi; return 0; }
+
+# note_exit <repo> <num> <s12> <code>: log an ended launch and apply its code.
+note_exit() {
+  case $4 in
+    0|1|3|4|5) logp "$1#$2 $3: wow-review exit $4" ;;
+    6) logp "$1#$2 $3: wow-review exit 6, not an App-mode gated repo; no new launch for $1 this run"
+       printf '%s\n' "$1" >>"$RUN/skip-repos" ;;
+    75) logp "$1#$2 $3: wow-review exit 75, busy; no new launch this run"; STOPALL=1 ;;
+    103|104) logp "$1#$2 $3: wow-review exit $4, UNCONFIRMED; the ledger entry is kept" ;;
+    unknown) logp "$1#$2 $3: no exit code within the bound; counted as ended; no new launch this run"; STOPALL=1 ;;
+    *) logp "$1#$2 $3: wow-review exit $4; no new launch this run"; STOPALL=1 ;;
+  esac
+  return 0
+}
+
+# reap: one pass over the launches in flight; the ended ones are noted and dropped.
+reap() {
+  now=$(date +%s); keep=
+  for k in $PEND; do
+    r_repo= r_num= r_s12= r_t0=0
+    read -r r_repo r_num r_s12 r_t0 <"$RUN/fl/$k.info" 2>/dev/null || :
+    if [ -f "$RUN/fl/$k.rc" ]; then
+      r_rc=$(sed -n 1p "$RUN/fl/$k.rc" 2>/dev/null | tr -d '\r')
+      case $r_rc in ''|*[!0-9]*) r_rc=unknown ;; esac
+    elif [ $((now - r_t0)) -gt $((LAUNCH_TMO + 900)) ]; then
+      r_rc=unknown
+    else
+      keep="$keep $k"; continue
+    fi
+    note_exit "$r_repo" "$r_num" "$r_s12" "$r_rc"
+  done
+  PEND=$keep
+  return 0
+}
+
+# wait_slot: return once at least one launch in flight has ended.
+wait_slot() {
+  n0=$(count_pending)
+  while :; do
+    touch_lock
+    reap
+    [ "$(count_pending)" -lt "$n0" ] && return 0
+    sleep 5
+  done
+}
+
+# drain: wait for every launch in flight.
+drain() {
+  while [ "$(count_pending)" -gt 0 ]; do
+    touch_lock
+    reap
+    [ "$(count_pending)" -gt 0 ] || break
+    sleep 5
+  done
+  return 0
+}
+
 cleanup() {
   rc=$?
   trap '' HUP INT TERM
   set +e +u
+  STOPALL=1
   revoke_all
+  drain
   [ -z "$RUN" ] || rm -rf "$RUN"
   if [ "$HAVELOCK" = 1 ] && [ "$(cat "$LOCK/id" 2>/dev/null)" = "$ID" ]; then rm -rf "$LOCK"; fi
   exit "$rc"
@@ -163,7 +258,7 @@ jq -e '(.repos | type) == "array" and all(.repos[]; type == "string")' <"$CONF" 
   || stop 1 "review-poll.json is not valid JSON of the shape {\"repos\": [\"owner/name\", ...]}"
 # A control character in an entry (a newline would split it in two) becomes '?', which check_repo refuses.
 
-(umask 077 && mkdir -p -- "$wow_home/review-host" && mkdir -- "$RUN" "$RUN/gh-config") || stop 1 "cannot create $RUN"
+(umask 077 && mkdir -p -- "$wow_home/review-host" && mkdir -- "$RUN" "$RUN/gh-config" "$RUN/fl") || stop 1 "cannot create $RUN"
 GH_CONFIG_DIR=$(hp "$RUN/gh-config"); export GH_CONFIG_DIR
 jq -r '[.repos[] | gsub("[[:cntrl:]]"; "?")] | unique | .[]' <"$CONF" | tr -d '\r' >"$RUN/repos" || stop 1 "cannot read review-poll.json"
 logp "poll start id=$ID"
@@ -179,7 +274,6 @@ enc_ref() { printf '%s' "$1" | jq -Rr 'split("/") | map(@uri) | join("/")' | tr 
 tab=$(printf '\t')
 nl='
 '
-STOPALL=0
 
 # ---- 4-7. one repo: choose the heads to launch, into $RUN/heads ---------------------------------
 # Every failure logs and returns 0 (this repo is skipped for this tick); a return never aborts the run.
@@ -247,10 +341,11 @@ gather_repo() { # gather_repo <owner/name>
   return 0
 }
 
-# ---- 8. launch, one at a time -----------------------------------------------------------------
-# launch_first <owner/name>: record the first chosen head as done for this run, then launch it.
-# The caller chooses again before the next launch, so a head is never launched on stale reads (a
-# review can run for an hour and a half). Sets REPODONE=1 to skip the rest of the repo, STOPALL=1 to stop the run.
+# ---- 8. launch, up to $MAXN at once -----------------------------------------------------------
+# launch_first <owner/name>: record the first chosen head as done for this run, then launch it in the
+# background. The caller chooses again before the next launch, so a head is never launched on stale
+# reads (a review can run for an hour and a half). The launch writes its exit code to $RUN/fl/<id>.rc;
+# reap applies it.
 launch_first() {
   repo=$1
   owner=${repo%%/*} name=${repo#*/}
@@ -259,30 +354,32 @@ launch_first() {
   # A ledger entry made since the gather (a human's run, say) is never relaunched.
   if [ -d "$STATE/$owner/$name/$num/$sha" ]; then logp "$repo#$num: skip, a ledger entry appeared"; return 0; fi
   s12=$(printf '%s' "$sha" | cut -c1-12)
-  [ -d "$LOCK" ] && touch -c "$LOCK" 2>/dev/null || :
+  touch_lock
   logp "$repo#$num $s12: launching wow-review"
-  rc=0
-  WOW_HOME=$WOW_HOME timeout "$LAUNCH_TMO" sh "$here/wow-review" "$repo" "$num" </dev/null >>"$LOGF" 2>&1 || rc=$?
-  [ -d "$LOCK" ] && touch -c "$LOCK" 2>/dev/null || :
-  case $rc in
-    0|3|4|5) logp "$repo#$num $s12: wow-review exit $rc" ;;
-    6) logp "$repo#$num $s12: wow-review exit 6, not an App-mode gated repo; the rest of $repo is skipped"; REPODONE=1 ;;
-    75) logp "$repo#$num $s12: wow-review exit 75, busy; stopping the run"; STOPALL=1 ;;
-    103|104) logp "$repo#$num $s12: wow-review exit $rc, UNCONFIRMED; the ledger entry is kept" ;;
-    1) logp "$repo#$num $s12: wow-review exit 1" ;;
-    *) logp "$repo#$num $s12: wow-review exit $rc; stopping the run"; STOPALL=1 ;;
-  esac
+  LSEQ=$((LSEQ + 1)); k=$LSEQ
+  printf '%s %s %s %s\n' "$repo" "$num" "$s12" "$(date +%s)" >"$RUN/fl/$k.info"
+  PEND="$PEND $k"
+  (
+    trap '' HUP INT TERM
+    rc=0
+    WOW_HOME=$WOW_HOME WOW_REVIEW_MAX=$MAXN timeout "$LAUNCH_TMO" sh "$here/wow-review" "$repo" "$num" </dev/null >>"$LOGF" 2>&1 || rc=$?
+    printf '%s\n' "$rc" >"$RUN/fl/$k.rc.t" && mv -f "$RUN/fl/$k.rc.t" "$RUN/fl/$k.rc"
+  ) &
   return 0
 }
+
+repo_skipped() { grep -qxF "$1" "$RUN/skip-repos" 2>/dev/null; }
 
 while IFS= read -r entry <&4; do
   [ "$STOPALL" = 0 ] || break
   case $entry in */*/*|/*|*/|*/) logp "bad repo entry skipped: $entry"; continue ;; */*) ;; *) logp "bad repo entry skipped: $entry"; continue ;; esac
   o=${entry%%/*} n=${entry#*/}
   if ! (check_repo "$o" && check_repo "$n") >/dev/null 2>&1; then logp "bad repo entry skipped: $entry"; continue; fi
-  REPODONE=0
   : >"$RUN/done"
-  while [ "$REPODONE" = 0 ] && [ "$STOPALL" = 0 ]; do
+  while :; do
+    reap
+    [ "$STOPALL" = 0 ] && ! repo_skipped "$entry" || break
+    if [ "$(count_pending)" -ge "$MAXN" ]; then wait_slot; continue; fi
     gather_repo "$entry"
     revoke_all
     [ -s "$RUN/heads" ] || break
@@ -290,5 +387,6 @@ while IFS= read -r entry <&4; do
   done
 done 4<"$RUN/repos"
 
+drain
 logp "poll done"
 exit 0
