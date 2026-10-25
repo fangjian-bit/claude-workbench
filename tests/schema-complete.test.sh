@@ -85,6 +85,7 @@ review:
 
 agents:
   enabled: [architect]
+  diff_rule: null
 models:
   architect: opus
   coder: sonnet
@@ -114,6 +115,7 @@ load_bearing_docs
 code_paths
 gates.green
 agents.enabled
+agents.diff_rule
 models.architect
 models.coder
 models.second_opinion
@@ -247,6 +249,26 @@ awk '{ if ($0 == "  ci_gate: null") {
 assert_eq "review.ci_gate.triggers_on: src/ (a scalar, not a list) is invalid" \
   'incomplete
 invalid review.ci_gate.triggers_on "src/"' "$(run_check "$f")"
+
+echo "# check -- agents.diff_rule: a nullable list"
+
+f="$tmp/diff_rule_missing.yml"; grep -v '^  diff_rule:' "$base" >"$f"
+assert_eq "agents.diff_rule removed: missing that key" \
+  "incomplete
+missing agents.diff_rule nullable" "$(run_check "$f")"
+
+f="$tmp/diff_rule_scalar.yml"; sed 's#  diff_rule: null#  diff_rule: tests/#' "$base" >"$f"
+assert_eq "agents.diff_rule: tests/ (a scalar, not a list) is invalid" \
+  'incomplete
+invalid agents.diff_rule "tests/"' "$(run_check "$f")"
+
+f="$tmp/diff_rule_list.yml"; sed 's#  diff_rule: null#  diff_rule: [tests/, .devcontainer/]#' "$base" >"$f"
+assert_eq "agents.diff_rule: a list is complete" \
+  "complete" "$(run_check "$f")"
+
+f="$tmp/diff_rule_empty.yml"; sed 's#  diff_rule: null#  diff_rule: []#' "$base" >"$f"
+assert_eq "agents.diff_rule: [] (an empty list) is complete" \
+  "complete" "$(run_check "$f")"
 
 echo "# check -- orchestration (#234): a nullable map like review.ci_gate"
 

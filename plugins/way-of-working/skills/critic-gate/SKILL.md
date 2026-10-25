@@ -3,7 +3,8 @@ name: critic-gate
 description: >-
   Run the QA-critic pass on a coding diff — after the local green gate, before /way-of-working:handoff.
   PROPOSES which read-only critic subagents apply by what the diff touches, and waits for
-  the human to confirm or trim before spawning any — in its diff mode it never auto-fans-out. Aggregates
+  the human to confirm or trim before spawning any — its diff mode proposes and waits unless the
+  repo sets `{agents.diff_rule}`, in which case a script selects the critics by rule. Aggregates
   findings for the coder to fix, then re-runs the critics on the fixed tree and iterates to
   convergence under a bounded stopping rule. Defense-in-depth that runs EARLIER — it is
   explicitly NOT the repo's review CI gate and never satisfies it. Its spec mode, run by
@@ -22,6 +23,9 @@ green gate and before `/way-of-working:handoff`.
 `{agents.enabled}`, `{load_bearing_docs}`, `{review.ci_gate}`, `{ruleset.required_checks}`,
 and `{models.second_opinion}` (in spec mode, `{code_paths}`, `{agents.enabled}` and
 `{load_bearing_docs}` come from the pinned commit instead, as *Spec mode* says).
+`{agents.diff_rule}` is read only from the default branch's committed copy, through
+`critic-select.sh` (the *Propose the applicable critics* step), never from the working tree's; that
+script then reads `{pr_base}`, `{code_paths}`, `{agents.enabled}` and `{load_bearing_docs}` from the same copy.
 
 > **This pass is defense-in-depth that runs EARLIER.** Where `{review.ci_gate}` is set, it
 > is **not** that gate and must never be presented as satisfying it — that gate wants a
@@ -49,8 +53,30 @@ and `{models.second_opinion}` (in spec mode, `{code_paths}`, `{agents.enabled}` 
    of the table below.
 
 2. **Propose the applicable critics — spawn NOTHING yet.** (This is the diff mode; *Spec mode*,
-   below, selects by rule instead.) This gate does not auto-fan-out.
-   Work out which critics *apply* and **present that list to the human with a one-line
+   below, selects by rule instead.) On the propose path this gate does not auto-fan-out.
+
+   **First, ask the rule.** One Bash call reads the default branch's committed `.ai/project.yml`
+   into a temp file the way `/way-of-working:spec-task`'s *Answer branch* step reads
+   `DEF_YML_FILE`, runs `critic-select.sh` on it with each critic name this session holds (an
+   invocation line, a lane prompt, a driver message) as an argument, prints `SELECT=` and its line,
+   and removes the temp file on every path. The names reach the arguments through a quoted heredoc
+   read by a loop that rejects any name not matching `^[a-z][a-z0-9-]*$` (a comma-separated list the session
+   holds is split into one name per line first), the way `spec-task`'s
+   *Check every name the draft cites* step reads its names. Then:
+   - `propose` — `{agents.diff_rule}` is `null`. Carry on below as written, the explicit-names
+     shortcut included.
+   - `critics <name>[,<name>...]` — that set is the approved set: no pick-list. Say the set came
+     from the rule and go to the *On confirmation, spawn only the approved critics* step on it,
+     unchanged. Under a set key the table below, the newly-added-doc row's `security-critic`
+     judgment and repo-local critic proposals do not apply: a repo-local critic runs only when
+     named. Names are unioned with the rule's set, never a replacement; to run fewer critics the
+     repo sets the key to `null` on the default branch.
+   - `none` — say the rule maps this diff to no critic, and stop.
+   - `unreadable`, or any other output — say the rule could not be read (if `{agents.diff_rule}`
+     is not yet on the default branch, `/way-of-working:resume` asks for it), then fall back to
+     the propose path below, so the human picks as today.
+
+   On the propose path, work out which critics *apply* and **present that list to the human with a one-line
    reason each**, then wait. Each critic is real spend, so the human confirms or trims the
    list before any spawn.
 
@@ -101,8 +127,8 @@ and `{models.second_opinion}` (in spec mode, `{code_paths}`, `{agents.enabled}` 
    **This explicit-names shortcut selects which critics run — it never authorizes a
    second-opinion round** (*The second-opinion round*, below). "The caller" means the human,
    typed in this live session; an auto-started `next_action` invoking this skill is not a
-   caller in this sense — `/way-of-working:resume` already states that this gate's diff mode
-   "still proposes and the human still picks." This holds whether or not
+   caller in this sense — `/way-of-working:resume` already states that this gate's diff mode,
+   where `{agents.diff_rule}` is `null`, "still proposes and the human still picks." This holds whether or not
    `{models.second_opinion}` is set.
 
 3. **On confirmation, spawn only the approved critics.** Each as a **separate read-only
@@ -214,7 +240,8 @@ correction sweep is where defects are born, not where they die.
 
 **Hard cap: 4 fix-and-re-run rounds after the initial pass. Then stop and hand the decision to
 the human** — with what is still open, what it would cost, and your recommendation. Do not
-silently continue; every round is real spend, and the human authorized a *pass*, not a loop.
+silently continue; every round is real spend, and the human authorized a *pass*, not a loop
+(under a set `{agents.diff_rule}` the merged config authorized it, as spec mode's rule does).
 Going past the cap is a decision they make with the numbers in front of them, and it is often
 the right one — the cap exists to make it **their** call, not to end the review. When the cap
 fires while the loop is still converging, this is also one of the two moments *The
@@ -391,8 +418,9 @@ stay on `{models.second_opinion}` — it found the findings, it grades the fixes
 separation is unchanged.
 
 ## Why propose instead of auto-spawning
-(This is the diff mode's reasoning; *Spec mode* reverses it for a drafted spec only, with the
-spend bounded by the same cap.)
+(This is the diff mode's reasoning where `{agents.diff_rule}` is `null`; *Spec mode* reverses it
+for a drafted spec only, and a set `{agents.diff_rule}` reverses it for the diff mode (`WB-D41`),
+the spend bounded by the same cap and the approval of the pass moved to the merged config.)
 
 Every critic is real cost and noise, and `architect`/`security-critic` overlap. Auto-fanning
 out two or three of them on every sprint spends and distracts without the human choosing to.

@@ -140,12 +140,14 @@ critics itself, as siblings, so each result comes straight back to the session r
 through a parent subagent (a subagent can spawn its own subagents only if it holds the `Agent`
 tool; none of this plugin's agents does, so nothing here nests).
 
-**The gate proposes; the human picks — it does not auto-fan-out.** Each critic is real spend
+**The gate proposes; the human picks — it does not auto-fan-out, unless the repo sets `agents.diff_rule`.** Each critic is real spend
 (mostly Opus subagents) and `architect`/`security-critic` overlap, so `/way-of-working:critic-gate` works out
 which critics a diff *warrants* from the table below, presents that list with a reason each,
 and spawns **only** what the human confirms (or the critics named explicitly in the call). A
 light change may want one critic; a trust-boundary change may want the full set. That is the
-diff mode. Its spec mode, which `/way-of-working:spec-task` runs on every draft, selects the
+diff mode where `agents.diff_rule` is `null`. Where it is a list, `bin/critic-select.sh` computes the
+set from the diff's paths and the default branch's config (`WB-D41`), a list of names from the session
+can only add to it, and the human is not asked. Its spec mode, which `/way-of-working:spec-task` runs on every draft, selects the
 critics by rule from the files the spec lists and runs unattended under the same cap.
 
 > **`/way-of-working:critic-gate` is defense-in-depth that runs EARLIER — it is NOT the
@@ -193,7 +195,7 @@ which of the review and implementation agents a repo uses, and `/way-of-working:
 A repo may define **additional** agents locally in `.claude/agents/` (a guard-surface
 auditor, a mutation-triage shard runner, a live-verification runner are shapes that have
 worked) and add them to `agents.enabled`; `/way-of-working:critic-gate` then proposes them
-when their own definition says they apply.
+when their own definition says they apply (under a set `agents.diff_rule` a repo-local critic runs only when named).
 
 ### The Architect Review is a posted GitHub review, not just prose
 
@@ -274,7 +276,7 @@ description and cannot be mistaken for the human's approval.
 
 - **`/way-of-working:critic-gate`** — run in the implementation session **after the green gate, before
   `/way-of-working:handoff`**. Proposes which read-only critics the diff warrants (the table above) and
-  spawns only what you confirm — no auto-fan-out — then aggregates findings for the coder to
+  spawns only what you confirm — no auto-fan-out, unless the repo sets `agents.diff_rule` — then aggregates findings for the coder to
   fix, then re-runs the critics on the fixed tree and iterates under its stopping rule —
   never "until the critics are clean," which on a dense diff may never terminate.
   Defense-in-depth that runs *earlier* — **not** the `review.ci_gate` review, which still

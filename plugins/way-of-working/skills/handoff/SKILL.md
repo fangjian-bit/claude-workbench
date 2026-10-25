@@ -39,7 +39,8 @@ names `{backlog.repo}` takes `{repo}` then (the derive line below passes `-` ins
    "handing off without a critic pass" in the report so the choice is on the record). It
    exists because nothing else in the pipeline points at `/way-of-working:critic-gate` — the skill said
    "before `/way-of-working:handoff`" while `/way-of-working:handoff` never mentioned it, so the human was the only
-   trigger. The gate still **proposes and the human still picks** which critics run; this
+   trigger. The gate still **proposes and the human still picks** which critics run (where the repo set
+   `{agents.diff_rule}`, a rule over the diff selects them instead); this
    step only stops the pass from being forgotten.
 
    **Then, before *Determine the new cursor*, one more stop — and this one runs even when

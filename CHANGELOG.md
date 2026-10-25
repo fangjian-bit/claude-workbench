@@ -23,7 +23,11 @@ the GitHub release notes.
 
 **⚠️ Migration** — on a map repo, a maintainer id not written in canonical decimal (`0x3E9`, `1_001`, `01001`, `+101`) makes the spec readers refuse the config until it is corrected on the default branch; `schema-complete.sh` already reports such an id invalid.
 
+**⚠️ Migration** — every repo answers the new required key `agents.diff_rule` in `.ai/project.yml`: `null` keeps `/way-of-working:critic-gate`'s diff-mode pick-list, a list (`[]` included) turns on rule selection of its critics. `/way-of-working:resume` asks for it, and the diff mode keeps the pick-list until the answer is on the default branch.
+
 ### Added
+
+- **`/way-of-working:critic-gate`'s diff mode selects its critics by rule where a repo sets `agents.diff_rule` (`#1109`, `WB-D41`).** `bin/critic-select.sh` maps the diff's paths to `docs-consistency` and to `architect` plus `security-critic`, a session's critic names only add, and `null` keeps the pick-list.
 
 - **Check 26 in `scripts/invariants-check.sh` fails when a required check name in `.ai/project.yml` is no workflow job's check run, or when a matrix job reporting one can be skipped (a job-level `if` other than `always()`, or `needs` with no `if`) (`#1104`).**
 

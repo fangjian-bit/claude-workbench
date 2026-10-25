@@ -180,6 +180,7 @@ code_paths list -
 gates.green list -
 review.ci_gate cigate -
 agents.enabled list -
+agents.diff_rule nullable list
 models.architect enum:sonnet|opus|haiku|fable -
 models.coder enum:sonnet|opus|haiku|fable -
 models.second_opinion nullable enum:sonnet|opus|haiku|fable
@@ -553,8 +554,8 @@ check_value_shape() { # check_value_shape <shape> <tag> <safe> <json> -- exit 0 
       ;;
     list)
       # A nullable key whose non-null form is a LIST, never a scalar --
-      # `review.ci_gate.triggers_on` is the one such key (a path-glob list, per
-      # `code_paths`'s own shape). A round-2 architect pass caught the
+      # `review.ci_gate.triggers_on` (a path-glob list, per `code_paths`'s own shape) and
+      # `agents.diff_rule` are the two such keys. A round-2 architect pass caught the
       # shapeless catch-all below rejecting exactly this: `triggers_on: [src/]`,
       # the form `project-schema.md` itself documents, read as `invalid` once
       # the shapeless branch started rejecting `!!seq` generally.

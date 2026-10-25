@@ -139,6 +139,8 @@ review:
 # ── agents ───────────────────────────────────────────────────────────────────
 agents:
   enabled: [architect, coder, security-critic, docs-consistency]
+  diff_rule: null                # null means critic-gate's diff mode proposes and the human picks; absent
+                                 # prompts. A list turns on rule-based selection. See below.
 models:
   architect: opus
   coder: sonnet
@@ -497,7 +499,7 @@ rule: under a map it loads the found spec comment only (the id from `spec-find.s
 audit target, and what makes a docs change worth a critic pass.
 
 `code_paths` is the single definition of "this diff changes behavior." It drives
-`/way-of-working:critic-gate`'s proposal (a diff touching none of these warrants no code critic), the
+`/way-of-working:critic-gate`'s proposal (a diff touching none of these, nor an `agents.diff_rule` path, warrants no code critic), the
 docs-only classification in `/way-of-working:pr-checks` and `/way-of-working:ship`, and — unless overridden — what trips
 the review gate. One key, because two definitions of "is this docs-only" that can disagree
 will eventually disagree.
@@ -617,6 +619,18 @@ review:
 `/way-of-working:critic-gate` proposes
 from this list only — it never offers an agent the repo has not enabled, and never one that
 is not in the plugin at all. Its spec mode selects from this list only as well.
+
+`agents.diff_rule` decides how `/way-of-working:critic-gate`'s diff mode chooses its critics (`WB-D41`).
+`null` keeps the pick-list: the gate proposes and the human picks. A list (an empty one included)
+turns on rule-based selection: `bin/critic-select.sh` computes the set from the diff's paths and this
+file as the default branch commits it, and the gate spawns that set with no pick-list. A changed path
+ending in `.md` or matching a `load_bearing_docs` entry selects `docs-consistency`; a path under a
+`code_paths` entry or under an `agents.diff_rule` entry (a literal prefix: an entry with a glob character, a leading `/` or `./`, or a `..` segment reads
+as unreadable and the gate falls back to the pick-list) selects `architect` and
+`security-critic`, so the list names the extra paths beyond `code_paths` that do. Only critics in
+`agents.enabled` run, never `coder`, and a critic name a session holds can only add to the set, never
+drop one; a repo that wants fewer sets the key to `null`. The key must always be present;
+`/way-of-working:resume` asks for it when it is missing.
 
 A repo may define **additional** agents locally in `.claude/agents/`. Those are repo-local
 by definition and out of the plugin's scope; adding one to `agents.enabled` does not make it
@@ -1000,6 +1014,7 @@ review:
 
 agents:
   enabled: [architect, coder, security-critic, docs-consistency]
+  diff_rule: [tests/, .devcontainer/]
 models:
   architect: opus
   coder: sonnet

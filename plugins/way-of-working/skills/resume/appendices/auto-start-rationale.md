@@ -13,7 +13,8 @@ Loaded on demand; nothing in the auto-start decision depends on reading it.
    time. The approval that carries real signal is the **`hitl_gate`**, and it is still
    absolutely enforced. Auto-start removes a rubber stamp, not a gate. It also never
    crosses a merge boundary: `/way-of-working:critic-gate` still proposes and the human still
-   picks (said of its diff mode; its spec mode runs inside the drafting step, selects by rule and
+   picks (said of its diff mode, or, where the repo set `{agents.diff_rule}` on its default branch, a
+   rule over the diff selects the critics and a list from a session can only add one; its spec mode runs inside the drafting step, selects by rule and
    escalates to a human instead of asking), and the human still merges. One derived step is the exception to "nothing here posts
    a review" (`WB-D22`): after a no-op handoff, the *Derive the review step from GitHub*
    step's `auto` verdict starts `/way-of-working:architect-review <M> --pin <oid>` — the first

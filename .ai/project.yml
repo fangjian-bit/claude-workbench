@@ -77,6 +77,7 @@ review:
 # ── agents ───────────────────────────────────────────────────────────────────
 agents:
   enabled: [architect, coder, security-critic, docs-consistency]
+  diff_rule: [tests/, .ai/project.yml, .devcontainer/]
 models:
   architect: opus
   coder: sonnet

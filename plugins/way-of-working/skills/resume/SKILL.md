@@ -1132,8 +1132,9 @@ edited it. **Default to the full checklist whenever unsure.**
    merge of the previous handoff's cursor-sync PR (the `next_action` itself is not shown there,
    `WB-D24`); the approval that carries real signal
    is the **`hitl_gate`**, still absolutely enforced. It never crosses a merge boundary:
-   `/way-of-working:critic-gate` still proposes and the human still picks (said of its diff mode;
-   its spec mode runs inside the drafting step, selects by rule and escalates to a human instead
+   `/way-of-working:critic-gate` still proposes and the human still picks (said of its diff mode,
+   or, where the repo set `{agents.diff_rule}` on its default branch, a rule over the diff selects the
+   critics and a list from a session can only add one; its spec mode runs inside the drafting step, selects by rule and escalates to a human instead
    of asking), and the human still merges. The one derived step that posts a review is the *Derive the review step from GitHub*
    step's `auto` verdict (`WB-D22`), which rests on the derivation, not on `next_action`, and is
    never an approval or a merge. The argument is in `appendices/auto-start-rationale.md`.

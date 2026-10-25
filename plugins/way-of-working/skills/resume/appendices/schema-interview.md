@@ -125,9 +125,9 @@ runs `git status --short` itself (the step it used to cite comes later).
       is reported and needs a hand edit (or removing the key). `lanes` is never asked either: an `invalid lanes…` or `missing lanes.dir value` finding is reported the same way.
       Most list keys (`load_bearing_docs`, `code_paths`, `ruleset.rule_types`,
       `ruleset.required_checks`, `agents.enabled`, `orchestration.critics`,
-      `orchestration.human_only_paths`, and a non-null `review.ci_gate.triggers_on`
-      — that last one prints as `missing … nullable`, not `list`, since its kind is
-      conditional on `review.ci_gate` being a map, but its non-null form is still a list) are
+      `orchestration.human_only_paths`, a non-null `agents.diff_rule` and a non-null `review.ci_gate.triggers_on`
+      — both print as `missing … nullable`, not `list`, since the key may be null (and `triggers_on`'s kind
+      is also conditional on `review.ci_gate` being a map), but the non-null form is a list) are
       lists of **strings**: `[ "a", "b" ]`. **`gates.green` is the exception — a list of
       `{run, cwd?}` maps**, per `reference/project-schema.md` § `gates.green`
       (`[ { "run": "…" }, { "cwd": "…", "run": "…" } ]`), never a list of bare command

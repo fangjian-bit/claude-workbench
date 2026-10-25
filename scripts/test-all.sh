@@ -44,7 +44,8 @@
 #     skips that case loudly without them.
 #   - `yq` also: tests/review-base-anchor.test.sh, tests/schema-complete.test.sh,
 #     tests/milestone-desc.test.sh, tests/spec-issue.test.sh, tests/spec-post.test.sh,
-#     tests/spec-fresh.test.sh (which also needs `git`), tests/draft-identity.test.sh and
+#     tests/spec-fresh.test.sh and tests/critic-select.test.sh (which also need `git`),
+#     tests/draft-identity.test.sh and
 #     tests/invariants-required-checks.test.sh (the checker's check 26 needs it).
 #   - `yq` also, for part of a suite: tests/token-check.test.sh (its actor cases),
 #     tests/gh-identity.test.sh (its classify cases) and tests/app-push.test.sh (its commit_route
