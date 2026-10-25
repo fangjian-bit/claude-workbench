@@ -10,11 +10,12 @@
 # `sel="--only N"` line rewritten to id 0 (no checker id), run, and asserted to fail with the
 # guard's line. A glob that finds no target fails too.
 #
-# Permitted toolset: POSIX sh, no yq, no python. The targets need jq on PATH
-# (tests/invariants-files-filter.test.sh skips without it), so this test skips, loudly, without it.
+# Permitted toolset: POSIX sh, no yq, no python. The targets need jq and yq on PATH
+# (tests/invariants-files-filter.test.sh skips without jq, tests/invariants-required-checks.test.sh without yq), so this test skips, loudly, without either.
 set -eu
 
 command -v jq >/dev/null 2>&1 || { echo "SKIP - jq is not on PATH; the targets cannot run" >&2; exit 0; }
+command -v yq >/dev/null 2>&1 || { echo "SKIP - yq is not on PATH; the targets cannot run" >&2; exit 0; }
 
 root_dir="$(cd "$(dirname "$0")/.." && pwd)"
 self="$(basename "$0")"

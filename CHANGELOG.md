@@ -21,6 +21,10 @@ the GitHub release notes.
 
 ## [Unreleased]
 
+### Added
+
+- **Check 26 in `scripts/invariants-check.sh` fails when a required check name in `.ai/project.yml` is no workflow job's check run, or when a matrix job reporting one can be skipped (a job-level `if` other than `always()`, or `needs` with no `if`) (`#1104`).**
+
 ### Changed
 
 - The `identities` config read that the five spec scripts shared as copies now lives in `bin/declared-ids.sh`, with no change to any word they print (`#1079`).

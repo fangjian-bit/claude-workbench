@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The regression gate: the invariants that have already been got wrong, in prose (and check 24).
+# The regression gate: the invariants that have already been got wrong, in prose (and checks 24 and 26).
 #
 # This repo's skills describe MECHANICAL procedures in English, and English has no
 # compiler. Nearly every check below exists because the described procedure shipped wrong at
@@ -9,7 +9,7 @@
 #
 # Adding a check: it must correspond to a defect that actually shipped (check 24 is an
 # exception: it guards the gate's own wholeness; check 25 is another: its defect was merged,
-# not released). Speculative
+# not released; check 26 is a third: it keeps the required-check list and the workflow jobs in step). Speculative
 # invariants belong in the skill's own prose, not in a gate.
 set -euo pipefail
 
@@ -32,7 +32,7 @@ report() {
 # the tests/invariants-*.test.sh fixtures, which copy the tree and look for one check's message.
 # It is an argument on purpose, never an environment variable, so nothing ambient can narrow a
 # gate run; the gate (CI, release, gates.green) never passes it.
-ALL_IDS=(1 2 2b 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25)
+ALL_IDS=(1 2 2b 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26)
 only=
 only_set=0
 usage() {
@@ -1474,6 +1474,130 @@ if [ -n "$mfagents_hits" ]; then
   report "an agent is missing from a manifest description (#932)" \
     "$mfagents_hits" \
     "Name the agent in both the plugin.json description and the marketplace.json entry's description."
+fi
+fi
+
+# --- 26. Every required check name is a job's check run, and its matrix job cannot be skipped (#1104) ---
+if want 26; then
+#
+# Nothing tied the `required_checks` in .ai/project.yml to the job ids and matrix-expanded names in
+# .github/workflows/: a renamed required job, or the `tests` matrix job's cursor-only skip moved
+# back to job level (a skipped matrix job is not expanded, so it reports none of its legs' names),
+# blocks merges on the first affected PR. Both fail closed, but only on a live PR. (Like check 24,
+# an exception to the shipped-defect rule: no such defect has shipped.)
+# The required names are every `required_checks` string in `.rulesets[]` and `.ruleset`, minus
+# `.review.ci_gate.check` (a commit status, not a job's check run). Each job of every workflow file
+# is read as ONE JSON object, then each field is read from it with a fixed `yq` expression, so no
+# field is tied to another job's; no value read from a file reaches a `yq` expression, a regex
+# or a glob. A job with no `strategy.matrix` reports its `name:` (its id with none; none when the
+# name holds `${{`). A matrix job reports names only when its `name:` holds exactly one
+# `${{ matrix.KEY }}` and `strategy.matrix` has only KEY (not include/exclude), a list of scalars:
+# one name per value. A matrix job that reports a required name must not be skippable: a job-level
+# `if` other than `always()`, or `needs` with no `if`, is a hit. Hits name the file and the required
+# name or job id, except the ones about the check itself (no yq, no workflow file, no project.yml,
+# an unreadable file, no required names), which name only what could not be read (or, for a malformed required_checks entry, only project.yml). A check that
+# cannot look must not pass (as checks 13, 23 and 25). A job with `uses:`, a non-string `name:`
+# or a matrix value holding a newline or null reports nothing. Outside it: the live ruleset, a PR that
+# edits the workflows and project.yml together, a job-level `if` on a non-matrix job, and whether
+# a workflow runs on pull_request.
+rc_hits=""
+rc_names=() rc_files=() rc_ids=() rc_bad=()
+rc_req=()
+rc_yml=.ai/project.yml
+if ! command -v yq >/dev/null 2>&1; then
+  rc_hits+="  (yq not found on PATH)"$'\n'
+elif [ ! -f "$rc_yml" ]; then
+  rc_hits+="  $rc_yml: missing, so the required check names cannot be read"$'\n'
+else
+  rc_gate=""
+  if rc_odd=$(yq -r '[((.rulesets[]? | .required_checks // []), (.ruleset.required_checks // [])) | .[] | select(tag != "!!str" or test("\n"))] | length' "$rc_yml" 2>/dev/null) \
+    && rc_all=$(yq -r '((.rulesets[]? | .required_checks // []), (.ruleset.required_checks // [])) | .[] | select(tag == "!!str")' "$rc_yml" 2>/dev/null) \
+    && rc_gate=$(yq -r '.review.ci_gate.check // "" | select(tag == "!!str")' "$rc_yml" 2>/dev/null); then
+    while IFS= read -r rc_n; do
+      [ -n "$rc_n" ] && [ "$rc_n" != "$rc_gate" ] || continue
+      for rc_d in "${rc_req[@]+${rc_req[@]}}"; do [ "$rc_d" = "$rc_n" ] && continue 2; done
+      rc_req+=("$rc_n")
+    done <<<"$rc_all"
+    [ "$rc_odd" = 0 ] || rc_hits+="  $rc_yml: a required_checks entry is not a single-line string"$'\n'
+    [ "${#rc_req[@]}" -gt 0 ] || rc_hits+="  $rc_yml: no required check names after the exclusion"$'\n'
+  else
+    rc_hits+="  $rc_yml: unreadable"$'\n'
+  fi
+  rc_wf=()
+  for f in .github/workflows/*.yml .github/workflows/*.yaml; do [ -f "$f" ] && rc_wf+=("$f"); done
+  [ "${#rc_wf[@]}" -gt 0 ] || rc_hits+="  (no .github/workflows/*.yml or *.yaml file found)"$'\n'
+  for f in "${rc_wf[@]}"; do
+    if ! rc_jobs=$(yq -o=json -I=0 '(.jobs // {}) | to_entries | .[] | {"id": .key, "name": .value.name, "if": .value.["if"], "needs": .value.needs, "uses": .value.uses, "matrix": .value.strategy.matrix}' "$f" 2>/dev/null); then
+      rc_hits+="  $f: unreadable"$'\n'; continue
+    fi
+    while IFS= read -r rc_j; do
+      [ -n "$rc_j" ] || continue
+      rc_id=$(printf '%s' "$rc_j" | yq -p=json -r '.id' 2>/dev/null) || { rc_hits+="  $f: a job is unreadable"$'\n'; continue; }
+      rc_name=$(printf '%s' "$rc_j" | yq -p=json -r '.name | select(tag == "!!str")' 2>/dev/null) || rc_name=""
+      rc_if=$(printf '%s' "$rc_j" | yq -p=json -r '.["if"] | select(tag == "!!str" or tag == "!!bool")' 2>/dev/null) || rc_if=""
+      rc_hasif=$(printf '%s' "$rc_j" | yq -p=json -r '.["if"] != null' 2>/dev/null) || rc_hasif=false
+      rc_needs=$(printf '%s' "$rc_j" | yq -p=json -r '.needs != null' 2>/dev/null) || rc_needs=false
+      rc_ismx=$(printf '%s' "$rc_j" | yq -p=json -r '.matrix != null' 2>/dev/null) || rc_ismx=false
+      # A reusable-workflow call is named `id / inner`, and a non-string name is not read as a string: report nothing.
+      rc_skipjob=$(printf '%s' "$rc_j" | yq -p=json -r '(.uses != null) or (.name != null and (.name | tag) != "!!str")' 2>/dev/null) || rc_skipjob=true
+      [ "$rc_skipjob" = false ] || continue
+      if [ "$rc_ismx" != true ]; then
+        case "$rc_name" in
+          '') rc_names+=("$rc_id") ;;
+          *'${{'*) continue ;;
+          *) rc_names+=("$rc_name") ;;
+        esac
+        rc_files+=("$f"); rc_ids+=("$rc_id"); rc_bad+=("")
+        continue
+      fi
+      # A matrix job: skippable unless its `if` is always() (bare or in ${{ }}) or it has no needs.
+      rc_skip=""
+      if [ "$rc_hasif" = true ]; then
+        rc_cmp=${rc_if//[[:space:]]/}
+        case "$rc_cmp" in
+          'always()'|'${{always()}}') ;;
+          *) rc_skip="has a job-level if other than always(), so a skip leaves its legs unreported" ;;
+        esac
+      elif [ "$rc_needs" = true ]; then
+        rc_skip="declares needs and has no job-level if, so a failed need skips it and its legs go unreported"
+      fi
+      rc_kn=$(printf '%s' "$rc_j" | yq -p=json -r '.matrix | keys | length' 2>/dev/null) || continue
+      rc_k=$(printf '%s' "$rc_j" | yq -p=json -r '.matrix | keys | .[0]' 2>/dev/null) || continue
+      rc_vt=$(printf '%s' "$rc_j" | yq -p=json -r '.matrix | to_entries | .[0].value | tag' 2>/dev/null) || continue
+      [ "$rc_kn" = 1 ] && [ "$rc_vt" = '!!seq' ] || continue
+      case "$rc_k" in include|exclude) continue ;; esac
+      rc_sc=$(printf '%s' "$rc_j" | yq -p=json -r '[.matrix | to_entries | .[0].value | .[] | select(tag == "!!map" or tag == "!!seq")] | length' 2>/dev/null) || continue
+      [ "$rc_sc" = 0 ] || continue
+      rc_nl=$(printf '%s' "$rc_j" | yq -p=json -r '[.matrix | to_entries | .[0].value | .[] | tostring | select(test("\n"))] | length' 2>/dev/null) || continue
+      [ "$rc_nl" = 0 ] || continue
+      rc_nu=$(printf '%s' "$rc_j" | yq -p=json -r '[.matrix | to_entries | .[0].value | .[] | select(tag == "!!null")] | length' 2>/dev/null) || continue
+      [ "$rc_nu" = 0 ] || continue
+      rc_re='^(.*)\$\{\{ *matrix\.([A-Za-z_][A-Za-z0-9_-]*) *\}\}(.*)$'
+      [[ "$rc_name" =~ $rc_re ]] || continue
+      rc_pre=${BASH_REMATCH[1]} rc_key=${BASH_REMATCH[2]} rc_suf=${BASH_REMATCH[3]}
+      case "$rc_pre$rc_suf" in *'${{'*) continue ;; esac
+      [ "$rc_key" = "$rc_k" ] || continue
+      while IFS= read -r rc_v; do
+        rc_names+=("$rc_pre$rc_v$rc_suf"); rc_files+=("$f"); rc_ids+=("$rc_id"); rc_bad+=("$rc_skip")
+      done < <(printf '%s' "$rc_j" | yq -p=json -r '.matrix | to_entries | .[0].value | .[]' 2>/dev/null)
+    done <<<"$rc_jobs"
+  done
+  for rc_n in "${rc_req[@]}"; do
+    rc_found=0
+    for i in "${!rc_names[@]}"; do
+      [ "${rc_names[$i]}" = "$rc_n" ] || continue
+      rc_found=1
+      if [ -n "${rc_bad[$i]}" ]; then
+        rc_hits+="  ${rc_files[$i]}: job ${rc_ids[$i]} reports required check $rc_n and ${rc_bad[$i]}"$'\n'
+      fi
+    done
+    [ "$rc_found" -eq 1 ] || rc_hits+="  $rc_yml: required check $rc_n is no job's check run in .github/workflows/"$'\n'
+  done
+fi
+if [ -n "$rc_hits" ]; then
+  report "a required check name is not a job's check run, or its matrix job can be skipped (#1104)" \
+    "$rc_hits" \
+    "Keep each required_checks name equal to a workflow job's id or name (a matrix job's expanded name), and skip a matrix job only at step level."
 fi
 fi
 
