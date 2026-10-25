@@ -67,10 +67,12 @@ jobs:
         run: sh tests/review-verdict.test.sh
 
   # Lists the PR's changed paths and says whether every one is a cursor-sync file (#989), so
-  # the five test jobs below can skip a PR that touches nothing else. The skip is a job-level
-  # `if` on those jobs, not a workflow-level `paths-ignore`: a skipped job still reports under
-  # its own name, so the required checks stay satisfied. `lint`, `coupling`, `invariants`,
-  # `zizmor` and (in its own file) `pr-title` never wait on this job and always run.
+  # the five test check runs below can skip a PR that touches nothing else. The skip is an `if`
+  # (job-level on the launcher and Windows jobs, step-level on the shard matrix job), not a
+  # workflow-level `paths-ignore`: a skipped job still reports under its own name, and the
+  # shard legs conclude `success` under theirs, so the required checks stay satisfied.
+  # `lint`, `coupling`, `invariants`, `zizmor` and (in its own file) `pr-title` never wait on
+  # this job and always run.
   #
   # The predicate is the BASE's copy of scripts/cursor-only-paths.sh, so a PR's own change to it
   # cannot decide its own skip; when the base has no copy (as on the PR that added it) the output
@@ -114,63 +116,54 @@ jobs:
   # (see issue #53 -- a gate that stops gating looks exactly like a gate that passed, so
   # its fail-closed behaviour is pinned by fixtures too), and for the App-mode review
   # image's entrypoint, outbox reader, Dockerfile and build context (#634).
-  # Split in four parallel jobs (#808, #936): the two shards, `tests-1` and `tests-2`, run every
-  # tests/*.test.sh through scripts/test-all.sh (files run concurrently; a failed file's log is
-  # printed) except the two launcher suites, which `tests-launchers` and `tests-review-launcher`
-  # run alone. The shards split the sorted glob minus those two: numbered from 0 in glob order,
-  # shard 1 owns the even positions and shard 2 the odd ones, and each leaves the other's
-  # files out with -x. So each file runs in exactly one of the four (review-verdict also runs
-  # in `invariants`, identity-broker also in `tests-windows`), and a new tests/X.test.sh needs no
-  # edit here (it can move later files to the other shard). Each shard writes the suites that skipped to its job summary (-s).
+  # Split in four parallel check runs (#808, #936): the two shards, `tests-1` and `tests-2`, run
+  # every tests/*.test.sh through scripts/test-all.sh (files run concurrently; a failed file's
+  # log is printed) except the two launcher suites, which `tests-launchers` and
+  # `tests-review-launcher` run alone. The shards split the sorted glob minus those two: numbered
+  # from 0 in glob order, shard 1 owns the even positions and shard 2 the odd ones, and each
+  # leaves the other's files out with -x. So each file runs in exactly one of the four check runs
+  # (review-verdict also runs in `invariants`, identity-broker also in `tests-windows`), and a
+  # new tests/X.test.sh needs no edit here (it can move later files to the other shard). Each
+  # shard writes the suites that skipped to its job summary (-s).
   #
-  # Each job id is its check-run name, which {ruleset.required_checks} carries: the two shards
-  # and the two launcher jobs are required checks (#989). Each declares `needs: changed-paths`
-  # and skips, at job level, when every changed path is a cursor-sync file. `always()` makes
-  # them run when `changed-paths` itself fails or is cancelled: without it they would report
-  # `skipped`, which passes a required check. The cost is that cancelling a run no longer stops
-  # a test job that has not started.
+  # The two shards are one matrix job: its `name:` gives the check runs `tests-1` and `tests-2`,
+  # and `tests-launchers` and `tests-review-launcher` are named by their job ids. These four
+  # names are required checks ({ruleset.required_checks}, #989). Adding a required job is merge
+  # first, then pin it in the live ruleset to GitHub Actions (the rollout order WB-D37 records in
+  # docs/decisions.md); renaming one blocks its own PR until the ruleset changes too, so keep
+  # the names stable. Each job declares `needs: changed-paths` and skips when every changed path
+  # is a cursor-sync file. The launcher jobs skip at job level. The shards skip at step level:
+  # a matrix job skipped by its job-level `if` is not expanded, so it would report no check run
+  # named `tests-1` or `tests-2` and the merge would block; with the `if` on the steps both
+  # legs run, skip their steps and conclude `success` under their own names. Every one of
+  # these jobs has `always()`, so it still runs when `changed-paths` itself fails or is
+  # cancelled: without it a launcher job would report `skipped`, which passes a required check,
+  # and the shard job would not expand, leaving `tests-1` and `tests-2` unreported. The cost is
+  # that cancelling a run no longer stops a test job that has not started.
   #
   # WOW_TESTS_REQUIRE_TOOLS=1 turns the missing-tool skip of identity-review, identity-launchers
   # and review-verdict into a failure, so CI keeps no second copy of those suites' tool lists
   # (#985, #986). Other suites' skips are named in the job summary instead; the broker suite
   # skips some cases on Linux by design, so a skip verdict is not itself a failure.
-  tests-1:
+  tests:
+    name: tests-${{ matrix.shard }}
     needs: changed-paths
-    if: ${{ always() && needs.changed-paths.outputs.cursor_only != 'true' }}
+    if: ${{ always() }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     steps:
       - name: Checkout
+        if: ${{ needs.changed-paths.outputs.cursor_only != 'true' }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: This shard's suites, none of the launcher suites
+        if: ${{ needs.changed-paths.outputs.cursor_only != 'true' }}
         env:
-          SHARD: "1"
-          WOW_TESTS_REQUIRE_TOOLS: "1"
-        run: |
-          case "$SHARD" in 1 | 2) ;; *) echo "SHARD must be 1 or 2, not '$SHARD'" >&2; exit 1 ;; esac
-          args=(-x identity-launchers.test.sh -x identity-review.test.sh)
-          i=0
-          # ls sorts under C collation, which fixes the order; the suites keep the runner's locale.
-          while IFS= read -r name; do
-            case "$name" in identity-launchers.test.sh | identity-review.test.sh) continue ;; esac
-            if [ $((i % 2)) -ne $((SHARD - 1)) ]; then args+=(-x "$name"); fi
-            i=$((i + 1))
-          done < <(cd tests && LC_ALL=C ls -1d -- *.test.sh)
-          bash scripts/test-all.sh "${args[@]}" -s "$GITHUB_STEP_SUMMARY"
-
-  tests-2:
-    needs: changed-paths
-    if: ${{ always() && needs.changed-paths.outputs.cursor_only != 'true' }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: This shard's suites, none of the launcher suites
-        env:
-          SHARD: "2"
+          SHARD: ${{ matrix.shard }}
           WOW_TESTS_REQUIRE_TOOLS: "1"
         run: |
           case "$SHARD" in 1 | 2) ;; *) echo "SHARD must be 1 or 2, not '$SHARD'" >&2; exit 1 ;; esac
