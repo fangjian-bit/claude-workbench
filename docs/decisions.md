@@ -2675,6 +2675,7 @@ take effect. Full reasoning and the task breakdown that implements them:
   - **Not an emitter namespace.** The `type/` prefix names the axis. It is not the emitting-system namespace that conventions.md's rule for machine-emitted labels requires.
   - **The finding field.** A review finding's `type` field keeps its four bare values (`review-outbox.sh` and the architect-review outbox schema are unchanged). The review launcher (`scripts/identity/wow-review`) builds the label as `type/` plus that value and keeps it only where the backlog answers a read of it.
   - **Reach.** This changes a default every consuming repo reads in conventions.md. A repo that labels by type renames its own four labels in place (`gh label edit`), and, where the host launcher files findings into that repo, the host tools are reinstalled in every home; while only one of the two is done, the findings the launcher files carry no type label. The CHANGELOG's Migration line says so.
+  - **Default labels.** This repo deleted the six GitHub default labels (`duplicate`, `invalid`, `question`, `wontfix`, `good first issue`, `help wanted`), each only once it had no uses. It is a cleanup this repo made, not a step an adopter needs: the `type/*` taxonomy does not depend on it.
 
 ## Status
 

@@ -757,11 +757,11 @@ Detail with a \`\`\`\` run of four backticks.
 assert_eq "golden: labels kept only where the stub answers (area/x is not there, type/bug is)" '["type/bug"]' "$(jq -c .labels <"$STUB/inputs/$(grep '|POST||repos/o/backlog/issues|' "$STUB/gh.calls" | head -1 | awk -F'|' '{print $8}')")"
 check "golden: area/x was read as area%2Fx" has "$STUB/gh.calls" 'labels/area%2Fx'
 assert_eq "golden: the second issue has a three-backtick fence" '```' "$(jq -r .body <"$STUB/inputs/$(grep '|POST||repos/o/backlog/issues|' "$STUB/gh.calls" | tail -1 | awk -F'|' '{print $8}')" | tail -1)"
+assert_eq "golden: the second issue's labels" '["type/docs"]' "$(jq -c .labels <"$STUB/inputs/$(grep '|POST||repos/o/backlog/issues|' "$STUB/gh.calls" | tail -1 | awk -F'|' '{print $8}')")"
 assert_eq "golden: the filed ledger lines" "0 101
 1 102" "$(cat "$(entry_dir)/filed")"
 check "golden: the outcome is recorded" test "$(cat "$(entry_dir)/outcome")" = "0 reviewed"
 check "golden: no write call used a field flag" test ! -s "$STUB/gh.bad"
-assert_eq "golden: the second issue's labels" '["type/docs"]' "$(jq -c .labels <"$STUB/inputs/$(grep '|POST||repos/o/backlog/issues|' "$STUB/gh.calls" | tail -1 | awk -F'|' '{print $8}')")"
 
 # one finding of each type asks for exactly the matching type/* label
 new_case

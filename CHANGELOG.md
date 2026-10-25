@@ -28,7 +28,9 @@ the GitHub release notes.
 existing issues and PRs. Where the host launcher (`wow-review`) files findings into that repo (the reviewed
 repo's `backlog.repo`, else the reviewed repo itself), also reinstall the host tools from a default branch at
 or after this release in every home; while only one of the two is done, the findings it files carry no
-type label (`WB-D40`).
+type label (`WB-D40`). Optional: this repo also deleted the six GitHub default labels (`duplicate`, `invalid`,
+`question`, `wontfix`, `good first issue`, `help wanted`), each once it had no uses; an adopter need not (this
+sentence was added after the release).
 
 ### Added
 
