@@ -21,6 +21,10 @@ the GitHub release notes.
 
 ## [Unreleased]
 
+### Changed
+
+- The `identities` config read that the five spec scripts shared as copies now lives in `bin/declared-ids.sh`, with no change to any word they print (`#1079`).
+
 ### Fixed
 
 - **`/way-of-working:retro`'s run-again remedy names the window the first run used (`#1092`).**

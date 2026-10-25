@@ -117,6 +117,7 @@ YML
   printf '#!/bin/sh\nout=$(cat "$FX_FIND_FILE")\nprintf "%%s\\n" "$out"\nexit "${FX_FIND_RC:-0}"\n' >"$R/plugins/way-of-working/bin/spec-find.sh"
   printf '#!/bin/sh\necho stub\n' >"$R/plugins/way-of-working/bin/gh-identity.sh"
   printf '#!/bin/sh\necho stub\n' >"$R/plugins/way-of-working/bin/spec-reaction.sh"
+  printf '#!/bin/sh\necho stub\n' >"$R/plugins/way-of-working/bin/declared-ids.sh"
   cp "$pv" "$R/plugins/way-of-working/bin/prune-verdict.sh"
   put dir/f one
   $real_git -C "$R" add -A && $real_git -C "$R" commit -q -m a
@@ -326,6 +327,10 @@ nc
 $real_git -C "$R" rm -q plugins/way-of-working/bin/spec-reaction.sh
 bump
 stop_case "a required script is missing" 1 unreadable prep $PREP
+nc
+$real_git -C "$R" rm -q plugins/way-of-working/bin/declared-ids.sh
+bump
+stop_case "a required script is missing (declared-ids.sh)" 1 unreadable prep $PREP
 nc
 setyml '.repo = "other/repo"'
 stop_case "repo-mismatch" 1 repo-mismatch prep $PREP

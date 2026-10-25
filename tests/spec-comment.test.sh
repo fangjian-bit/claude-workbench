@@ -399,6 +399,7 @@ sib="$tmp/sib"
 mkdir "$sib"
 cp "$script" "$sib/spec-comment.sh"
 cp "$(dirname "$script")/gh-identity.sh" "$sib/gh-identity.sh"
+cp "$(dirname "$script")/declared-ids.sh" "$sib/declared-ids.sh"
 for m in check body; do
   rc=0
   out="$(sh "$sib/spec-comment.sh" $m "$tmp/dev.json" $REPO $ISSUE $CID $UPD "$tmp/map.yml" "$tmp/fresh.tsv" 2>/dev/null)" || rc=$?
@@ -425,6 +426,42 @@ assert_eq "spec-reaction.sh exiting 2 is unreacted (rc)" 0 "$rc"
 printf '#!/bin/sh\necho approved\n' >"$sib/spec-reaction.sh"
 out="$(sh "$sib/spec-comment.sh" check "$tmp/dev.json" $REPO $ISSUE $CID $UPD "$tmp/map.yml" "$tmp/own.tsv" 2>/dev/null)"
 assert_eq "the sibling's approved decides, not this script" ok "$out"
+
+# A missing declared-ids.sh (#1079) is exit 2 with nothing on stdout for a declared author, the same as a
+# missing spec-reaction.sh; a legacy author's word never depends on it.
+nodi="$tmp/nodi"
+mkdir "$nodi"
+cp "$script" "$nodi/spec-comment.sh"
+cp "$(dirname "$script")/gh-identity.sh" "$nodi/gh-identity.sh"
+printf '#!/bin/sh\necho approved\n' >"$nodi/spec-reaction.sh"
+for a in dev good; do
+  rc=0
+  out="$(sh "$nodi/spec-comment.sh" check "$tmp/$a.json" $REPO $ISSUE $CID $UPD "$tmp/map.yml" "$tmp/fresh.tsv" 2>/dev/null)" || rc=$?
+  assert_eq "no declared-ids.sh, $a author (stdout)" "" "$out"
+  assert_eq "no declared-ids.sh, $a author (rc)" 2 "$rc"
+done
+rc=0
+out="$(sh "$nodi/spec-comment.sh" check "$tmp/owner.json" $REPO $ISSUE $CID $UPD "$tmp/null.yml" 2>/dev/null)" || rc=$?
+assert_eq "no declared-ids.sh, legacy OWNER (stdout)" ok "$out"
+assert_eq "no declared-ids.sh, legacy OWNER (rc)" 0 "$rc"
+
+# A helper that fails or misprints is `unreacted`, never exit 2 and never ok. Each stub gets its own directory.
+si=0
+for stub in 'exit 2' 'exit 1' 'echo unreadable' 'echo "ok 101"' 'echo "ok 101 - "' 'echo "ok 101 02001"' 'echo "ok 101 x"' 'echo "ok 101 - -"' 'printf "ok 101 -\\nok 101 -\\n"' ': # no output'; do
+  si=$((si + 1))
+  d="$tmp/stub$si"
+  mkdir "$d"
+  cp "$script" "$d/spec-comment.sh"
+  cp "$(dirname "$script")/gh-identity.sh" "$d/gh-identity.sh"
+  printf '#!/bin/sh\necho approved\n' >"$d/spec-reaction.sh"
+  printf '#!/bin/sh\n%s\n' "$stub" >"$d/declared-ids.sh"
+  for a in dev good; do
+    rc=0
+    out="$(sh "$d/spec-comment.sh" check "$tmp/$a.json" $REPO $ISSUE $CID $UPD "$tmp/map.yml" "$tmp/fresh.tsv" 2>/dev/null)" || rc=$?
+    assert_eq "helper stub [$stub], $a author (stdout)" unreacted "$out"
+    assert_eq "helper stub [$stub], $a author (rc)" 0 "$rc"
+  done
+done
 
 # Eight arguments with a reactions file are accepted (the nine-argument refusal is above).
 run check "$tmp/good.json" "$tmp/map.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/fresh.tsv"

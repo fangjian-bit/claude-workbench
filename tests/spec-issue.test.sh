@@ -984,6 +984,28 @@ cp "$script" "$tmp/lone2/spec-issue.sh"
 cp "$bindir/gh-identity.sh" "$tmp/lone2/gh-identity.sh"
 SCRIPT="$tmp/lone2/spec-issue.sh" run fetch 611 "$o"
 usage_is
+desc="a copy of the script with gh-identity.sh and spec-reaction.sh but no sibling declared-ids.sh"
+mkdir -p "$tmp/lone3"
+cp "$script" "$tmp/lone3/spec-issue.sh"
+cp "$bindir/gh-identity.sh" "$bindir/spec-reaction.sh" "$tmp/lone3/"
+SCRIPT="$tmp/lone3/spec-issue.sh" run fetch 611 "$o"
+usage_is
+# A helper that fails or misprints stops a maintainer's issue `unreadable` at app_check (#1079), never a pass.
+setyml "$tmp/map.yml"
+si=0
+for stub in 'exit 2' 'exit 1' 'echo unreadable' 'echo "ok 100"' 'echo "ok 100 - "' 'echo "ok 100 02001"' 'echo "ok 100 x"' 'echo "ok 100 - -"' 'printf "ok 100 -\\nok 100 -\\n"' ': # no output'; do
+  si=$((si + 1))
+  mkdir -p "$tmp/stub$si"
+  cp "$script" "$tmp/stub$si/spec-issue.sh"
+  cp "$bindir/gh-identity.sh" "$bindir/spec-reaction.sh" "$tmp/stub$si/"
+  printf '#!/bin/sh\n%s\n' "$stub" >"$tmp/stub$si/declared-ids.sh"
+  desc="a helper stub that does [$stub] stops a maintainer's issue unreadable"
+  mkissue maint 100 '"OWNER"'
+  o="$(newout)"
+  SCRIPT="$tmp/stub$si/spec-issue.sh" run fetch 611 "$o"
+  stop_is unreadable "$o"
+done
+setyml "$tmp/legacy.yml"
 desc="an out-dir inside the checkout"
 mkdir -p "$co/inside"
 run fetch 611 "$co/inside"

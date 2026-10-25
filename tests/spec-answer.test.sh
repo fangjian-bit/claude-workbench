@@ -93,7 +93,7 @@ nc() {
   cd_="$tmp/c$cn"
   mkdir -p "$cd_/bin" "$cd_/c"
   cp "$script" "$cd_/bin/spec-answer.sh"
-  cp "$bindir/gh-identity.sh" "$bindir/spec-fresh.sh" "$cd_/bin/"
+  cp "$bindir/gh-identity.sh" "$bindir/spec-fresh.sh" "$bindir/declared-ids.sh" "$cd_/bin/"
   : >"$cd_/gh.log"
   cat >"$cd_/project.yml" <<'YML'
 repo: acme/app
@@ -255,5 +255,16 @@ expect "exit 2: a missing gh-identity.sh" "" 2
 cp "$bindir/gh-identity.sh" "$cd_/bin/"; rm "$cd_/bin/spec-fresh.sh"; run check
 expect "exit 2: a missing spec-fresh.sh" "" 2
 assert_eq "exit 2: no gh call was made in this fixture" "" "$(cat "$cd_/gh.log")"
+cp "$bindir/spec-fresh.sh" "$cd_/bin/"; rm "$cd_/bin/declared-ids.sh"; run check
+expect "exit 2: a missing declared-ids.sh" "" 2
+assert_eq "exit 2: no gh call was made without declared-ids.sh" "" "$(cat "$cd_/gh.log")"
+
+# A helper that fails or misprints gives the script's own word (#1079). Each stub gets its own fixture.
+for stub in 'exit 2' 'exit 1' 'echo unreadable' 'echo "ok 101"' 'echo "ok 101 - "' 'echo "ok 101 02001"' 'echo "ok 101 x"' 'echo "ok 101 - -"' 'printf "ok 101 -\\nok 101 -\\n"' ': # no output'; do
+  nc
+  printf '#!/bin/sh\n%s\n' "$stub" >"$cd_/bin/declared-ids.sh"
+  run check
+  expect "unreadable: a helper stub that does [$stub]" unreadable
+done
 
 [ "$fail" -eq 0 ]

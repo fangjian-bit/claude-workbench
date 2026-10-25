@@ -62,8 +62,9 @@
 #     again after the reactions; a changed value is `moved`.
 # Rows are de-duplicated on id first (pagination can repeat one), keeping the first.
 #
-# Read from <project.yml> with yq, aliases expanded: `pr_base` (a plain branch name), the
-# backlog repo (`backlog.repo`, or `repo` when that is null; owner/name), `identities` (a map;
+# Read from <project.yml> with yq, aliases expanded: `pr_base` (a plain branch name) and the
+# backlog repo (`backlog.repo`, or `repo` when that is null; owner/name). The rest, which declared-ids.sh
+# reads (#1079) and which is where its rules live, is: `identities` (a map;
 # under null, the legacy shape, the finder does not apply), `identities.maintainer` (at least
 # one entry, each a map with an !!int `id` above 0 and a string `login`) and
 # `identities.dev_app`, `identities.reviewer_app` and `identities.loop_app` (each null or
@@ -92,7 +93,7 @@
 # Exits 2, printing nothing to stdout, when an argument is bad (the wrong count, a mode other
 # than `find`, `pending` or `answer`, an issue or <after-id> that is not digits with no leading zero),
 # <project.yml> is unreadable,
-# `$0` has no slash, or a sibling gh-identity.sh or spec-reaction.sh is not beside this script.
+# `$0` has no slash, or a sibling gh-identity.sh, spec-reaction.sh or declared-ids.sh is not beside this script.
 # Like spec-comment.sh it uses only the SIBLING copies: a slash-less `$0` would resolve
 # `dirname` to the current directory, where a branch under review could supply one that
 # prints `maintainer` or `approved`.
@@ -124,11 +125,12 @@ if [ ! -f "$yml" ] || ! yq -o=yaml '.' "$yml" >/dev/null 2>&1; then
   exit 2
 fi
 case "$0" in
-  */*) gi="$(dirname "$0")/gh-identity.sh" sr="$(dirname "$0")/spec-reaction.sh" ;;
+  */*) gi="$(dirname "$0")/gh-identity.sh" sr="$(dirname "$0")/spec-reaction.sh" di="$(dirname "$0")/declared-ids.sh" ;;
   *) echo "spec-find.sh: must be run by path (a slash-less \$0 cannot locate its siblings)" >&2; exit 2 ;;
 esac
 [ -f "$gi" ] || { echo "spec-find.sh: gh-identity.sh not beside this script" >&2; exit 2; }
 [ -f "$sr" ] || { echo "spec-find.sh: spec-reaction.sh not beside this script" >&2; exit 2; }
+[ -f "$di" ] || { echo "spec-find.sh: declared-ids.sh not beside this script" >&2; exit 2; }
 
 tmp="$(mktemp -d)" || { echo "spec-find.sh: no temp directory" >&2; exit 2; }
 trap 'rm -rf "$tmp"' EXIT
@@ -149,30 +151,23 @@ case "$backlog" in
   *) out unreadable ;;
 esac
 
-[ "$(yq -r 'explode(.) | .identities | tag' "$yml" 2>/dev/null)" = '!!map' ] || out unreadable
-m_total="$(yq -r 'explode(.) | .identities.maintainer | select(tag == "!!seq") | length' "$yml" 2>/dev/null)" || out unreadable
-maint_ids="$(yq -r 'explode(.) | .identities.maintainer | select(tag == "!!seq") | [.[] | select(tag == "!!map" and ((.id | tag) == "!!int") and .id > 0 and ((.login | tag) == "!!str")) | .id] | join(",")' "$yml" 2>/dev/null)" || out unreadable
-[ -n "$maint_ids" ] || out unreadable
-m_good="$(printf '%s' "$maint_ids" | awk -F, '{print NF}')"
-[ "$m_good" = "$m_total" ] || out unreadable
-
-# The declared Apps: the dev App feeds the author filter and the role check; the reviewer and
-# loop Apps are read for the collision check only (#708). Each key is checked the same way.
-dev_id=
-for app_key in dev_app reviewer_app loop_app; do
-  app_tag="$(APP_KEY="$app_key" yq -r 'explode(.) | .identities[strenv(APP_KEY)] | tag' "$yml" 2>/dev/null)" || out unreadable
-  case "$app_tag" in
-    '!!null') : ;;
-    '!!map')
-      app_id="$(APP_KEY="$app_key" yq -r 'explode(.) | .identities[strenv(APP_KEY)] | select(tag == "!!map" and ((.id | tag) == "!!int") and .id > 0 and ((.login | tag) == "!!str")) | .id' "$yml" 2>/dev/null)" || out unreadable
-      [ -n "$app_id" ] || out unreadable
-      case "$app_id" in ''|0*|*[!0-9]*) out unreadable ;; esac
-      case ",$maint_ids," in *",$app_id,"*) out unreadable ;; esac
-      if [ "$app_key" = dev_app ]; then dev_id="$app_id"; fi
-      ;;
-    *) out unreadable ;;
-  esac
-done
+# The declared ids come from declared-ids.sh (#1079), whose line is held to its shape here: exactly
+# `ok <ids> <dev>`, three fields, a non-empty list, a dev id of `-` or digits with no leading zero.
+di_line="$(sh "$di" "$yml" </dev/null 2>/dev/null)" || out unreadable
+case "$di_line" in
+  *"
+"*) out unreadable ;;
+  "ok "*) : ;;
+  *) out unreadable ;;
+esac
+di_rest="${di_line#ok }"
+case "$di_rest" in *" "*" "* | " "* | *" " | "") out unreadable ;; *" "*) : ;; *) out unreadable ;; esac
+maint_ids="${di_rest%% *}"
+dev_id="${di_rest#* }"
+case "$dev_id" in
+  -) dev_id= ;;
+  '' | 0* | *[!0-9]*) out unreadable ;;
+esac
 
 # --- the one listing ---------------------------------------------------------------------
 gh api --paginate "repos/$backlog/issues/$issue/comments" --jq '.[] | (((.body // "") + "\n") | split("\n")[0] | rtrimstr("\r")) as $l | select($l | test("^(spec-task(-escalated)?: issue=[1-9][0-9]* base=[A-Za-z0-9._/][A-Za-z0-9._/-]* sha=[0-9a-f]{40}|spec-task-answer: escalated=[1-9][0-9]* choice=(apply|amend))$")) | ($l | split(" ")) as $f | [(.id|tostring), .updated_at, .issue_url, .user.login, (.user.id|tostring), ($f[1] | ltrimstr("issue=") | ltrimstr("escalated=")), ($f[2] | ltrimstr("base=") | ltrimstr("choice=")), ($f[0] | rtrimstr(":"))] + (if $f[0] == "spec-task-answer:" then [.created_at] else [] end) | @tsv' >"$tmp/list.tsv" 2>/dev/null || out unreadable

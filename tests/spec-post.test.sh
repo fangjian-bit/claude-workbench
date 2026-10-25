@@ -366,7 +366,7 @@ run() {
 stubshape="$tmp/stubshape"
 mkdir -p "$stubshape"
 cp "$script" "$stubshape/spec-post.sh"
-cp "$bindir/gh-identity.sh" "$bindir/spec-reaction.sh" "$stubshape/"
+cp "$bindir/gh-identity.sh" "$bindir/spec-reaction.sh" "$bindir/declared-ids.sh" "$stubshape/"
 printf '#!/bin/sh\necho ok\n' >"$stubshape/spec-shape.sh"
 chmod +x "$stubshape/spec-shape.sh"
 # post <draft> <out-dir> -- the usual call
@@ -1066,8 +1066,15 @@ usage_is
 desc="a copy of the script with gh-identity.sh and spec-shape.sh but no spec-reaction.sh"
 mkdir -p "$tmp/half2"
 cp "$script" "$tmp/half2/spec-post.sh"
-cp "$bindir/gh-identity.sh" "$bindir/spec-shape.sh" "$tmp/half2/"
+cp "$bindir/gh-identity.sh" "$bindir/spec-shape.sh" "$bindir/declared-ids.sh" "$tmp/half2/"
 SCRIPT="$tmp/half2/spec-post.sh" run post 661 "$SHA" "$dr/draft.md" "$o"
+usage_is
+
+desc="a copy of the script with gh-identity.sh, spec-shape.sh and spec-reaction.sh but no declared-ids.sh"
+mkdir -p "$tmp/half3"
+cp "$script" "$tmp/half3/spec-post.sh"
+cp "$bindir/gh-identity.sh" "$bindir/spec-shape.sh" "$bindir/spec-reaction.sh" "$tmp/half3/"
+SCRIPT="$tmp/half3/spec-post.sh" run post 661 "$SHA" "$dr/draft.md" "$o"
 usage_is
 
 if [ "$can_link" = yes ]; then
@@ -1383,6 +1390,22 @@ for y in mapnomaint mapemptymaint mapbadmaint; do
   stop_is unreadable
 done
 setyml "$tmp/map.yml"
+
+# A declared-ids.sh that fails or misprints stops a maintainer's issue `unreadable` at app_check (#1079),
+# never a pass. Each stub gets its own copy directory.
+si=0
+for stub in 'exit 2' 'exit 1' 'echo unreadable' 'echo "ok 100"' 'echo "ok 100 - "' 'echo "ok 100 02001"' 'echo "ok 100 x"' 'echo "ok 100 - -"' 'printf "ok 100 -\\nok 100 -\\n"' ': # no output'; do
+  si=$((si + 1))
+  mkdir -p "$tmp/dstub$si"
+  cp "$script" "$tmp/dstub$si/spec-post.sh"
+  cp "$bindir/gh-identity.sh" "$bindir/spec-shape.sh" "$bindir/spec-reaction.sh" "$tmp/dstub$si/"
+  printf '#!/bin/sh\n%s\n' "$stub" >"$tmp/dstub$si/declared-ids.sh"
+  desc="a helper stub that does [$stub] stops a maintainer's issue unreadable"
+  mkissue maint 100 '"OWNER"'
+  o="$(newdir)"
+  SCRIPT="$tmp/dstub$si/spec-post.sh" FX_RX="$RXF" post "$dr2/draft.md" "$o"
+  stop_is unreadable
+done
 
 # hidden
 mkrx "$RXF" "$RX_GOOD"

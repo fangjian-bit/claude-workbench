@@ -38,8 +38,8 @@
 #                  issue cannot see: an opener, a character reference, a link definition line or a
 #                  default-ignorable character (see below)
 # Nothing is written to stderr on a stop. Any other argument count, a first argument other than
-# `fetch`, a bad <N> or <out-dir>, a slash-less $0 or a missing sibling gh-identity.sh or
-# spec-reaction.sh prints a usage line (or, for the last two, a one-line diagnostic) on stderr and nothing on stdout, and exits 2,
+# `fetch`, a bad <N> or <out-dir>, a slash-less $0 or a missing sibling gh-identity.sh,
+# spec-reaction.sh or declared-ids.sh prints a usage line (or, for the siblings, a one-line diagnostic) on stderr and nothing on stdout, and exits 2,
 # before any `gh` call. So does a run outside
 # a git work tree, where `git rev-parse --show-toplevel` fails.
 #
@@ -77,7 +77,7 @@
 #   2. the issue is fetched a SECOND time, to a fresh file; the type, pull-request, loop-identity
 #      and task-author checks are re-run on that copy, which must name the same login and id, and
 #      its `updated_at`, `title` and `body` must have the shapes a string-or-null field has;
-#   3. the maintainer ids are read from the default branch's copy, as spec-comment.sh reads them;
+#   3. the maintainer ids are read from the default branch's copy by declared-ids.sh (#1079), as the readers read them;
 #   4. `spec-reaction.sh` says `approved` for the issue's content time (else `unreacted`): the latest
 #      of its creation time, its body's last edit (GraphQL `lastEditedAt`, null when never edited) and
 #      its newest title rename (a `RenamedTitleEvent`), read by one GraphQL query after the second
@@ -123,7 +123,7 @@
 #     uses the default host or GH_HOST (the residual milestone-desc.sh records).
 #
 # There is no environment override of `gh`, `git` or `yq`; the tests put stubs first on PATH.
-# gh-identity.sh and spec-reaction.sh are found as `$(dirname "$0")/<name>` only, and run as `sh`.
+# gh-identity.sh, spec-reaction.sh and declared-ids.sh are found as `$(dirname "$0")/<name>` only, and run as `sh`.
 #
 # Permitted toolset: POSIX sh, `git`, `gh` (its embedded --jq allowed), `yq` (mikefarah v4, always
 # `-p=json` on JSON), `tr`, `sed`, `awk`, `mktemp`, `cp`, `mv`, `rm`, `dirname`, `uname` and `ls`. No
@@ -146,6 +146,7 @@ case "$0" in
   */*)
     gi="$(dirname "$0")/gh-identity.sh"
     sr="$(dirname "$0")/spec-reaction.sh"
+    di="$(dirname "$0")/declared-ids.sh"
     ;;
   *)
     echo "spec-issue.sh: must be run by path (a slash-less \$0 cannot locate gh-identity.sh)" >&2
@@ -158,6 +159,10 @@ esac
 }
 [ -f "$sr" ] || {
   echo "spec-issue.sh: spec-reaction.sh not beside this script" >&2
+  exit 2
+}
+[ -f "$di" ] || {
+  echo "spec-issue.sh: declared-ids.sh not beside this script" >&2
   exit 2
 }
 
@@ -283,28 +288,31 @@ esac
 loopid="$(yq -r '.orchestration.loop_identity // ""' "$tmp/def.yml" 2>/dev/null)" || stop unreadable
 if [ -n "$loopid" ] && [ "$(fold "$login")" = "$(fold "$loopid")" ]; then stop loop-identity; fi
 
-# Under a map, no declared App's id may be on the maintainer list (#759, as #708 did for the
-# readers): that App's reaction would count as a maintainer's. Own variables, so agent_path's
-# maintainer-id reads are untouched. Any list or entry it cannot judge stops `unreadable`.
+# The declared ids come from declared-ids.sh (#1079), which holds every `identities` rule, a declared
+# App's id on the maintainer list (#759, as #708 did for the readers) included: that App's reaction would
+# count as a maintainer's. Sets maint_ids, or stops `unreadable` unless the helper exits 0 with exactly
+# `ok <ids> <dev>`: three fields, a non-empty list, a dev id of `-` or digits with no leading zero.
+declared_ids() {
+  di_line="$(sh "$di" "$tmp/def.yml" </dev/null 2>/dev/null)" || stop unreadable
+  case "$di_line" in
+    *"
+"*) stop unreadable ;;
+    "ok "*) : ;;
+    *) stop unreadable ;;
+  esac
+  di_rest="${di_line#ok }"
+  case "$di_rest" in *" "*" "* | " "* | *" " | "") stop unreadable ;; *" "*) : ;; *) stop unreadable ;; esac
+  maint_ids="${di_rest%% *}"
+  case "${di_rest#* }" in
+    -) : ;;
+    '' | 0* | *[!0-9]*) stop unreadable ;;
+  esac
+}
+
+# Under a map no declared App's id may be on the maintainer list; any list or entry the helper cannot
+# judge stops `unreadable`.
 app_check() {
-  am_total="$(yq -r 'explode(.) | .identities.maintainer | select(tag == "!!seq") | length' "$tmp/def.yml" 2>/dev/null)" || stop unreadable
-  am_ids="$(yq -r 'explode(.) | .identities.maintainer | select(tag == "!!seq") | [.[] | select(tag == "!!map" and ((.id | tag) == "!!int") and .id > 0 and ((.login | tag) == "!!str")) | .id] | join(",")' "$tmp/def.yml" 2>/dev/null)" || stop unreadable
-  [ -n "$am_ids" ] || stop unreadable
-  am_good="$(printf '%s' "$am_ids" | awk -F, '{print NF}')" || stop unreadable
-  [ "$am_good" = "$am_total" ] || stop unreadable
-  for app_key in dev_app reviewer_app loop_app; do
-    app_tag="$(APP_KEY="$app_key" yq -r 'explode(.) | .identities[strenv(APP_KEY)] | tag' "$tmp/def.yml" 2>/dev/null)" || stop unreadable
-    case "$app_tag" in
-      '!!null') : ;;
-      '!!map')
-        app_id="$(APP_KEY="$app_key" yq -r 'explode(.) | .identities[strenv(APP_KEY)] | select(tag == "!!map" and ((.id | tag) == "!!int") and .id > 0 and ((.login | tag) == "!!str")) | .id' "$tmp/def.yml" 2>/dev/null)" || stop unreadable
-        [ -n "$app_id" ] || stop unreadable
-        case "$app_id" in '' | 0* | *[!0-9]*) stop unreadable ;; esac
-        case ",$am_ids," in *",$app_id,"*) stop unreadable ;; esac
-        ;;
-      *) stop unreadable ;;
-    esac
-  done
+  declared_ids
 }
 
 # The App-filed path: see the header. Sets src, verdict and assoc, or stops.
@@ -342,12 +350,8 @@ agent_path() {
   sh "$gi" task-author "$login2" "$uid2" "$tmp/def.yml" >"$tmp/verdict2" 2>/dev/null || rc=$?
   [ "$rc" -eq 0 ] || stop untrusted
   [ "$(rd "$tmp/verdict2")" = agent ] || stop unreadable
-  # 3. the maintainer ids, as spec-comment.sh reads them
-  m_total="$(yq -r 'explode(.) | .identities.maintainer | select(tag == "!!seq") | length' "$tmp/def.yml" 2>/dev/null)" || stop unreadable
-  maint_ids="$(yq -r 'explode(.) | .identities.maintainer | select(tag == "!!seq") | [.[] | select(tag == "!!map" and ((.id | tag) == "!!int") and .id > 0 and ((.login | tag) == "!!str")) | .id] | join(",")' "$tmp/def.yml" 2>/dev/null)" || stop unreadable
-  [ -n "$maint_ids" ] || stop unreadable
-  m_good="$(printf '%s' "$maint_ids" | awk -F, '{print NF}')" || stop unreadable
-  [ "$m_good" = "$m_total" ] || stop unreadable
+  # 3. the maintainer ids, from declared-ids.sh as the readers read them
+  declared_ids
   # 3b. the content time (#890, WB-D32): the latest of the issue's creation, its body's last edit and its
   # newest title rename, so a comment, a label or a milestone change leaves a reaction standing
   gh api graphql -f query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){createdAt updatedAt lastEditedAt timelineItems(itemTypes:[RENAMED_TITLE_EVENT],last:1){nodes{... on RenamedTitleEvent{createdAt}}}}}}' -f owner="${backlog%%/*}" -f name="${backlog#*/}" -F number="$n" >"$tmp/ct.json" 2>/dev/null || stop unreachable

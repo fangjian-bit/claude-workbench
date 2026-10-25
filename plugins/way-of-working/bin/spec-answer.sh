@@ -18,7 +18,8 @@
 # escalated comment first, each to a file in its `mktemp -d` directory with stderr discarded. It lists
 # nothing and makes no other call. Each first line is compared after one trailing CR is removed, as
 # spec-find.sh does. It reads `pr_base`, the backlog repo and `identities` from <project.yml> by
-# spec-find.sh's rules, a declared App's id on the maintainer list (#708) included.
+# spec-find.sh's rules, a declared App's id on the maintainer list (#708) included; declared-ids.sh (#1079)
+# holds the `identities` rules.
 #
 # `check` prints exactly one line and exits 0, the first failing word in this order:
 #   unreadable   -- a config value, a fetch, the JSON or a field the checks read failed
@@ -40,7 +41,7 @@
 # and no body before the checks pass. The bodies are data; nothing is evaluated.
 #
 # Exits 2, printing a usage line to stderr and nothing to stdout, before any `gh` call, for a bad argument,
-# an unreadable <project.yml>, a slash-less `$0` or a missing sibling (gh-identity.sh, spec-fresh.sh).
+# an unreadable <project.yml>, a slash-less `$0` or a missing sibling (gh-identity.sh, spec-fresh.sh, declared-ids.sh).
 #
 # Permitted toolset: POSIX sh, gh, yq (mikefarah v4), awk, sed and mktemp. Runs under LC_ALL=C.
 set -eu
@@ -68,11 +69,12 @@ if [ ! -f "$yml" ] || ! yq -o=yaml '.' "$yml" >/dev/null 2>&1; then
   exit 2
 fi
 case "$0" in
-  */*) gi="$(dirname "$0")/gh-identity.sh" sf="$(dirname "$0")/spec-fresh.sh" ;;
+  */*) gi="$(dirname "$0")/gh-identity.sh" sf="$(dirname "$0")/spec-fresh.sh" di="$(dirname "$0")/declared-ids.sh" ;;
   *) echo "spec-answer.sh: must be run by path (a slash-less \$0 cannot locate its siblings)" >&2; exit 2 ;;
 esac
 [ -f "$gi" ] || { echo "spec-answer.sh: gh-identity.sh not beside this script" >&2; exit 2; }
 [ -f "$sf" ] || { echo "spec-answer.sh: spec-fresh.sh not beside this script" >&2; exit 2; }
+[ -f "$di" ] || { echo "spec-answer.sh: declared-ids.sh not beside this script" >&2; exit 2; }
 
 tmp="$(mktemp -d)" || { echo "spec-answer.sh: no temp directory" >&2; exit 2; }
 trap 'rm -rf "$tmp"' EXIT
@@ -91,26 +93,22 @@ verdict() {
     */*) : ;;
     *) word=unreadable; return ;;
   esac
-  [ "$(yq -r 'explode(.) | .identities | tag' "$yml" 2>/dev/null)" = '!!map' ] || { word=unreadable; return; }
-  m_total="$(yq -r 'explode(.) | .identities.maintainer | select(tag == "!!seq") | length' "$yml" 2>/dev/null)" || { word=unreadable; return; }
-  maint_ids="$(yq -r 'explode(.) | .identities.maintainer | select(tag == "!!seq") | [.[] | select(tag == "!!map" and ((.id | tag) == "!!int") and .id > 0 and ((.login | tag) == "!!str")) | .id] | join(",")' "$yml" 2>/dev/null)" || { word=unreadable; return; }
-  [ -n "$maint_ids" ] || { word=unreadable; return; }
-  m_good="$(printf '%s' "$maint_ids" | awk -F, '{print NF}')"
-  [ "$m_good" = "$m_total" ] || { word=unreadable; return; }
-  dev_id=
-  for app_key in dev_app reviewer_app loop_app; do
-    app_tag="$(APP_KEY="$app_key" yq -r 'explode(.) | .identities[strenv(APP_KEY)] | tag' "$yml" 2>/dev/null)" || { word=unreadable; return; }
-    case "$app_tag" in
-      '!!null') : ;;
-      '!!map')
-        app_id="$(APP_KEY="$app_key" yq -r 'explode(.) | .identities[strenv(APP_KEY)] | select(tag == "!!map" and ((.id | tag) == "!!int") and .id > 0 and ((.login | tag) == "!!str")) | .id' "$yml" 2>/dev/null)" || { word=unreadable; return; }
-        case "$app_id" in '' | 0* | *[!0-9]*) word=unreadable; return ;; esac
-        case ",$maint_ids," in *",$app_id,"*) word=unreadable; return ;; esac
-        if [ "$app_key" = dev_app ]; then dev_id="$app_id"; fi
-        ;;
-      *) word=unreadable; return ;;
-    esac
-  done
+  # The declared ids come from declared-ids.sh (#1079); its line is held to `ok <ids> <dev>` here.
+  di_line="$(sh "$di" "$yml" </dev/null 2>/dev/null)" || { word=unreadable; return; }
+  case "$di_line" in
+    *"
+"*) word=unreadable; return ;;
+    "ok "*) : ;;
+    *) word=unreadable; return ;;
+  esac
+  di_rest="${di_line#ok }"
+  case "$di_rest" in *" "*" "* | " "* | *" " | "") word=unreadable; return ;; *" "*) : ;; *) word=unreadable; return ;; esac
+  maint_ids="${di_rest%% *}"
+  dev_id="${di_rest#* }"
+  case "$dev_id" in
+    -) dev_id= ;;
+    '' | 0* | *[!0-9]*) word=unreadable; return ;;
+  esac
 
   # The two reads, escalated first. Each lands in its own file; stderr is discarded.
   gh api "repos/$backlog/issues/comments/$esc_id" >"$tmp/e.json" 2>/dev/null </dev/null || { word=unreadable; return; }

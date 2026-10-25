@@ -282,7 +282,7 @@ read_default() {
   BIN=$TMP/plugins/way-of-working/bin
   [ ! -L "$TMP/plugins" ] && [ ! -L "$TMP/plugins/way-of-working" ] || stop unreadable
   [ -d "$BIN" ] && [ ! -L "$BIN" ] || stop unreadable
-  for rd_s in spec-find.sh gh-identity.sh spec-reaction.sh prune-verdict.sh; do
+  for rd_s in spec-find.sh gh-identity.sh spec-reaction.sh prune-verdict.sh declared-ids.sh; do
     [ -f "$BIN/$rd_s" ] && [ ! -L "$BIN/$rd_s" ] || stop unreadable
   done
   rd_repo=$(yq -r '.repo' "$DEFFILE" 2>/dev/null) || stop unreadable

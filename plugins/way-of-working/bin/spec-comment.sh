@@ -86,18 +86,19 @@
 # unknown mode, a repo that is not owner/name, an issue or comment id that is not digits, a
 # malformed <updated_at>, or an unreadable <project.yml> -- and when it cannot find its sibling
 # gh-identity.sh (a slash-less $0, or none beside it), or, for a declared author under a map, its
-# sibling spec-reaction.sh: a broken install must not read as "waiting for a maintainer
+# siblings spec-reaction.sh and declared-ids.sh: a broken install must not read as "waiting for a maintainer
 # reaction", so that is exit 2 with nothing on stdout, never `unreacted`. (An exit 2 FROM
 # spec-reaction.sh, a bad argument, is `unreacted`.) The caller treats any non-zero exit as a
 # stop, never as ok.
 #
 # `.id` and `.updated_at` are compared as exact strings against validated arguments, and the
 # author goes through gh-identity.sh, which validates the login and id shape itself.
-# gh-identity.sh and spec-reaction.sh are the SIBLING copies and only those: a slash-less `$0`
+# gh-identity.sh, spec-reaction.sh and declared-ids.sh are the SIBLING copies and only those: a slash-less `$0`
 # would resolve `dirname` to the current directory, where a branch under review could supply
 # one that prints `dev_app` or `approved` (plan-anchor.sh does the same for spec-reaction.sh).
-# spec-reaction.sh is looked for only when the author is a declared maintainer or the dev App (a
-# map), so a legacy author's word never depends on it.
+# spec-reaction.sh and declared-ids.sh (#1079, which holds the `identities` rules) are looked for only
+# when the author is a declared maintainer or the dev App (a map), so a legacy author's word never
+# depends on them.
 #
 # Permitted toolset: POSIX sh and yq (mikefarah v4, which reads JSON), the toolset gh-identity.sh
 # already needs. No system jq, no python.
@@ -128,7 +129,7 @@ if [ ! -f "$yml" ] || ! yq -o=yaml '.' "$yml" >/dev/null 2>&1; then
 fi
 
 case "$0" in
-  */*) gi="$(dirname "$0")/gh-identity.sh" sr="$(dirname "$0")/spec-reaction.sh" ;;
+  */*) gi="$(dirname "$0")/gh-identity.sh" sr="$(dirname "$0")/spec-reaction.sh" di="$(dirname "$0")/declared-ids.sh" ;;
   *) echo "spec-comment.sh: must be run by path (a slash-less $0 cannot locate gh-identity.sh)" >&2; exit 2 ;;
 esac
 [ -f "$gi" ] || { echo "spec-comment.sh: gh-identity.sh not beside this script" >&2; exit 2; }
@@ -166,29 +167,27 @@ verdict() {
 # stdout); everything else that is not `approved` is `unreacted`.
 reaction_word() {
   [ -f "$sr" ] || { echo "spec-comment.sh: spec-reaction.sh not beside this script" >&2; exit 2; }
+  [ -f "$di" ] || { echo "spec-comment.sh: declared-ids.sh not beside this script" >&2; exit 2; }
   [ -n "$rx" ] && [ -f "$rx" ] && [ -r "$rx" ] || { echo unreacted; return; }
-  m_total="$(yq -r 'explode(.) | .identities.maintainer | select(tag == "!!seq") | length' "$yml" 2>/dev/null)" || { echo unreacted; return; }
-  ids="$(yq -r 'explode(.) | .identities.maintainer | select(tag == "!!seq") | [.[] | select(tag == "!!map" and ((.id | tag) == "!!int") and .id > 0 and ((.login | tag) == "!!str")) | .id] | join(",")' "$yml" 2>/dev/null)" || { echo unreacted; return; }
-  [ -n "$ids" ] || { echo unreacted; return; }
-  m_good="$(printf '%s' "$ids" | awk -F, '{print NF}')"
-  [ "$m_good" = "$m_total" ] || { echo unreacted; return; }
-  # No declared App is an approver: its id on the maintainer list could approve its own text
-  # (the dev App and the reviewer App have Issues write; the loop App is treated as the same class, #708).
-  # Whatever the author's role, an App entry that is neither null (or missing) nor well formed, or
-  # whose id is not canonical decimal or is on the list, makes the comment unreacted. Otherwise a
-  # maintainer author is approved by any declared maintainer's reaction, their own included.
-  for app_key in dev_app reviewer_app loop_app; do
-    app_tag="$(APP_KEY="$app_key" yq -r 'explode(.) | .identities[strenv(APP_KEY)] | tag' "$yml" 2>/dev/null)" || { echo unreacted; return; }
-    case "$app_tag" in
-      '!!null') ;;
-      '!!map')
-        app_id="$(APP_KEY="$app_key" yq -r 'explode(.) | .identities[strenv(APP_KEY)] | select(tag == "!!map" and ((.id | tag) == "!!int") and .id > 0 and ((.login | tag) == "!!str")) | .id' "$yml" 2>/dev/null)" || { echo unreacted; return; }
-        case "$app_id" in ''|0*|*[!0-9]*) echo unreacted; return ;; esac
-        case ",$ids," in *",$app_id,"*) echo unreacted; return ;; esac
-        ;;
-      *) echo unreacted; return ;;
-    esac
-  done
+  # declared-ids.sh holds the identities rules (#1079): the maintainer list is well formed, and no declared
+  # App's entry is malformed, non-canonical or on the list (#708). No declared App is an approver: its id on
+  # the maintainer list could approve its own text (the dev App and the reviewer App have Issues write; the
+  # loop App is treated as the same class). A maintainer author is approved by any declared maintainer's
+  # reaction, their own included. Anything but an `ok` line of three fields is unreacted.
+  di_line="$(sh "$di" "$yml" </dev/null 2>/dev/null)" || { echo unreacted; return; }
+  case "$di_line" in
+    *"
+"*) echo unreacted; return ;;
+    "ok "*) : ;;
+    *) echo unreacted; return ;;
+  esac
+  di_rest="${di_line#ok }"
+  case "$di_rest" in *" "*" "* | " "* | *" " | "") echo unreacted; return ;; *" "*) : ;; *) echo unreacted; return ;; esac
+  ids="${di_rest%% *}"
+  case "${di_rest#* }" in
+    -) : ;;
+    '' | 0* | *[!0-9]*) echo unreacted; return ;;
+  esac
   if [ "$1" = dev_app ]; then
     case ",$ids," in *",$f_uid,"*) echo unreacted; return ;; esac
   fi

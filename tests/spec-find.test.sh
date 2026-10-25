@@ -216,7 +216,7 @@ nc() {
   cd_="$tmp/c$cn"
   mkdir -p "$cd_/bin" "$cd_/rx" "$cd_/upd"
   cp "$script" "$cd_/bin/spec-find.sh"
-  cp "$bindir/spec-reaction.sh" "$bindir/gh-identity.sh" "$cd_/bin/"
+  cp "$bindir/spec-reaction.sh" "$bindir/gh-identity.sh" "$bindir/declared-ids.sh" "$cd_/bin/"
   : >"$cd_/list.tsv"
   : >"$cd_/gh.log"
   : >"$cd_/gi.log"
@@ -735,6 +735,14 @@ expect "ignored: find would say unreacted" "ignored 1003"
 nc; addans 1002 maint1 101 1001 apply; runa
 expect "ignored: find would say none" "ignored 1002"
 
+# #1091: the time half of the rule. `ignored` is judged on author, URL and choice alone, so an answer row that
+# would fail the created/updated check is still listed when find does not say escalated.
+nc; approved 1001 maint1 101; addans 1002 maint1 101 1001 apply "$TA1" "2026-09-21T09:20:00Z"; runa
+expect "ignored: an answer edited after it was posted (created before updated)" "ignored 1002"
+
+nc; addrow 1001 maint1 101; addesc 1002 maint1 101 "$TE1"; addans 1003 maint1 101 1002 apply "2026-09-21T08:59:59Z"; runa
+expect "ignored: an answer created before the escalated row's updated_at" "ignored 1003"
+
 nc; approved 1001 maint1 101; runa
 expect "not-escalated: find would say found, no answer row" "not-escalated"
 
@@ -803,5 +811,16 @@ expect "exit 2: a missing gh-identity.sh" "" 2
 
 nc; approved 1001 maint1 101; rm "$cd_/bin/spec-reaction.sh"; run
 expect "exit 2: a missing spec-reaction.sh" "" 2
+
+nc; approved 1001 maint1 101; rm "$cd_/bin/declared-ids.sh"; run
+expect "exit 2: a missing declared-ids.sh" "" 2
+
+# A helper that fails or misprints gives the finder's own word, never exit 2 and never a pass.
+for stub in 'exit 2' 'exit 1' 'echo unreadable' 'echo "ok 101"' 'echo "ok 101 -  "' 'echo "ok  - "' 'echo "ok 101 02001"' 'echo "ok 101 x"' 'echo "ok 101 - -"' 'printf "ok 101 -\\nok 101 -\\n"' ': # no output'; do
+  nc; approved 1001 maint1 101
+  printf '#!/bin/sh\n%s\n' "$stub" >"$cd_/bin/declared-ids.sh"
+  run
+  expect "unreadable: a helper stub that does [$stub]" "unreadable"
+done
 
 [ "$fail" -eq 0 ]
