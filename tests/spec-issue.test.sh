@@ -993,7 +993,7 @@ usage_is
 # A helper that fails or misprints stops a maintainer's issue `unreadable` at app_check (#1079), never a pass.
 setyml "$tmp/map.yml"
 si=0
-for stub in 'exit 2' 'exit 1' 'echo unreadable' 'echo "ok 100"' 'echo "ok 100 - "' 'echo "ok 100 02001"' 'echo "ok 100 x"' 'echo "ok 100 - -"' 'printf "ok 100 -\\nok 100 -\\n"' ': # no output'; do
+for stub in 'exit 2' 'exit 1' 'echo unreadable' 'echo "ok 101"' 'echo "ok 101 - "' 'echo "ok 101 -  "' 'echo "ok  - "' 'echo "ok 101 02001"' 'echo "ok 101 x"' 'echo "ok 101 - -"' 'printf "ok 101 -\\nok 101 -\\n"' ': # no output'; do
   si=$((si + 1))
   mkdir -p "$tmp/stub$si"
   cp "$script" "$tmp/stub$si/spec-issue.sh"

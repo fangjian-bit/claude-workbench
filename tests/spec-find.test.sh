@@ -816,7 +816,7 @@ nc; approved 1001 maint1 101; rm "$cd_/bin/declared-ids.sh"; run
 expect "exit 2: a missing declared-ids.sh" "" 2
 
 # A helper that fails or misprints gives the finder's own word, never exit 2 and never a pass.
-for stub in 'exit 2' 'exit 1' 'echo unreadable' 'echo "ok 101"' 'echo "ok 101 -  "' 'echo "ok  - "' 'echo "ok 101 02001"' 'echo "ok 101 x"' 'echo "ok 101 - -"' 'printf "ok 101 -\\nok 101 -\\n"' ': # no output'; do
+for stub in 'exit 2' 'exit 1' 'echo unreadable' 'echo "ok 101"' 'echo "ok 101 - "' 'echo "ok 101 -  "' 'echo "ok  - "' 'echo "ok 101 02001"' 'echo "ok 101 x"' 'echo "ok 101 - -"' 'printf "ok 101 -\\nok 101 -\\n"' ': # no output'; do
   nc; approved 1001 maint1 101
   printf '#!/bin/sh\n%s\n' "$stub" >"$cd_/bin/declared-ids.sh"
   run

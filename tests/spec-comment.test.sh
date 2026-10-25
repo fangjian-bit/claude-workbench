@@ -447,7 +447,7 @@ assert_eq "no declared-ids.sh, legacy OWNER (rc)" 0 "$rc"
 
 # A helper that fails or misprints is `unreacted`, never exit 2 and never ok. Each stub gets its own directory.
 si=0
-for stub in 'exit 2' 'exit 1' 'echo unreadable' 'echo "ok 101"' 'echo "ok 101 - "' 'echo "ok 101 02001"' 'echo "ok 101 x"' 'echo "ok 101 - -"' 'printf "ok 101 -\\nok 101 -\\n"' ': # no output'; do
+for stub in 'exit 2' 'exit 1' 'echo unreadable' 'echo "ok 101"' 'echo "ok 101 - "' 'echo "ok 101 -  "' 'echo "ok  - "' 'echo "ok 101 02001"' 'echo "ok 101 x"' 'echo "ok 101 - -"' 'printf "ok 101 -\\nok 101 -\\n"' ': # no output'; do
   si=$((si + 1))
   d="$tmp/stub$si"
   mkdir "$d"

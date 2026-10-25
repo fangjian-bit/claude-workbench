@@ -51,7 +51,7 @@
 #                   user, and a maintainer's own reaction approves their own comment. The rule is
 #                   spec-reaction.sh, run on the comment's
 #                   `updated_at`, the maintainer ids read from <project.yml> (only under a map,
-#                   `identities.maintainer`, aliases expanded, every `id` an !!int above 0, at
+#                   `identities.maintainer`, aliases expanded, every `id` an !!int above 0 and canonical decimal, at
 #                   least one; anything else is `unreacted`) and the reactions file. Only
 #                   `approved` passes. No file, a missing or unreadable file, an exit 2 from
 #                   spec-reaction.sh and any other word are `unreacted`, never `unreadable`, which

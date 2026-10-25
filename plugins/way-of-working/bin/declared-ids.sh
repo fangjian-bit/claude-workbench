@@ -12,8 +12,14 @@
 # entry, each a map with an !!int `id` above 0 and a string `login`) and `identities.dev_app`,
 # `identities.reviewer_app` and `identities.loop_app` (each null or missing, or a map of the same shape whose
 # id is canonical decimal -- digits, no leading zero, no sign or prefix, so `+2001`, `0x7D1` and `02001` are
-# refused (#707) -- and is not on the maintainer list (#708, #759)). A maintainer id is not held to the
-# canonical form: every reader accepted `0x3E9` before this script, and still does.
+# refused (#707) -- and is not on the maintainer list (#708, #759)). A maintainer id is held to the same
+# canonical-decimal rule (#1096): yq tags `0x3E9`, `1_001` and `01001` as !!int and prints them as written, and
+# the readers compare the list as text with GitHub's decimal ids, so such an entry would match nobody.
+#
+# Each of the five callers holds the output line below to its shape with its own copy of the same parser (the
+# newline case, the `ok ` prefix, the three-field pattern, the dev-id gate), so a change to the output line is a
+# five-way edit (#1105); that is accepted. tests/declared-ids.test.sh checks that the five caller suites feed the
+# same malformed-line stubs (#1106).
 #
 # Prints exactly one line to stdout and exits 0:
 #   ok <maintainer-ids> <dev-app-id>  -- the maintainer ids comma-joined in list order, and the dev App's id,
@@ -46,6 +52,7 @@ maint_ids="$(yq -r 'explode(.) | .identities.maintainer | select(tag == "!!seq")
 [ -n "$maint_ids" ] || out unreadable
 m_good="$(printf '%s' "$maint_ids" | awk -F, '{print NF}')"
 [ "$m_good" = "$m_total" ] || out unreadable
+case ",$maint_ids," in *[!0-9,]* | *,0*) out unreadable ;; esac
 
 # The dev App feeds the callers' author filter and role check; the reviewer and loop Apps are read for the
 # collision check only. Each key is checked the same way.

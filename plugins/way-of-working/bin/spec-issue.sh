@@ -19,7 +19,7 @@
 #                  Also (#759), under a map and for a maintainer or App author: a declared App's id
 #                  (dev_app, reviewer_app, loop_app) on the maintainer list, an App entry that is
 #                  neither null nor well formed or has a non-canonical id, or a maintainer list with an
-#                  entry that is not well formed (which passed as `trusted` before).
+#                  entry that is not well formed or whose id is not canonical decimal.
 #   repo-mismatch  the default branch's project.yml `.repo` is not the origin's repository
 #   bad-backlog    `backlog.repo` (null or absent means the origin's repository) is not owner/name
 #   bad-base       `pr_base` is empty, begins with `-` or holds an unusual character
@@ -70,7 +70,7 @@
 # maintainer, `legacy` under `identities: null` (`legacy` as before; `trusted` now first needs
 # `app_check`, #759) and `agent` for the declared dev or
 # reviewer App. `app_check` runs first, in the author switch (the `case` on the verdict), for a `trusted` or `agent` author: it
-# stops `unreadable` (the four causes under `unreadable` above), before any reaction is read.
+# stops `unreadable` (the causes under `unreadable` above), before any reaction is read.
 # An `agent` author passes only through these steps, in this order, and its
 # VERDICT is `reacted`:
 #   1. the issue's reactions are read (GET `issues/<N>/reactions`, `--paginate`, to a file);

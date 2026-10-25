@@ -3,6 +3,7 @@
 # map that spec-find.sh, spec-comment.sh, spec-answer.sh, spec-issue.sh and spec-post.sh share (#1079).
 #
 # Each case writes a project.yml and asserts both the helper's stdout and its exit code.
+# It also holds the five caller suites' `for stub in` lines byte-identical (#1106).
 # Needs yq (mikefarah v4); skips, loudly, without it.
 # Permitted toolset: POSIX sh, plus yq.
 set -eu
@@ -65,8 +66,6 @@ case_ "ok: aliases are expanded" "ok 101,101 201" "  maintainer:
     - &m { login: maint1, id: 101 }
     - *m
 $DEV"
-case_ "ok: a maintainer id written 0x3E9 is still accepted" "ok 0x3E9 -" "  maintainer:
-    - { login: maint1, id: 0x3E9 }"
 
 # --- unreadable ---------------------------------------------------------------------------
 n=$((n + 1))
@@ -100,6 +99,21 @@ case_ "unreadable: a maintainer with no login" unreadable "  maintainer:
 case_ "unreadable: one good and one bad maintainer entry" unreadable "  maintainer:
     - { login: maint1, id: 101 }
     - { login: maint2, id: 0 }"
+case_ "unreadable: a maintainer id written 0x3E9" unreadable "  maintainer:
+    - { login: maint1, id: 0x3E9 }"
+case_ "unreadable: a maintainer id written 1_001" unreadable "  maintainer:
+    - { login: maint1, id: 1_001 }"
+case_ "unreadable: a maintainer id written 10_001" unreadable "  maintainer:
+    - { login: maint1, id: 10_001 }"
+case_ "unreadable: a maintainer id written 01001" unreadable "  maintainer:
+    - { login: maint1, id: 01001 }"
+case_ "unreadable: a maintainer id written +101" unreadable "  maintainer:
+    - { login: maint1, id: +101 }"
+case_ "unreadable: a maintainer id written 0o1751" unreadable "  maintainer:
+    - { login: maint1, id: 0o1751 }"
+case_ "unreadable: a good maintainer id then one written 0x3E9" unreadable "  maintainer:
+    - { login: maint1, id: 101 }
+    - { login: maint2, id: 0x3E9 }"
 case_ "unreadable: the dev App on the maintainer list" unreadable "$M1
   dev_app: { login: \"dev-app[bot]\", id: 101 }"
 case_ "unreadable: the reviewer App on the maintainer list" unreadable "$M1
@@ -133,5 +147,22 @@ printf 'a: [unclosed\n  - : :\n' >"$tmp/bad.yml"
 rc=0; out="$(sh "$script" "$tmp/bad.yml" 2>/dev/null)" || rc=$?
 assert_eq "exit 2: a non-YAML file (stdout)" "" "$out"
 assert_eq "exit 2: a non-YAML file (exit)" 2 "$rc"
+
+# --- the five caller suites feed the same malformed-line stubs (#1106) ----------------------
+stub_line() { # <suite file>: prints the one `for stub in ` line, or "none" / "many"
+  sl_n=0 sl_line=
+  while IFS= read -r l; do
+    case "$l" in 'for stub in '*) sl_n=$((sl_n + 1)); sl_line="$l" ;; esac
+  done <"$1"
+  case "$sl_n" in 0) echo none ;; 1) printf '%s\n' "$sl_line" ;; *) echo many ;; esac
+}
+ref="$(stub_line "$root_dir/tests/spec-find.test.sh")"
+for suite in spec-find spec-answer spec-comment spec-issue spec-post; do
+  got="$(stub_line "$root_dir/tests/$suite.test.sh")"
+  case "$got" in
+    none | many) assert_eq "stubs: $suite.test.sh has exactly one for-stub line" one "$got" ;;
+    *) assert_eq "stubs: $suite.test.sh matches spec-find.test.sh" "$ref" "$got" ;;
+  esac
+done
 
 [ "$fail" -eq 0 ]

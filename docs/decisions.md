@@ -2189,7 +2189,7 @@ take effect. Full reasoning and the task breakdown that implements them:
        so it approves nothing there and a collision through it goes undetected, while the preflight compares
        numbers and refuses the collision); a repeated key under `identities`, which every reader reads as its
        last value; and the task-issue reaction readers `spec-issue.sh` and `spec-post.sh` (`WB-D32`, `#759`),
-       so a directly invoked `spec-task` can still read an App-approved issue body.* *Amended by `#759`: `spec-issue.sh` and `spec-post.sh` refuse the same config, and a maintainer list with an entry that is not well formed, under a map, for a maintainer or App author, before the issue's reactions are read, so the task-issue reaction readers no longer remain.* The rest of the
+       so a directly invoked `spec-task` can still read an App-approved issue body.* *Amended by `#759`: `spec-issue.sh` and `spec-post.sh` refuse the same config, and a maintainer list with an entry that is not well formed, under a map, for a maintainer or App author, before the issue's reactions are read, so the task-issue reaction readers no longer remain.* *Amended by `#1096`: `declared-ids.sh` now reads a maintainer id not written in canonical decimal as `unreadable`, so the five spec readers refuse the config, each with its own failure word.* The rest of the
        residual (a maintainer-credential session writing and approving its own spec) stands.
     8. **Stalling the readers.** An agent with Issues write can stall every reader, failing
        closed, by editing or deleting the spec or by keeping a marker comment moving. The dev App,

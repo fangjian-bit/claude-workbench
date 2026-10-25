@@ -33,7 +33,7 @@
 #                       Also (#759), under a map and for a maintainer or App author: a declared App's id
 #                       (dev_app, reviewer_app, loop_app) on the maintainer list, an App entry that is
 #                       neither null nor well formed or has a non-canonical id, or a maintainer list with an
-#                       entry that is not well formed. This stops before the compose, hold and post stages.
+#                       entry that is not well formed or whose id is not canonical decimal. This stops before the compose, hold and post stages.
 #   repo-mismatch       the default branch's project.yml `.repo` is not the origin's repository
 #   bad-backlog         `backlog.repo` (null or absent means the origin's repository) is not owner/name
 #   bad-base            `pr_base` is empty, begins with `-` or holds an unusual character

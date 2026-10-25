@@ -66,7 +66,7 @@
 # backlog repo (`backlog.repo`, or `repo` when that is null; owner/name). The rest, which declared-ids.sh
 # reads (#1079) and which is where its rules live, is: `identities` (a map;
 # under null, the legacy shape, the finder does not apply), `identities.maintainer` (at least
-# one entry, each a map with an !!int `id` above 0 and a string `login`) and
+# one entry, each a map with an !!int `id` above 0 that is canonical decimal and a string `login`) and
 # `identities.dev_app`, `identities.reviewer_app` and `identities.loop_app` (each null or
 # missing: no check for that key here, and a missing key is a declared residual (WB-D30
 # residual 7), though resume waits on it; otherwise a map of the same shape, whose id is not on the maintainer list (#708), and whose id is

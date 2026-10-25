@@ -21,6 +21,8 @@ the GitHub release notes.
 
 ## [Unreleased]
 
+**⚠️ Migration** — on a map repo, a maintainer id not written in canonical decimal (`0x3E9`, `1_001`, `01001`, `+101`) makes the spec readers refuse the config until it is corrected on the default branch; `schema-complete.sh` already reports such an id invalid.
+
 ### Added
 
 - **Check 26 in `scripts/invariants-check.sh` fails when a required check name in `.ai/project.yml` is no workflow job's check run, or when a matrix job reporting one can be skipped (a job-level `if` other than `always()`, or `needs` with no `if`) (`#1104`).**
@@ -28,6 +30,7 @@ the GitHub release notes.
 ### Changed
 
 - The `identities` config read that the five spec scripts shared as copies now lives in `bin/declared-ids.sh`, with no change to any word they print (`#1079`).
+- `declared-ids.sh`, and so the five spec readers, now refuse a maintainer id not written in canonical decimal (`#1096`).
 
 ### Fixed
 
