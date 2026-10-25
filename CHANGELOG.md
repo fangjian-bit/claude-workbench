@@ -21,6 +21,10 @@ the GitHub release notes.
 
 ## [Unreleased]
 
+### Changed
+
+- `/way-of-working:critic-gate`'s rule step now gives one inline Bash block that reads the default branch's `.ai/project.yml`, validates the critic names and runs `critic-select.sh`, so a session never composes that read itself; `critic-select.sh`'s refusal cases each get a fixture (`#1120`, `#1121`).
+
 ## [0.26.0] — 2026-10-25
 
 **⚠️ Migration** — on a map repo, a maintainer id not written in canonical decimal (`0x3E9`, `1_001`, `01001`, `+101`) makes the spec readers refuse the config until it is corrected on the default branch; `schema-complete.sh` already reports such an id invalid.

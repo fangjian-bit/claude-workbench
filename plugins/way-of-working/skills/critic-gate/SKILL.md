@@ -55,14 +55,39 @@ script then reads `{pr_base}`, `{code_paths}`, `{agents.enabled}` and `{load_bea
 2. **Propose the applicable critics — spawn NOTHING yet.** (This is the diff mode; *Spec mode*,
    below, selects by rule instead.) On the propose path this gate does not auto-fan-out.
 
-   **First, ask the rule.** One Bash call reads the default branch's committed `.ai/project.yml`
-   into a temp file the way `/way-of-working:spec-task`'s *Answer branch* step reads
-   `DEF_YML_FILE`, runs `critic-select.sh` on it with each critic name this session holds (an
-   invocation line, a lane prompt, a driver message) as an argument, prints `SELECT=` and its line,
-   and removes the temp file on every path. The names reach the arguments through a quoted heredoc
-   read by a loop that rejects any name not matching `^[a-z][a-z0-9-]*$` (a comma-separated list the session
-   holds is split into one name per line first), the way `spec-task`'s
-   *Check every name the draft cites* step reads its names. Then:
+   **First, ask the rule.** Run this one Bash call. It reads the default branch's committed
+   `.ai/project.yml` into a temp file, runs `critic-select.sh` on it with each critic name this
+   session holds as an argument, prints `SELECT=` and its line, and removes the temp file on every path:
+
+   ```bash
+   unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE
+   set --; Y=; B=
+   {
+     TOPLEVEL=$(git rev-parse --show-toplevel) && [ -n "$TOPLEVEL" ] && Y=$(mktemp) && [ -f "$Y" ] &&
+     DEF=$(gh repo view "$(git -C "$TOPLEVEL" remote get-url origin)" --json defaultBranchRef --jq '.defaultBranchRef.name // ""') &&
+     case "$DEF" in ""|-*|*[!A-Za-z0-9._/-]*) false;; esac &&
+     git -C "$TOPLEVEL" fetch -q origin "+refs/heads/$DEF:refs/remotes/origin/$DEF" &&
+     git -C "$TOPLEVEL" show "refs/remotes/origin/$DEF:./.ai/project.yml" >"$Y" &&
+     while IFS= read -r l; do
+       while [ -n "$l" ]; do
+         c=${l%%[, ]*}; l=${l#"$c"}; l=${l#[, ]}
+         [ -z "$c" ] && continue
+         case "$c" in [!a-z]*|*[!a-z0-9-]*) B=bad; break 2;; esac
+         set -- "$@" "$c"
+       done
+     done <<'CRITIC_GATE_NAMES_END' &&
+   <critic names, one line each>
+   CRITIC_GATE_NAMES_END
+     [ -z "$B" ] && out=$(critic-select.sh "$Y" "$@") && printf 'SELECT=%s\n' "$out"
+   }; rc=$?; if [ -n "$Y" ] && [ -f "$Y" ]; then rm -f "$Y"; fi; [ "$rc" -eq 0 ]
+   ```
+
+   Replace the placeholder line with the critic names this session holds (from an invocation
+   line, a lane prompt, a driver message), the names from each source on their own line, or
+   delete the placeholder when it holds none. Write no line containing any character other than
+   `a-z`, `0-9`, `-`, `,` and space, so no line can equal the delimiter. If a held name breaks
+   that rule, do not run the block: take the propose path, as for `unreadable`. A name that fails
+   the block's own check ends it before `critic-select.sh` runs, with no `SELECT=` line. Then:
    - `propose` — `{agents.diff_rule}` is `null`. Carry on below as written, the explicit-names
      shortcut included.
    - `critics <name>[,<name>...]` — that set is the approved set: no pick-list. Say the set came
@@ -72,7 +97,7 @@ script then reads `{pr_base}`, `{code_paths}`, `{agents.enabled}` and `{load_bea
      named. Names are unioned with the rule's set, never a replacement; to run fewer critics the
      repo sets the key to `null` on the default branch.
    - `none` — say the rule maps this diff to no critic, and stop.
-   - `unreadable`, or any other output — say the rule could not be read (if `{agents.diff_rule}`
+   - `unreadable`, any other output, or no `SELECT=` line — say the rule could not be read or the block failed (if `{agents.diff_rule}`
      is not yet on the default branch, `/way-of-working:resume` asks for it), then fall back to
      the propose path below, so the human picks as today.
 
