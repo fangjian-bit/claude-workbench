@@ -21,6 +21,8 @@ the GitHub release notes.
 
 ## [Unreleased]
 
+## [0.26.0] — 2026-10-25
+
 **⚠️ Migration** — on a map repo, a maintainer id not written in canonical decimal (`0x3E9`, `1_001`, `01001`, `+101`) makes the spec readers refuse the config until it is corrected on the default branch; `schema-complete.sh` already reports such an id invalid.
 
 **⚠️ Migration** — every repo answers the new required key `agents.diff_rule` in `.ai/project.yml`: `null` keeps `/way-of-working:critic-gate`'s diff-mode pick-list, a list (`[]` included) turns on rule selection of its critics. `/way-of-working:resume` asks for it, and the diff mode keeps the pick-list until the answer is on the default branch.
