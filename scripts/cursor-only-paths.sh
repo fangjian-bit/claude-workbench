@@ -13,8 +13,9 @@
 # or `.ai/parked/` (tests/cursor-sync-pr.test.sh, tests/spec-fresh.test.sh,
 # tests/loop-baseline.test.sh, tests/ai-cursor-banner.test.sh, tests/cursor-drift.test.sh) write
 # them as fixtures in their own temp directory or fake input;
-# tests/invariants-gate-args.test.sh and tests/invariants-usage-exit.test.sh copy only
-# .ai/project.yml from the checkout, and scripts/test-all.sh reads only tests/.
+# tests/invariants-gate-args.test.sh, tests/invariants-usage-exit.test.sh and
+# tests/invariants-required-checks.test.sh copy only .ai/project.yml from the checkout, and
+# scripts/test-all.sh reads only tests/.
 #
 # Permitted toolset: POSIX sh.
 n=0

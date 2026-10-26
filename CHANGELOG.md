@@ -29,6 +29,7 @@ the GitHub release notes.
 ### Fixed
 
 - `gh-identity.sh` and the architect-review label read refuse a maintainer id not in canonical decimal instead of matching nobody, so every `gh-identity.sh` caller that gates refuses such a config until it is corrected (`#1114`).
+- Check 26 in `scripts/invariants-check.sh` no longer aborts with `unbound variable` on bash older than 4.4 in its loops over the workflow files and the required check names when either list is empty (`#1111`).
 
 ## [0.26.0] — 2026-10-25
 

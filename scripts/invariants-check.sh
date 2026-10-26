@@ -1526,7 +1526,7 @@ else
   rc_wf=()
   for f in .github/workflows/*.yml .github/workflows/*.yaml; do [ -f "$f" ] && rc_wf+=("$f"); done
   [ "${#rc_wf[@]}" -gt 0 ] || rc_hits+="  (no .github/workflows/*.yml or *.yaml file found)"$'\n'
-  for f in "${rc_wf[@]}"; do
+  for f in ${rc_wf[@]+"${rc_wf[@]}"}; do
     if ! rc_jobs=$(yq -o=json -I=0 '(.jobs // {}) | to_entries | .[] | {"id": .key, "name": .value.name, "if": .value.["if"], "needs": .value.needs, "uses": .value.uses, "matrix": .value.strategy.matrix}' "$f" 2>/dev/null); then
       rc_hits+="  $f: unreadable"$'\n'; continue
     fi
@@ -1582,7 +1582,7 @@ else
       done < <(printf '%s' "$rc_j" | yq -p=json -r '.matrix | to_entries | .[0].value | .[]' 2>/dev/null)
     done <<<"$rc_jobs"
   done
-  for rc_n in "${rc_req[@]}"; do
+  for rc_n in ${rc_req[@]+"${rc_req[@]}"}; do
     rc_found=0
     for i in "${!rc_names[@]}"; do
       [ "${rc_names[$i]}" = "$rc_n" ] || continue
