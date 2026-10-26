@@ -251,10 +251,9 @@ author found obvious has to survive being read cold.
 
 This failed twice in practice before the attestation existed: one review was done by
 `/model opus` inside the authoring session, and another was authored by Opus and would have
-been self-reviewed. The gate now requires the reviewer to attest, and the check matches the
-header and the attestation by literal `contains()`. CI cannot observe a session boundary; the
-attestation does not prove one — it makes reviewing your own work a *knowing false statement*
-rather than something that quietly happens. That is as far as a check can go; real
+been self-reviewed. The gate now requires the reviewer to attest. CI cannot observe a session
+boundary; the attestation does not prove one — it makes reviewing your own work a *knowing
+false statement* rather than something that quietly happens. That is as far as a check can go; real
 attribution needs a separate machine identity.
 
 **The procedure is `/way-of-working:architect-review <PR>`, and only that.** It pins the head

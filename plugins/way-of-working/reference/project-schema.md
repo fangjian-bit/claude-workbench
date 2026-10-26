@@ -598,8 +598,9 @@ review:
 > ### ⚠️ `header` and `attestation` are frozen wire strings — paste, never paraphrase.
 >
 > These two values live in the schema **as data** for exactly one reason: so a skill pastes
-> them from a file instead of retyping them from memory. The CI check matches both by
-> literal `contains()`. It is a substring test, not an intent test.
+> them from a file instead of retyping them from memory. The `WB-D37` gate matches them by
+> exact equality: the review body's first line must equal `header` and its third line must
+> equal `attestation`, so any other text on either line fails the match.
 >
 > A paraphrase that reads identically to a human still fails — "Fresh-session attestation:
 > …" instead of "*Fresh-session review: …*" turns the check red about four seconds after the
