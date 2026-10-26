@@ -21,6 +21,8 @@ the GitHub release notes.
 
 ## [Unreleased]
 
+## [0.28.0] — 2026-10-26
+
 ### Added
 
 - `reference/cutover.md`, the GitHub-side runbook for the identities cutover: the gate workflow, the order, the approval side and the plugin pin (`#1158`).
