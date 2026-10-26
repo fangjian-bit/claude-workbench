@@ -17,7 +17,13 @@
 #   cursor-sync  -- HEAD differs from last_commit only in .ai/next-steps.md and/or
 #                   files under .ai/parked/ (a parked sprint's snapshot)
 #   drift        -- HEAD differs from last_commit in some other way too
-#   unreadable   -- last_commit is not a commit git has (treat as drift; wait)
+#   unreadable   -- last_commit is not lowercase hex of at least 4 characters, or is not
+#                   the abbreviation of exactly one object, a commit (treat as drift; wait)
+#
+# last_commit is never resolved through ref lookup: a revision expression (HEAD, @, a
+# branch name) or a ref named with hex characters would otherwise resolve to HEAD and
+# read clean. One limit: a later object of any type that comes to share the abbreviation
+# makes the cursor read unreadable (wait) until the next handoff rewrites it.
 #
 # The allowlist is exactly those two shapes and nothing "docs-shaped" in general: a
 # roadmap or sprint-plan edit can invalidate the live cursor's next_action, so it
@@ -34,15 +40,45 @@ set -eu
 
 last_commit="${1:?usage: cursor-drift.sh <last_commit>}"
 
-if ! git cat-file -e "${last_commit}^{commit}" 2>/dev/null; then
+case "$last_commit" in
+  *[!0-9a-f]*)
+    echo unreadable
+    exit 0
+    ;;
+esac
+if [ "${#last_commit}" -lt 4 ]; then
   echo unreadable
   exit 0
 fi
 
-head_sha="$(git rev-parse HEAD)"
-last_sha="$(git rev-parse "$last_commit")"
+# Object ids only, never a ref. One full id per line; an unknown value prints nothing.
+if ! candidates="$(git rev-parse --disambiguate="$last_commit" 2>/dev/null)"; then
+  echo unreadable
+  exit 0
+fi
+case "$candidates" in
+  '' | *'
+'*)
+    echo unreadable
+    exit 0
+    ;;
+esac
+# Under SHA-1 git can match a 41 to 64 character value by its leading characters.
+case "$candidates" in
+  "$last_commit"*) ;;
+  *)
+    echo unreadable
+    exit 0
+    ;;
+esac
+if ! kind="$(git cat-file -t "$candidates" 2>/dev/null)" || [ "$kind" != commit ]; then
+  echo unreadable
+  exit 0
+fi
+last_commit_oid="$candidates"
 
-if [ "$head_sha" = "$last_sha" ]; then
+head_sha="$(git rev-parse HEAD)"
+if [ "$head_sha" = "$last_commit_oid" ]; then
   echo clean
   exit 0
 fi
@@ -60,7 +96,7 @@ fi
 # --no-renames lists a rename as its old path and its new one: with rename
 # detection a file moved from outside the allowlist into .ai/parked/ would list
 # only its new path and read as cursor-sync, hiding the file that left.
-paths="$(git -c diff.relative=false -c core.quotePath=false diff --no-renames --name-only "$last_commit" HEAD)"
+paths="$(git -c diff.relative=false -c core.quotePath=false diff --no-renames --name-only "$last_commit_oid" HEAD --)"
 
 # Two distinct commits with identical trees (an empty commit, a revert pair) give
 # an empty path list. That is not a cursor-sync; fail closed.

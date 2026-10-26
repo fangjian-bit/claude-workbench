@@ -21,6 +21,10 @@ the GitHub release notes.
 
 ## [Unreleased]
 
+### Fixed
+
+- `cursor-drift.sh` reads a `last_commit` that is not lowercase hex of at least 4 characters, or not the abbreviation of exactly one object, a commit, as `unreadable` instead of resolving a revision name such as `HEAD` to `clean`; `token-check.sh` refuses a slash-less `$0` in every mode, as `spec-comment.sh` and `spec-find.sh` do (`#1159`).
+
 ## [0.27.0] — 2026-10-26
 
 **⚠️ Migration** — on a map repo, an id under any `identities` role (`maintainer`, `dev_app`, `reviewer_app` or `loop_app`) not written in canonical decimal (`0x3E9`, `1_001`, `01001`, `+101`) now makes every `gh-identity.sh` caller that gates refuse the config, not only the spec readers: `/way-of-working:ship` (its App-mode `pr-actor` check), `/way-of-working:resume`, the token checks and the spec scripts stop until the id is corrected on the default branch (`#1129`, `#1114`, `#1130`). `schema-complete.sh` already reports such an id invalid.

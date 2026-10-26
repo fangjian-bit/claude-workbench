@@ -225,6 +225,46 @@ echo a >a.txt && git add a.txt && git commit -qm a
 assert_eq "unreadable: last_commit is not a commit git has" \
   "unreadable" "$("$script" 0000000000000000000000000000000000dead)"
 
+# --- unreadable: a revision name is never resolved (#1159) -------------------
+# Each of these resolves to HEAD through ref lookup; none may read clean.
+new_repo revision-names
+base="$(base_branch)"
+echo a >a.txt && git add a.txt && git commit -qm "first"
+parent="$(git rev-parse HEAD)"
+echo b >a.txt && git commit -qam "second"
+head_full="$(git rev-parse HEAD)"
+assert_eq "unreadable: HEAD" "unreadable" "$("$script" HEAD)"
+assert_eq "unreadable: @" "unreadable" "$("$script" @)"
+assert_eq "unreadable: the branch name" "unreadable" "$("$script" "$base")"
+upper="$(printf '%s' "$head_full" | tr 'a-f' 'A-F')"
+assert_eq "unreadable: HEAD's full id uppercased" "unreadable" "$("$script" "$upper")"
+atag=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+git tag "$atag" HEAD
+assert_eq "unreadable: a 64-hex-named tag pointing at HEAD" "unreadable" "$("$script" "$atag")"
+short3="$(printf '%s' "$head_full" | cut -c1-3)"
+assert_eq "unreadable: 3 characters of HEAD's id" "unreadable" "$("$script" "$short3")"
+# The begins-with test: under SHA-1 git matches a 41-character value by its leading 40, so
+# HEAD's id plus one more hex digit resolves to HEAD, and only that test refuses it.
+if [ "${#head_full}" -eq 40 ]; then
+  assert_eq "unreadable: HEAD's full id plus one extra hex digit" \
+    "unreadable" "$("$script" "${head_full}0")"
+fi
+# The commit-type check: the abbreviation of exactly one object that is not a commit.
+git tag -a -m t anntag HEAD
+assert_eq "unreadable: an annotated tag's id" "unreadable" "$("$script" "$(git rev-parse anntag)")"
+assert_eq "unreadable: a tree's id" "unreadable" "$("$script" "$(git rev-parse 'HEAD^{tree}')")"
+assert_eq "unreadable: a blob's id" "unreadable" "$("$script" "$(git rev-parse HEAD:a.txt)")"
+# git's own floor is 4 characters, so the 3-character value above is refused whatever this
+# script does; the 4-character value below is what pins the script's own minimum (raise it
+# to 5 and this fixture reads unreadable).
+short4="$(printf '%s' "$head_full" | cut -c1-4)"
+assert_eq "clean: 4 characters of HEAD's id" "clean" "$("$script" "$short4")"
+short7="$(printf '%s' "$head_full" | cut -c1-7)"
+assert_eq "clean: 7 characters of HEAD's id" "clean" "$("$script" "$short7")"
+git tag "$short7" "$parent"
+assert_eq "clean: the same 7 characters, with a tag of that name on HEAD's parent" \
+  "clean" "$("$script" "$short7")"
+
 # --- drift: the review shape's cursor, read from the base (WB-D22, `#283`) ---
 # After a no-op handoff `last_commit` is the work branch's HEAD, and the checkout
 # is switched to the base. The base lacks that work, so this script reads `drift`

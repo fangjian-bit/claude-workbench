@@ -228,5 +228,20 @@ expect "no subcommand" "" 2
 run bogus
 expect "unknown subcommand" "" 2
 
+# -- never run from the cwd ---------------------------------------------------------------------
+# A slash-less $0 could find a gh-identity.sh a branch under review planted in the cwd.
+mkdir "$tmp/plant"
+cp "$script" "$tmp/plant/token-check.sh"
+printf '#!/bin/sh\ntouch "%s/marker"\necho reached\n' "$tmp/plant" >"$tmp/plant/gh-identity.sh"
+rc=0
+out="$(cd "$tmp/plant" && sh token-check.sh verify any acme/app "$tmp/live" "$tmp/inst" /dev/null 2>/dev/null)" || rc=$?
+assert_eq "slash-less verify refuses (stdout)" "" "$out"
+assert_eq "slash-less verify refuses (rc)" 2 "$rc"
+assert_eq "slash-less verify never reached the planted gh-identity.sh" no "$([ -e "$tmp/plant/marker" ] && echo yes || echo no)"
+rc=0
+out="$(cd "$tmp/plant" && sh token-check.sh file "$tmp/live" 2>/dev/null)" || rc=$?
+assert_eq "slash-less file refuses (stdout)" "" "$out"
+assert_eq "slash-less file refuses (rc)" 2 "$rc"
+
 if [ "$fail" -ne 0 ]; then exit 1; fi
 echo "token-check: all assertions passed"

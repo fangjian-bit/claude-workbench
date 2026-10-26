@@ -327,7 +327,8 @@ edited it. **Default to the full checklist whenever unsure.**
      result is not consulted: the *Derive the review step from GitHub* step's `last-commit` check
      (`last_commit` equals the pin) is its drift rule, and nothing runs `next_action`, so the base
      moving past the work is not what a drift check guards there.
-   - **`unreadable`** — git cannot read `last_commit` at all. Wait.
+   - **`unreadable`** — `last_commit` is not lowercase hex of at least 4 characters, or is not
+     the abbreviation of exactly one object, a commit. Wait.
 
    Say which case you found in one line, e.g. `HEAD differs from last_commit only in
    .ai/next-steps.md — the merged cursor-sync PR, not drift.` Anything the script cannot

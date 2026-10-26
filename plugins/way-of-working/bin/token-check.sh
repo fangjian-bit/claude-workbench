@@ -81,12 +81,19 @@
 # tree (a PR can edit its own `identities`). Expiry is compared with `date -u` at call time;
 # the caller re-runs the check if it holds a token for long. Permitted toolset: POSIX sh, date,
 # sed, tr, wc, dirname, and what gh-identity.sh needs (yq).
+#
+# A slash-less $0 (`sh token-check.sh` from this directory) is refused, in every mode, with exit
+# 2: `here` would be the current directory, and a gh-identity.sh planted there would decide
+# `verify`'s lookups. Run it by path, or by command name through PATH.
 set -eu
 LC_ALL=C; export LC_ALL
 
 die() { echo "token-check.sh: $1" >&2; exit 2; }
 
-here=$(CDPATH= cd -P -- "$(dirname -- "$0")" && pwd)
+case "$0" in
+  */*) here=$(CDPATH= cd -P -- "$(dirname -- "$0")" && pwd) ;;
+  *) die "must be run by path or through PATH (a slash-less \$0 cannot locate gh-identity.sh)" ;;
+esac
 
 # file_check <path>: dies unless the file holds a live installation token. Sets TOKEN_LINE.
 file_check() {
