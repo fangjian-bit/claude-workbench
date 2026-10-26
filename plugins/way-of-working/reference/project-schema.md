@@ -919,6 +919,8 @@ repeats it with the token variables removed to see whether a stored login would 
 lost, and prints `dev_app` only when neither does: `/way-of-working:resume` drafts unattended only
 on that word.
 
+The GitHub-side cutover procedure (the gate workflow, the order, the approval side and the plugin pin) is `reference/cutover.md`.
+
 ### `lanes`
 
 `lanes` is **optional**, like `rulesets`: it is either `null` or a map with one sub-key, `dir`.

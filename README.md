@@ -70,7 +70,7 @@ plugins/way-of-working/
               — executables, added to the Bash
               tool's PATH
   hooks/      hooks.json + ai-cursor-banner.sh (SessionStart) + compact-handoff.sh (PreCompact/PostCompact, automatic compaction only)
-  reference/  conventions.md  workflow.md  project-schema.md
+  reference/  conventions.md  workflow.md  project-schema.md  cutover.md
 docs/decisions.md   # the WB-D* log
 CHANGELOG.md        # what each tag changes — read before bumping a pin
 scripts/            # the CI gates: lint, coupling, invariants

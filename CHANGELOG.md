@@ -21,6 +21,10 @@ the GitHub release notes.
 
 ## [Unreleased]
 
+### Added
+
+- `reference/cutover.md`, the GitHub-side runbook for the identities cutover: the gate workflow, the order, the approval side and the plugin pin (`#1158`).
+
 ### Fixed
 
 - `cursor-drift.sh` reads a `last_commit` that is not lowercase hex of at least 4 characters, or not the abbreviation of exactly one object, a commit, as `unreadable` instead of resolving a revision name such as `HEAD` to `clean`; `token-check.sh` refuses a slash-less `$0` in every mode, as `spec-comment.sh` and `spec-find.sh` do (`#1159`).
