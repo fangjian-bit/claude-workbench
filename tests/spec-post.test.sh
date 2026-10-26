@@ -1541,13 +1541,13 @@ mkcfg() { # mkcfg <name> <extra maintainer entry|-> <dev|-|null> <rev|-|null> <l
     [ "$5" = - ] || printf '  loop_app: %s\n' "$5"
   } >"$tmp/$1.yml"
 }
-unread_is() { # unread_is <cfg> <login> <id> <assoc> [rx-file] [body-json] -- stops unreadable, nothing read or written
+unread_is() { # unread_is <cfg> <login> <id> <assoc> [rx-file] [body-json] -- stops ${UWORD:-unreadable}, nothing read or written
   setyml "$tmp/$1.yml"
   mkissue "$2" "$3" "$4" open false - 2026-10-17T20:10:28Z '"title"' "${6:-\"body\"}"
   mkissue2 "$2" "$3" "$4" open false - 2026-10-17T20:10:28Z '"title"' "${6:-\"body\"}"
   o="$(newdir)"
   FX_RX="${5:-$RXF}" FX_ISSUE2="$tmp/issue2.json" post "$dr2/draft.md" "$o"
-  stop_is unreadable
+  stop_is "${UWORD:-unreadable}"
   noout
   assert_eq "$desc (no reactions read)" 0 "$(grep -c reactions "$glog" || true)"
 }
@@ -1593,16 +1593,25 @@ for k in dev rev loop; do
     [ "$r" != - ] || r=$REVV
     [ "$l" != - ] || l=$LOOPV
     mkcfg "bad_${k}_$n" - "$d" "$r" "$l"
+    # the three non-canonical ids are refused by gh-identity.sh (exit 2, #1130) before declared-ids.sh runs
+    UWORD=unreadable
+    [ "$n" -lt 5 ] || UWORD=untrusted
     desc="$k App entry $bad, maintainer's issue"
     unread_is "bad_${k}_$n" maint 100 '"OWNER"'
     desc="$k App entry $bad, issue by the $other_l App"
     unread_is "bad_${k}_$n" "$other_l" "$other_i" '"NONE"'
+    UWORD=unreadable
   done
 done
 
 desc="a maintainer's issue under mapbadmaint"
 cp "$tmp/mapbadmaint.yml" "$tmp/badmaint_copy.yml"
 unread_is badmaint_copy maint 100 '"OWNER"'
+
+# a non-canonical maintainer id beside a canonical author (#1131): gh-identity.sh refuses the file before declared-ids.sh runs
+mkcfg noncanon_maint '{ login: alice-dev, id: 0x3E9 }' "$DEVV" "$REVV" "$LOOPV"
+desc="a maintainer's issue under a list holding a non-canonical maintainer id"
+UWORD=untrusted unread_is noncanon_maint maint 100 '"OWNER"'
 
 # no check for a null or missing App key; the pass depends on the viewer
 pass_is() { # pass_is <cfg> <login> <id> <posted|held> -- a held pass is the reviewer App's issue, viewer maint

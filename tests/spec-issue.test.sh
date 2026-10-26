@@ -1066,13 +1066,13 @@ mkcfg() { # mkcfg <name> <extra maintainer entry|-> <dev|-|null> <rev|-|null> <l
     [ "$5" = - ] || printf '  loop_app: %s\n' "$5"
   } >"$tmp/$1.yml"
 }
-unread_is() { # unread_is <cfg> <login> <id> <assoc> [rx-file] [body-json] -- stops unreadable, no reactions or second read
+unread_is() { # unread_is <cfg> <login> <id> <assoc> [rx-file] [body-json] -- stops ${UWORD:-unreadable}, no reactions or second read
   setyml "$tmp/$1.yml"
   mkissue "$2" "$3" "$4" - 2026-10-17T20:10:28Z '"title"' "${6:-\"body\"}"
   mkissue2 "$2" "$3" "$4" - 2026-10-17T20:10:28Z '"title"' "${6:-\"body\"}"
   o="$(newout)"
   FX_RX="${5:-$RXF}" FX_ISSUE2="$tmp/issue2.json" run fetch 611 "$o"
-  stop_is unreadable "$o"
+  stop_is "${UWORD:-unreadable}" "$o"
   assert_eq "$desc (no reactions read)" 0 "$(grep -c reactions "$glog" || true)"
   assert_eq "$desc (no second issue read)" 1 "$(grep -c -x 'api|repos/acme/backlog/issues/611|' "$glog" || true)"
 }
@@ -1103,7 +1103,7 @@ desc="exploit: the reviewer App's own +1 on a dev-App issue, its id on the maint
 mkrx "$tmp/rx_rev.tsv" '300 +1 2026-10-17T20:10:39Z'
 unread_is coll_rev 'dev[bot]' 200 '"NONE"' "$tmp/rx_rev.tsv"
 
-# a declared App entry that is not well formed, or whose id is not canonical decimal
+# a declared App entry that is not well formed (unreadable), or whose id is not canonical decimal (untrusted, #1130)
 for k in dev rev loop; do
   case "$k" in
     dev) other_l='rev[bot]'; other_i=300; aid=200 ;;
@@ -1120,10 +1120,14 @@ for k in dev rev loop; do
     [ "$r" != - ] || r=$REVV
     [ "$l" != - ] || l=$LOOPV
     mkcfg "bad_${k}_$n" - "$d" "$r" "$l"
+    # the three non-canonical ids are refused by gh-identity.sh (exit 2, #1130) before declared-ids.sh runs
+    UWORD=unreadable
+    [ "$n" -lt 5 ] || UWORD=untrusted
     desc="$k App entry $bad, maintainer's issue"
     unread_is "bad_${k}_$n" maint 100 '"OWNER"'
     desc="$k App entry $bad, issue by the $other_l App"
     unread_is "bad_${k}_$n" "$other_l" "$other_i" '"NONE"'
+    UWORD=unreadable
   done
 done
 
@@ -1131,6 +1135,11 @@ done
 desc="a maintainer's issue under mapbadmaint"
 cp "$tmp/mapbadmaint.yml" "$tmp/badmaint_copy.yml"
 unread_is badmaint_copy maint 100 '"OWNER"'
+
+# a non-canonical maintainer id beside a canonical author (#1131): gh-identity.sh refuses the file before declared-ids.sh runs
+mkcfg noncanon_maint '{ login: alice-dev, id: 0x3E9 }' "$DEVV" "$REVV" "$LOOPV"
+desc="a maintainer's issue under a list holding a non-canonical maintainer id"
+UWORD=untrusted unread_is noncanon_maint maint 100 '"OWNER"'
 
 # no check for a null or missing App key; a fresh maintainer +1 still passes
 pass_is() { # pass_is <cfg> <login> <id>

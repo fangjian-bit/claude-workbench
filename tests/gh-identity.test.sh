@@ -233,6 +233,26 @@ else
     run role alice-dev 1001 "$tmp/noncanon.yml"
     expect "role: maintainer id [$badid] is refused" "" 2
   done
+  # the same for an App id under any role (#1130)
+  for arole in dev_app:acme-dev[bot] reviewer_app:acme-review[bot] loop_app:acme-loop[bot]; do
+    rname="${arole%%:*}" rlogin="${arole#*:}"
+    for badid in 0x7D1 02001 +2001; do
+      {
+        printf 'identities:\n  maintainer:\n    - { login: alice-dev, id: 1001 }\n'
+        for o in dev_app reviewer_app loop_app; do
+          if [ "$o" = "$rname" ]; then printf '  %s: { login: "%s", id: %s }\n' "$o" "$rlogin" "$badid"; else printf '  %s: null\n' "$o"; fi
+        done
+      } >"$tmp/noncanonapp.yml"
+      run role alice-dev 1001 "$tmp/noncanonapp.yml"
+      expect "role: $rname id [$badid] is refused" "" 2
+      assert_eq "role: $rname id [$badid] stderr names the role" yes "$(grep -qF "identities.$rname" "$tmp/err" && echo yes || echo no)"
+      assert_eq "role: $rname id [$badid] stderr names the id" yes "$(grep -qF -- "$badid" "$tmp/err" && echo yes || echo no)"
+      if [ "$rname" = dev_app ]; then
+        run pr-actor 'acme-dev[bot]' 2001 "$tmp/noncanonapp.yml"
+        expect "pr-actor: dev_app id [$badid] is refused, not mismatch" "" 2
+      fi
+    done
+  done
   mk mixedcanon 'identities:
   maintainer:
     - { login: alice-dev, id: 1001 }

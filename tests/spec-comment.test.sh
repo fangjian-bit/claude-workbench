@@ -173,6 +173,11 @@ for c in dupother:dupother dupapp:dupapp; do
   run check "$tmp/maint.json" "$cyml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/fresh.tsv"
   expect_check "maintainer author, dev App id on the list ($cname), maintainer reaction" unreacted
 done
+# A non-canonical maintainer id beside a canonical author (#1131): gh-identity.sh refuses the file
+# before declared-ids.sh runs, so untrusted, not unreacted.
+printf 'identities:\n  maintainer:\n    - { login: alice-dev, id: 1001 }\n    - { login: bob, id: 0x3E9 }\n  dev_app: { login: "acme-dev[bot]", id: 2001 }\n' >"$tmp/noncanonmaint.yml"
+run check "$tmp/maint.json" "$tmp/noncanonmaint.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/fresh.tsv"
+expect_check "maintainer author, a second maintainer id spelled 0x3E9" untrusted
 # A dev_app entry that is neither null nor well formed refuses a maintainer author's comment.
 for v in 'string:dev_app: acme' 'strid:dev_app: { login: "acme-dev[bot]", id: "2001" }' 'nologin:dev_app: { id: 2001 }'; do
   vname="${v%%:*}"
@@ -180,19 +185,20 @@ for v in 'string:dev_app: acme' 'strid:dev_app: { login: "acme-dev[bot]", id: "2
   run check "$tmp/maint.json" "$tmp/baddev.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/fresh.tsv"
   expect_check "maintainer author, malformed dev_app ($vname)" unreacted
 done
-# A non-decimal spelling of the dev App's id must not slip past the comparison with 2001.
+# A non-decimal spelling of the dev App's id must not slip past the comparison with 2001:
+# gh-identity.sh role refuses any id not in canonical decimal, under any role, as untrusted (#1130).
 for s in +2001 0x7D1 02001; do
   printf 'identities:\n  maintainer:\n    - { login: alice-dev, id: 1001 }\n    - { login: devdup, id: 2001 }\n  dev_app: { login: "acme-dev[bot]", id: %s }\n' "$s" >"$tmp/spell.yml"
   run check "$tmp/maint.json" "$tmp/spell.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/own.tsv"
-  expect_check "maintainer author, dev App id spelled $s, dev App reaction" unreacted
+  expect_check "maintainer author, dev App id spelled $s, dev App reaction" untrusted
 done
-# The dev App as the author, with its own id spelled non-canonically: gh-identity.sh reads it as a
-# maintainer, so this check is what refuses its own approval.
+# The dev App as the author, with its own id spelled non-canonically: gh-identity.sh refuses the
+# file (exit 2), so it reads untrusted before this check runs.
 mk devself 'acme-dev[bot]' 2001 NONE
 for s in +2001 0x7D1; do
   printf 'identities:\n  maintainer:\n    - { login: alice-dev, id: 1001 }\n    - { login: "acme-dev[bot]", id: 2001 }\n  dev_app: { login: "acme-dev[bot]", id: %s }\n' "$s" >"$tmp/spellself.yml"
   run check "$tmp/devself.json" "$tmp/spellself.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/own.tsv"
-  expect_check "dev App author, own id spelled $s, own reaction" unreacted
+  expect_check "dev App author, own id spelled $s, own reaction" untrusted
 done
 # No dev App (null or absent), or one whose id is not on the list, leaves a maintainer approved.
 printf 'identities:\n  maintainer:\n    - { login: alice-dev, id: 1001 }\n  dev_app: null\n' >"$tmp/nulldev.yml"
@@ -221,7 +227,7 @@ for kk in reviewer_app:acme-review:2002:ownrev loop_app:acme-loop:2003:ownloop; 
     for s in +"$aid" "$(printf '0x%X' "$aid")" 0"$aid"; do
       printf 'identities:\n  maintainer:\n    - { login: alice-dev, id: 1001 }\n    - { login: devdup, id: %s }\n  dev_app: { login: "acme-dev[bot]", id: 2001 }\n  %s: { login: "%s", id: %s }\n' "$aid" "$key" "$alog" "$s" >"$tmp/appspell.yml"
       run check "$tmp/$author.json" "$tmp/appspell.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/fresh.tsv"
-      expect_check "$author author, $key id spelled $s, maintainer reaction" unreacted
+      expect_check "$author author, $key id spelled $s, maintainer reaction" untrusted
     done
     for v in 'string:acme' 'strid:{ login: "x[bot]", id: "2002" }' 'nologin:{ id: 2002 }'; do
       vname="${v%%:*}"
@@ -239,14 +245,14 @@ for kk in reviewer_app:acme-review:2002:ownrev loop_app:acme-loop:2003:ownloop; 
   expect_check "maintainer author, $key key missing" ok
 done
 # The reviewer App as the author, its own id spelled non-canonically under reviewer_app and listed
-# canonically as a maintainer under its own login: its own reaction cannot approve its edit.
+# canonically as a maintainer under its own login: gh-identity.sh refuses the file, so untrusted.
 mk revself 'acme-review[bot]' 2002 NONE
 for s in +2002 0x7D2; do
   printf 'identities:\n  maintainer:\n    - { login: alice-dev, id: 1001 }\n    - { login: "acme-review[bot]", id: 2002 }\n  reviewer_app: { login: "acme-review[bot]", id: %s }\n' "$s" >"$tmp/spellrev.yml"
   run check "$tmp/revself.json" "$tmp/spellrev.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/ownrev.tsv"
-  expect_check "reviewer App author, own id spelled $s, own reaction" unreacted
+  expect_check "reviewer App author, own id spelled $s, own reaction" untrusted
   run body "$tmp/revself.json" "$tmp/spellrev.yml" "$CID" "$UPD" "$ISSUE" "$REPO" "$tmp/ownrev.tsv"
-  expect_body_refused "reviewer App author, own id spelled $s, own reaction" unreacted
+  expect_body_refused "reviewer App author, own id spelled $s, own reaction" untrusted
 done
 
 # A maintainer's word depends on the reactions argument too (WB-D30): any declared maintainer's

@@ -53,24 +53,23 @@
 #                   `updated_at`, the maintainer ids read from <project.yml> (only under a map,
 #                   `identities.maintainer`, aliases expanded, every `id` an !!int above 0 and canonical decimal, at
 #                   least one; anything else is `unreacted`, except a maintainer id not in canonical decimal,
-#                   which `gh-identity.sh role` refuses first, so it reads `untrusted`, #1114) and the reactions file. Only
+#                   which `gh-identity.sh role` refuses first, so it reads `untrusted`, #1114, #1130) and the reactions file. Only
 #                   `approved` passes. No file, a missing or unreadable file, an exit 2 from
 #                   spec-reaction.sh and any other word are `unreacted`, never `unreadable`, which
 #                   still covers the comment file only. A legacy comment (identities null) carries
 #                   no such condition. The id of the dev App, the reviewer App or the loop App
 #                   (`identities.dev_app`, `.reviewer_app`, `.loop_app`) on the approver list, or an
-#                   entry of one of them that is neither null nor well formed (a map with a canonical
-#                   decimal !!int `id` above 0 and a string `login`), makes a maintainer or dev-App
+#                   entry of one of them that is neither null nor well formed (a map with an !!int
+#                   `id` above 0 and a string `login`; an id not in canonical decimal is refused
+#                   first by `gh-identity.sh role` and reads `untrusted`), makes a maintainer or dev-App
 #                   author's comment `unreacted` too (#708): the dev App and the reviewer App have
 #                   Issues write and could edit the text and then approve it, and the loop App is
 #                   treated as the same class. The dev App's own id on the list, as an author,
-#                   is refused earlier as `untrusted` when the id is spelled canonically (a
-#                   non-canonical spelling, `+2001` or `0x7D1`, reads the colliding account as a
-#                   maintainer in gh-identity.sh, and this check refuses it). For a reviewer or loop
+#                   is refused earlier as `untrusted`, and so is the id of a well-formed entry under any role not in
+#                   canonical decimal (`+2001`, `0x7D1`: gh-identity.sh `role` dies on it, #1130). For a reviewer or loop
 #                   App id on the list, a maintainer or dev-App author reaches this check and reads
-#                   `unreacted`, as does a non-canonical spelling (`+2002`, `0x7D2`) of its id; the colliding account itself is refused earlier as `untrusted` only
-#                   when the App's id is spelled canonically (gh-identity.sh `role` dies on an id
-#                   declared more than once, or under another login). No reaction clears it; the
+#                   `unreacted`; the colliding account itself is refused earlier as `untrusted`
+#                   (gh-identity.sh `role` dies on an id declared more than once, or under another login). No reaction clears it; the
 #                   config has to change. A missing App key means no check, as in spec-find.sh.
 #                   Otherwise a maintainer author is approved by any declared maintainer's
 #                   reaction, their own included, as in spec-find.sh and plan-anchor.sh.

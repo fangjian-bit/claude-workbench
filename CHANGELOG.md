@@ -28,6 +28,7 @@ the GitHub release notes.
 
 ### Fixed
 
+- `gh-identity.sh` refuses a `dev_app`, `reviewer_app` or `loop_app` id not in canonical decimal, as it does a maintainer's, instead of matching nobody, so every `gh-identity.sh` caller that gates refuses such a config until it is corrected (`#1130`); the three spec scripts' suites pin a non-canonical maintainer id as `untrusted` (`#1131`).
 - `gh-identity.sh` and the architect-review label read refuse a maintainer id not in canonical decimal instead of matching nobody, so every `gh-identity.sh` caller that gates refuses such a config until it is corrected (`#1114`).
 - Check 26 in `scripts/invariants-check.sh` no longer aborts with `unbound variable` on bash older than 4.4 in its loops over the workflow files and the required check names when either list is empty (`#1111`).
 

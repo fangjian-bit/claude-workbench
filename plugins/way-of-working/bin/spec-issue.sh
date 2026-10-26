@@ -18,7 +18,7 @@
 #   unreadable     a read, a check or a copy failed, or a value was not the shape expected
 #                  Also (#759), under a map and for a maintainer or App author: a declared App's id
 #                  (dev_app, reviewer_app, loop_app) on the maintainer list, an App entry that is
-#                  neither null nor well formed or has a non-canonical id, or a maintainer list with an
+#                  neither null nor well formed, or a maintainer list with an
 #                  entry that is not well formed.
 #   repo-mismatch  the default branch's project.yml `.repo` is not the origin's repository
 #   bad-backlog    `backlog.repo` (null or absent means the origin's repository) is not owner/name
@@ -29,8 +29,9 @@
 #   loop-identity  the author is `orchestration.loop_identity`, before any trust check
 #   untrusted      the author is not trusted (`gh-identity.sh task-author`: not a declared maintainer,
 #                  dev App or reviewer App, or the loop App). It also covers a config `gh-identity.sh`
-#                  could not judge (exit 2: a malformed `identities`, an id declared twice, a maintainer id
-#                  not in canonical decimal, #1114), so the
+#                  could not judge (exit 2: a malformed `identities`, an id declared twice, the id of a well-formed entry under any
+#                  role not in canonical decimal, #1114, #1130: gh-identity.sh refuses it before
+#                  declared-ids.sh runs), so the
 #                  word can mean a broken config, not only a hostile author.
 #   unreacted      the author is the declared dev or reviewer App (`agent`, WB-D32, #664) and no
 #                  declared maintainer has reacted approvingly to the issue strictly after the time its

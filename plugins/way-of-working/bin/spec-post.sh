@@ -32,7 +32,7 @@
 #   unreadable          a read, a check or a copy failed, or a value was not the shape expected
 #                       Also (#759), under a map and for a maintainer or App author: a declared App's id
 #                       (dev_app, reviewer_app, loop_app) on the maintainer list, an App entry that is
-#                       neither null nor well formed or has a non-canonical id, or a maintainer list with an
+#                       neither null nor well formed, or a maintainer list with an
 #                       entry that is not well formed. This stops before the compose, hold and post stages.
 #   repo-mismatch       the default branch's project.yml `.repo` is not the origin's repository
 #   bad-backlog         `backlog.repo` (null or absent means the origin's repository) is not owner/name
@@ -57,8 +57,9 @@
 #   closed              the issue is not open
 #   locked              the issue is locked
 #   loop-identity       the issue's author is `orchestration.loop_identity`
-#   untrusted           the issue's author is not trusted (also a config gh-identity.sh could not judge, or a
-#                       maintainer id not in canonical decimal, #1114)
+#   untrusted           the issue's author is not trusted (also a config gh-identity.sh could not judge, or an
+#                       id of a well-formed entry under any role not in canonical decimal, #1114, #1130: gh-identity.sh refuses
+#                       it before declared-ids.sh runs)
 #   unreacted           the issue's author is the declared dev or reviewer App and no declared maintainer
 #                       has reacted approvingly to the issue strictly after the time its content last
 #                       changed (WB-D32, #664, #890)

@@ -60,10 +60,9 @@
 #     only matching entry is malformed reads as undeclared. `identities.maintainer` must be a
 #     sequence; a map there is malformed. YAML aliases inside `identities` are expanded before matching; `identities` itself must not be an alias (that reads as not a map).
 #   - one id is declared more than once, under one role or several: do not guess which.
-#   - a maintainer's id is not in canonical decimal (digits only, no leading zero): yq tags `0x3E9`,
+#   - an id under any role is not in canonical decimal (digits only, no leading zero): yq tags `0x3E9`,
 #     `1_001`, `01001` and `+1001` as `!!int` but prints them as written, so a text comparison with
-#     GitHub's decimal id would match nobody. The rule declared-ids.sh applies (#1096, #1114). App
-#     rows are not checked here.
+#     GitHub's decimal id would match nobody. The rule declared-ids.sh applies (#1096, #1114, #1130).
 # Login comparison is case-insensitive (GitHub logins are); the id is exact.
 #
 # author is the TRUST predicate (WB-D24, #382): is the author of an issue, a comment or a PR
@@ -71,7 +70,7 @@
 # the maintainer's own issue reads CONTRIBUTOR -- so a repo that has cut over trusts by
 # declared {login, id} instead. It shares classify's lookup and so its exit-2 cases for bad
 # input (a bad login or id, an unreadable or absent file or key, a non-map `identities`, an
-# id declared twice or under another login, a maintainer id not in canonical decimal) -- but NOT classify's refusals of an undeclared
+# id declared twice or under another login, an id in identities not in canonical decimal) -- but NOT classify's refusals of an undeclared
 # account, a reviewer or loop App, or a `[bot]` under null, which are `untrusted` / `legacy`
 # here. It prints exactly one word:
 #   trusted    -- the id and login match an `identities.maintainer` entry. Only a maintainer's
@@ -105,8 +104,8 @@
 # (token-check.sh, #436; spec-comment.sh, #660). It prints maintainer, dev_app, reviewer_app or loop_app; undeclared
 # when identities is a map and the account is not in it; legacy when identities is null.
 # Exit 2 only on bad input (the cases author shares: a bad login or id, an unreadable or absent
-# file or key, a non-map identities, an id declared twice or under another login, a maintainer id
-# not in canonical decimal). Unlike
+# file or key, a non-map identities, an id declared twice or under another login, an id in
+# identities not in canonical decimal). Unlike
 # classify it does NOT refuse an undeclared account, a reviewer or loop App, or a [bot] under null.
 #
 # pr-actor is the check ship runs in App mode (#464, #476): is this the dev App? The caller passes
@@ -119,7 +118,7 @@
 #                null (no dev App is declared, so none can be proven)
 # It exits 2, printing nothing, when it cannot say (the cases `role` shares: a missing or
 # malformed login or id, i.e. an unreadable response; an unreadable or absent file or key; a
-# non-map identities; an id declared twice or under another login; a maintainer id not in canonical
+# non-map identities; an id declared twice or under another login; an id in identities not in canonical
 # decimal). The CALLER stops on
 # anything but `match`, exit 2 included: only `match` clears.
 #
@@ -166,7 +165,7 @@ valid_id() {
 # find_role <login> <id> <project.yml> -- the lookup classify, author, role and pr-actor share. Sets ROLE to
 # maintainer, dev_app, reviewer_app, loop_app, or empty (undeclared); LEGACY=1 when identities
 # is null. Dies (exit 2) only on bad input (login or id shape, file or key, a
-# non-map identities, an id declared twice or under another login, a maintainer id not in canonical
+# non-map identities, an id declared twice or under another login, an id in identities not in canonical
 # decimal, which would match nobody); classify does the refusing.
 find_role() {
   login="$1" id="$2" yml="$3"
@@ -197,7 +196,7 @@ find_role() {
     fi
     [ -n "$rows" ] || continue
     while IFS="$tab" read -r l i; do
-      [ "$r" != maintainer ] || valid_id "$i" || die "identities.maintainer has an id not in canonical decimal"
+      valid_id "$i" || die "identities.$r has an id not in canonical decimal: $i"
       [ "$i" = "$id" ] || continue
       if [ "$(lower "$l")" != "$want" ]; then
         die "id $id is declared under a different login; will not guess"
