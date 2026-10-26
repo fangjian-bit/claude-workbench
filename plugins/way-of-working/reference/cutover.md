@@ -15,9 +15,7 @@ Four parts: the gate workflow, the order, the approval side, the plugin pin.
 The plugin does not carry the gate workflow. It lives in the plugin's source repository (the
 marketplace repository the pin below names) as `.github/workflows/architect-review-gate.yml`.
 Copy it from that repository at the tag the repo pins or will pin, a tag at or after the
-release that ships this runbook, so the copy matches what is described here. A template
-workflow at the same path that checks a `REVIEWER_IDS` list is a different gate: it is not
-this one and does not read this configuration.
+release that ships this runbook, so the copy matches what is described here.
 
 What the copy does:
 
@@ -35,6 +33,8 @@ What the copy does:
   result the gate cannot use (300 or more changed files, among other cases) reads `failure`
   whatever its review. A PR from a fork, exempt or not, does not pass by default: its token is read-only, so the status cannot be posted (a private repo's setting that sends write tokens to fork pull request workflows must stay off, since a fork's run uses the fork's own copy of the workflow). Any other PR reads `success` only with a fresh-session review by the
   reviewer App on its current head whose last matching review carries `Review verdict: pass`.
+- It covers PRs into the default branch only: on a PR whose base is another branch it posts no
+  status, and any run it makes there ends green.
 
 The edits the copy needs:
 
@@ -108,8 +108,8 @@ Numbered, with who makes each change after the list:
 1. **CODEOWNERS**: a file whose `*` line names only human code owners, each with write
    access, with no later line overriding it.
 2. **The approval ruleset** on the default branch: a `pull_request` rule with code-owner
-   review, stale reviews dismissed on push, last-push approval, extra approval for
-   unattributed changes and a required approving review count of 1, plus `deletion` and
+   review, stale reviews dismissed on push, last-push approval and a required approving
+   review count of 1, plus `deletion` and
    `non_fast_forward` rules.
 3. **The checks ruleset**, with every required check pinned to the App that posts it (15368
    for the gate's check).
@@ -141,16 +141,14 @@ unblock one.
 
 `.claude/settings.json` on the default branch carries:
 
-- `extraKnownMarketplaces`, keyed by the marketplace name, spelled exactly as the operator's
-  own marketplace registration lists it (a registration under a renamed marketplace lists a
-  name the review container refuses). Its `source` has exactly the keys:
+- `extraKnownMarketplaces`, keyed by exactly `claude-workbench`. Its `source` has exactly the
+  keys:
   - `source`, the value `github`;
-  - `repo`, the plugin's source repository's owner and name, spelled exactly as that
-    repository spells them, since the review container compares them exactly (a fork is
-    refused);
+  - `repo`, the value exactly `glunk-works/claude-workbench`. The review container accepts
+    only these two values, so a fork or another marketplace name is refused;
   - `ref`, a `vMAJOR.MINOR.PATCH` tag at or after the release that ships this runbook,
     resolving to exactly one tag with no branch of the same name.
-- `enabledPlugins`, setting `way-of-working@` plus the marketplace name to true.
+- `enabledPlugins`, setting `way-of-working@claude-workbench` to true.
 
 A repo may have neither key today. Bumping the pin later follows `conventions.md`'s *Bumping a
 pinned plugin* section, which this file does not restate.
