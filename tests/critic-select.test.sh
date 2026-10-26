@@ -133,6 +133,9 @@ r=$(cd "$W" && sh "$script" 2>/dev/null) && c=0 || c=$?
 assert_eq "no arguments exit 2 with nothing on stdout" "[] 2" "[$r] $c"
 r=$(cd "$W" && sh "$script" "$y" 'Bad;name' 2>/dev/null) && c=0 || c=$?
 assert_eq "a bad name exits 2 with nothing on stdout" "[] 2" "[$r] $c"
+# this check, under LC_ALL=C, is the backstop when the skill block's case range lets a name through
+r=$(cd "$W" && sh "$script" "$y" 'Architect' 2>/dev/null) && c=0 || c=$?
+assert_eq "a name failing only the a-z range exits 2 with nothing on stdout" "[] 2" "[$r] $c"
 
 # --- unreadable ------------------------------------------------------------------
 yml "" | grep -v '^$' >"$tmp/absent.yml"
@@ -203,11 +206,11 @@ markbin="$tmp/markbin"; mkdir -p "$markbin"
 printf '#!/bin/sh\n: >"$TMPDIR/ran"\nexec sh "%s/critic-select.sh" "$@"\n' "$bindir" >"$markbin/critic-select.sh"; chmod +x "$markbin/critic-select.sh"
 
 # runblk <names-text> -- the block with the placeholder line replaced (deleted when empty), run
-# from $W; prints stdout and ` rc=N`, then ` ran` when critic-select.sh ran and ` leftover` when TMPDIR is not empty afterwards
+# from ${CWD:-$W}; prints stdout and ` rc=N`, then ` ran` when critic-select.sh ran and ` leftover` when TMPDIR is not empty afterwards
 runblk() {
   NAMES="$1" awk '$0 == "<critic names, one line each>" { if (ENVIRON["NAMES"] != "") print ENVIRON["NAMES"]; next } { print }' "$blk" >"$tmp/blk-case.sh"
   rm -rf "$tmp/td"; mkdir -p "$tmp/td"
-  out=$(cd "$W" && PATH="$ghbin:$markbin:$bindir:$PATH" TMPDIR="$tmp/td" GH_OUT="${GH_OUT:-main}" sh "$tmp/blk-case.sh" 2>/dev/null) && rc=0 || rc=$?
+  out=$(cd "${CWD:-$W}" && PATH="$ghbin:$markbin:$bindir:$PATH" TMPDIR="$tmp/td" GH_OUT="${GH_OUT:-main}" sh "$tmp/blk-case.sh" 2>/dev/null) && rc=0 || rc=$?
   ran=""; [ ! -e "$tmp/td/ran" ] || { ran=" ran"; rm -f "$tmp/td/ran"; }
   left=""; [ -z "$(ls -A "$tmp/td")" ] || left=" leftover"
   printf '%s rc=%s%s%s' "$out" "$rc" "$ran" "$left"
@@ -233,6 +236,10 @@ assert_eq "the placeholder left in place stops the block" " rc=1" "$(runblk "<cr
 assert_eq "a gh that fails stops the block" " rc=1" "$(GH_FAIL=1; export GH_FAIL; runblk "")"
 assert_eq "a failed fetch stops the block" " rc=1" "$(GH_OUT=nobranch; export GH_OUT; runblk "")"
 assert_eq "a default branch name with a ; stops the block, though that branch exists" " rc=1" "$(GH_OUT='main;x'; export GH_OUT; runblk "")"
+assert_eq "a name failing only the a-z range stops the block before critic-select.sh runs" " rc=1" "$(runblk "Architect")"
+CWD="$W/plugins"
+assert_eq "the block run from a subdirectory reads the same default branch config" "SELECT=critics architect,security-critic rc=0 ran" "$(runblk "")"
+unset CWD
 fresh noyml
 assert_eq "a default branch with no .ai/project.yml stops the block" " rc=1" "$(runblk "")"
 
