@@ -2887,3 +2887,30 @@ tracked:
 - the release-tag and immutable-release check for the other repos' cutovers (#433, milestone 20).
 
 Sprint 16 closed at `24e1ba6` (PR #889), the pin bump to `v0.23.0`.
+
+Sprint 17 (milestone 24, *Green gate in parallel*, all its issues closed) makes the local green
+gate and CI's tests job run in parallel, and the review follow-ups of milestone 25 ran beside it.
+CI's tests job runs as parallel jobs and shards (#808, PR #913; #936, PR #947), the local
+`test-all.sh` dropped from about 198 s to about 72 s (#934, PR #988), and the slowest suites were
+cut (#937, PR #954; #955, PR #967). The `area/*` taxonomy became the commit-scope vocabulary, and
+the `pr-title` check refuses a scope it does not declare (#835, PR #950; #839, PR #962; #972,
+PR #990). Lanes set their own PR milestone (#862, PR #1019), `wow-lane` guards its spec sessions
+(#891, PR #977; #979, PR #1001), and `lane-groups.sh` derives which tasks can run in parallel
+(#896, PR #1004). The host scheduled tasks start headless (#999, PR #1014; #1016, PR #1027). The
+review gate dropped `WB-D38`'s no-verdict transition form (#905, PR #1146). Milestone 25 added
+critic-gate's rule selection of its critics (#1109, PR #1119, `WB-D41`) and the canonical-decimal
+id refusal for every `identities` role (#1114, PR #1124; #1130, PR #1139). It shipped in `v0.24.0`
+through `v0.27.0`; `v0.27.0` is tagged at `8ae8197` (PR #1149), with both host homes reinstalled
+from `3c79b37` (PR #1146's merge) before the release.
+
+Verified live: the headless start of both scheduled tasks and the broker's stop and restart, on
+the maintainer's host (2026-10-23, #999, #1016); and #1146's own gate run, which read the new
+review-match program and turned green on its `pass` review. The `blocking` reading of a review
+with no verdict line is verified hermetically only (`tests/review-verdict.test.sh`); no home
+posts that form any more. Deferred and tracked:
+- the live check of the `spec-task-answer:` listing projection on the first real answer to an
+  escalated spec (#1080);
+- the `sh.cmd` path of the launchers' `cygpath` conversion on a real Windows Git Bash (#885);
+- the release-tag and immutable-release check for the other repos' cutovers (#433, milestone 20).
+
+Sprint 17 closed at `e11108b` (PR #1151), the pin bump to `v0.27.0`.
