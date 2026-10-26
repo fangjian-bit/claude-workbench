@@ -27,6 +27,7 @@ the GitHub release notes.
 
 ### Fixed
 
+- `reference/workflow.md`'s architect-review procedure paragraph and its `## The skills` entry now say the host launcher posts under an `identities` map and the skill posts under `identities: null` (`#1189`).
 - `reference/workflow.md`'s attribution sentence now scopes its limit to `identities: null` and points to the reviewer App under a map (`#1181`).
 - `project-schema.md` describes the review gate's match as exact equality of the review's first line with `header` and its third with `attestation`, not `contains()`, and `workflow.md` drops its `contains()` restatement (`#1175`).
 - `review-token.sh` refuses a slash-less `$0` in every mode, as `token-check.sh` does (`#1171`).

@@ -259,20 +259,25 @@ reviewer App (`reference/project-schema.md` § `identities`), a machine identity
 author's; a repo that installs the gate in `reference/cutover.md` counts only that App's reviews,
 though other accounts can still post one.
 
-**The procedure is `/way-of-working:architect-review <PR>`, and only that.** It pins the head
-SHA, checks the exemption, reviews a trusted PR by execution in an isolated sandbox
-(`bin/review-sandbox.sh`, no link to the reviewer's own `.git` and no credential *handle* in
-its environment — accident containment, not a container; see the script's own header for
-what it does and does not close) and an untrusted
-one from the required checks' own witness alone, with no local execution at all, pastes the header and
-attestation out of `.ai/project.yml` (why those two strings are frozen and must never be
-retyped is stated once, in `reference/project-schema.md` § `review.ci_gate`), posts it as
-`POST …/reviews` with `event=COMMENT` and `commit_id` set to the reviewed SHA — never `event=APPROVE`: the approval is the human's (a code-owner approval where the base requires one), and a
-Claude-issued approval would be a gate approving itself — then verifies the check went green
-on the head (a pinned run: on the pin) on **both** surfaces a gate can post to, and files the non-blocking findings as
-backlog items rather than into the cursor. The posted review is a timestamped, threadable
-event distinct from the PR *description*: an audit record that survives edits to the
-description and cannot be mistaken for the human's approval.
+**The procedure is `/way-of-working:architect-review <PR>`, and only that.** In both modes the
+review is pinned to the PR's head SHA and bound to it on post (`commit_id`), the exemption is
+checked, and the header and attestation are pasted out of `.ai/project.yml`, never retyped (why
+those two strings are frozen is stated once, in `reference/project-schema.md` §
+`review.ci_gate`). The post is `event=COMMENT`, never `event=APPROVE`: the approval is the
+human's (a code-owner approval where the base requires one), and a Claude-issued approval would
+be a gate approving itself. Findings never go into the cursor. Who does the rest differs.
+Under `identities: null` the skill does all of it from the review session: it reviews a trusted
+PR by execution in the `bin/review-sandbox.sh` sandbox (accident containment, not a container)
+and an untrusted one from the required checks' own witness alone, posts with `POST …/reviews`,
+verifies the check went green on the head on **both** surfaces a gate can post to, and files
+every non-blocking finding as a backlog item. Under an `identities` map no session posts: on a
+host the skill prints the launcher command and stops; the host launcher (`wow-review`) starts a
+review container that runs the skill, which directs no local execution, and writes its outbox; the launcher
+posts as the declared reviewer App, polls the gate (logged only) and files at most five of the
+outbox's findings, only into a `github_issues` backlog with the PR repository's owner.
+`skills/architect-review/SKILL.md` owns the steps and stops of each mode. The posted review is a
+timestamped, threadable event distinct from the PR *description*: an audit record that survives
+edits to the description and cannot be mistaken for the human's approval.
 
 ## The skills
 
@@ -328,10 +333,12 @@ description and cannot be mistaken for the human's approval.
   PR's `## Critic pass` section, opens no ledger PR, and ends with a synced switch to `{pr_base}`
   (`WB-D22`, `#283`; `github_milestones` only).
 - **`/way-of-working:architect-review <PR>`** — run in the **fresh** session after
-  `/way-of-working:handoff`, where a repo wires `review.ci_gate`. Posts the review that
-  satisfies the gate, verifies it went green on the head SHA on both surfaces a gate can
-  post to, and files the non-blocking findings as backlog items. The only skill that
-  posts a review; never approves.
+  `/way-of-working:handoff`, where a repo wires `review.ci_gate`. Under `identities: null` it
+  posts the review that satisfies the gate, verifies it went green on the head SHA on both
+  surfaces a gate can post to, and files the non-blocking findings as backlog items; it is
+  then the only skill that posts a review. Under an `identities` map it posts nothing: on a
+  host it prints the `wow-review` command, and in the launcher's container it writes the outbox
+  the host launcher checks before posting. Never approves.
 - **`/way-of-working:archive-sprint`** — run **only** when a sprint has passed its HITL Gate **and** is committed.
   Moves its `next-steps.md` snapshot into `.ai/archive/`, compacts the deep record
   (completed narrative, and items closed during the sprint — resolved *and* declined —
