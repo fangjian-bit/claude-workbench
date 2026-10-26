@@ -105,8 +105,8 @@
 #   branch       this checkout's branch (`git branch --show-current`), or `-` when HEAD is detached
 #   base         `pr_base` from the DEFAULT branch's copy, never the working tree's
 #   base_head    `git rev-parse origin/<base>` after a fetch of it, 40 hex, or `-` when unreadable
-#   last_commit  state.json's `last_commit` resolved to a full oid (`git rev-parse --verify -q
-#                "<last_commit>^{commit}"`), or `-` when it does not resolve or is missing
+#   last_commit  state.json's `last_commit` resolved to a full oid (`cursor-drift.sh oid
+#                "<last_commit>"`), or `-` when it does not resolve or is missing
 #   tree         `clean` | `dirty`
 #   model        assigned_model from state.json
 #   architect    `{models.architect}` from the default branch's copy

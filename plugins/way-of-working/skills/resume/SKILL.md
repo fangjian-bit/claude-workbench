@@ -675,7 +675,7 @@ edited it. **Default to the full checklist whenever unsure.**
    SRN=$(jq -r '.pointers.review_pr.number // "-"' .ai/state.json) &&
    SRH=$(jq -r '.pointers.review_pr.head_oid // "-"' .ai/state.json) &&
    LC=$(jq -r '.last_commit // ""' .ai/state.json) &&
-   case "$LC" in ''|*[!0-9a-f]*) LCO=- ;; *) LCO=$(git rev-parse --verify -q "$LC^{commit}" 2>/dev/null) || LCO=- ;; esac
+   case "$LC" in ''|*[!0-9a-f]*) LCO=- ;; *) LCO=$(cursor-drift.sh oid "$LC" 2>/dev/null) || LCO=-; LCO=${LCO:--} ;; esac
    ```
 
    **Each Bash call is a fresh shell.** Run the derive chain, the state block and `decide` so each
@@ -693,8 +693,8 @@ edited it. **Default to the full checklist whenever unsure.**
      "login=$ACTOR" "loop_identity=$LOOPID" "mode=$MODE"
    ```
    `$STATE` is `present` when `.ai/state.json` parsed, else `absent` (then `-` for `$SRN`, `$SRH`,
-   `$NA`, `$MODEL`, and `-` for `$LCO`). `$LCO` is `last_commit` resolved to a full oid, `-` when it
-   does not resolve or is not a hex commit id (what handoff wrote, never a revision expression); the
+   `$NA`, `$MODEL`, and `-` for `$LCO`). `$LCO` is `last_commit` resolved by `cursor-drift.sh oid` to a full oid, `-` when it
+   is not the abbreviation of exactly one commit (what handoff wrote, never a ref or revision expression); the
    `branch` argument is the current branch, `-` when HEAD is detached, and is read in the `decide` call itself
    so it is set whether or not `state.json` exists. `$SRN`/`$SRH` are `pointers.review_pr.number` / `.head_oid`, `-` when
    missing — an older cursor reads as no vote. `$TREE` is `clean` or `dirty` from the

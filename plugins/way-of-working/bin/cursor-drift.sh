@@ -12,6 +12,7 @@
 # object the original tip never becomes an ancestor of.
 #
 # Usage: cursor-drift.sh <last_commit>
+#        cursor-drift.sh oid <last_commit>
 # Prints exactly one of, to stdout, and always exits 0 (the caller decides policy):
 #   clean        -- last_commit IS the current HEAD
 #   cursor-sync  -- HEAD differs from last_commit only in .ai/next-steps.md and/or
@@ -20,7 +21,12 @@
 #   unreadable   -- last_commit is not lowercase hex of at least 4 characters, or is not
 #                   the abbreviation of exactly one object, a commit (treat as drift; wait)
 #
-# last_commit is never resolved through ref lookup: a revision expression (HEAD, @, a
+# `oid` mode (exactly two arguments, the first `oid`) prints the full id of the one commit the
+# value abbreviates, or `-` otherwise (an empty value included), and always exits 0. Its caller
+# is /way-of-working:resume's review-step state block. A one-argument call is always the
+# classifier, so `cursor-drift.sh oid` alone prints `unreadable`.
+#
+# last_commit is never resolved through ref lookup, in either mode: a revision expression (HEAD, @, a
 # branch name) or a ref named with hex characters would otherwise resolve to HEAD and
 # read clean. One limit: a later object of any type that comes to share the abbreviation
 # makes the cursor read unreadable (wait) until the next handoff rewrites it.
@@ -38,44 +44,46 @@
 # any maintainer machine without an extra interpreter installed.
 set -eu
 
-last_commit="${1:?usage: cursor-drift.sh <last_commit>}"
+# Resolve a value to the full id of the one commit it abbreviates. Prints only that id;
+# the return status says whether there is one. Both modes below call it, so the resolution
+# has one definition.
+resolve_oid() {
+  _v="$1"
+  case "$_v" in
+    '' | *[!0-9a-f]*) return 1 ;;
+  esac
+  [ "${#_v}" -ge 4 ] || return 1
+  # Object ids only, never a ref. One full id per line; an unknown value prints nothing.
+  _c="$(git rev-parse --disambiguate="$_v" 2>/dev/null)" || return 1
+  case "$_c" in
+    '' | *'
+'*) return 1 ;;
+  esac
+  # Under SHA-1 git can match a 41 to 64 character value by its leading characters.
+  case "$_c" in
+    "$_v"*) ;;
+    *) return 1 ;;
+  esac
+  _k="$(git cat-file -t "$_c" 2>/dev/null)" || return 1
+  [ "$_k" = commit ] || return 1
+  printf '%s\n' "$_c"
+}
 
-case "$last_commit" in
-  *[!0-9a-f]*)
-    echo unreadable
-    exit 0
-    ;;
-esac
-if [ "${#last_commit}" -lt 4 ]; then
-  echo unreadable
+if [ "$#" -eq 2 ] && [ "$1" = oid ]; then
+  if oid="$(resolve_oid "$2")"; then
+    echo "$oid"
+  else
+    printf '%s\n' -
+  fi
   exit 0
 fi
 
-# Object ids only, never a ref. One full id per line; an unknown value prints nothing.
-if ! candidates="$(git rev-parse --disambiguate="$last_commit" 2>/dev/null)"; then
+last_commit="${1:?usage: cursor-drift.sh <last_commit> | cursor-drift.sh oid <last_commit>}"
+
+if ! last_commit_oid="$(resolve_oid "$last_commit")"; then
   echo unreadable
   exit 0
 fi
-case "$candidates" in
-  '' | *'
-'*)
-    echo unreadable
-    exit 0
-    ;;
-esac
-# Under SHA-1 git can match a 41 to 64 character value by its leading characters.
-case "$candidates" in
-  "$last_commit"*) ;;
-  *)
-    echo unreadable
-    exit 0
-    ;;
-esac
-if ! kind="$(git cat-file -t "$candidates" 2>/dev/null)" || [ "$kind" != commit ]; then
-  echo unreadable
-  exit 0
-fi
-last_commit_oid="$candidates"
 
 head_sha="$(git rev-parse HEAD)"
 if [ "$head_sha" = "$last_commit_oid" ]; then

@@ -265,6 +265,36 @@ git tag "$short7" "$parent"
 assert_eq "clean: the same 7 characters, with a tag of that name on HEAD's parent" \
   "clean" "$("$script" "$short7")"
 
+# --- oid mode: the same resolution, printed (#1168) --------------------------
+# Every input above: HEAD's full id where the classifier says clean, `-` where it says unreadable.
+# The tag named short7 sits on HEAD's parent, so `git rev-parse --verify -q "<short7>^{commit}"`
+# prints the parent where oid mode must print HEAD.
+assert_eq "oid: the old ref-lookup form resolves the 7-character tag to the parent" \
+  "$parent" "$(git rev-parse --verify -q "$short7^{commit}")"
+for v in "$short4" "$short7" "$head_full"; do
+  assert_eq "oid: $v prints HEAD's full id" "$head_full" "$("$script" oid "$v")"
+done
+for v in HEAD @ "$base" "$upper" "$atag" "$short3" \
+  "$(git rev-parse anntag)" "$(git rev-parse 'HEAD^{tree}')" "$(git rev-parse HEAD:a.txt)" \
+  0000000000000000000000000000000000dead; do
+  assert_eq "oid: $v prints -" "-" "$("$script" oid "$v")"
+done
+if [ "${#head_full}" -eq 40 ]; then
+  assert_eq "oid: HEAD's full id plus one extra hex digit prints -" \
+    "-" "$("$script" oid "${head_full}0")"
+fi
+assert_eq "oid: an empty value prints -" "-" "$("$script" oid "")"
+assert_eq "oid: no second argument is the classifier, unreadable" "unreadable" "$("$script" oid)"
+# A branch named with lowercase hex that is no object's abbreviation: ref lookup finds its tip.
+hexbranch=feedc0de
+git branch "$hexbranch" "$parent"
+assert_eq "oid: the old form resolves the hex-named branch to its tip" \
+  "$parent" "$(git rev-parse --verify -q "$hexbranch^{commit}")"
+assert_eq "oid: a hex-named branch that is no abbreviation prints -" "-" "$("$script" oid "$hexbranch")"
+for v in "$short7" "$hexbranch" ""; do
+  "$script" oid "$v" >/dev/null || { echo "FAIL - oid: exit non-zero for [$v]" >&2; fail=1; }
+done
+
 # --- drift: the review shape's cursor, read from the base (WB-D22, `#283`) ---
 # After a no-op handoff `last_commit` is the work branch's HEAD, and the checkout
 # is switched to the base. The base lacks that work, so this script reads `drift`
