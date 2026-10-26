@@ -161,4 +161,22 @@ expect "unknown command" "" 2
 run good discard
 expect "discard without a repo" "" 2
 
+# -- never run from the cwd ---------------------------------------------------------------------
+# A slash-less $0 could find a token-check.sh a branch under review planted in the cwd.
+mkdir "$tmp/plant"
+cp "$script" "$tmp/plant/review-token.sh"
+printf '#!/bin/sh\ntouch "%s/marker"\nexit 0\n' "$tmp/plant" >"$tmp/plant/token-check.sh"
+: >"$calls"
+rm -rf "$root"; mkdir -p "$root"
+rc=0
+out="$(cd "$tmp/plant" && PATH="$bin:$PATH" WOW_HOME="$home" REVIEW_SANDBOX_ROOT="$root" STUB_MODE=good STUB_CALLS="$calls" sh review-token.sh request owner/scratch 2>/dev/null)" || rc=$?
+assert_eq "slash-less request refuses (stdout)" "" "$out"
+assert_eq "slash-less request refuses (rc)" 2 "$rc"
+assert_eq "slash-less request never reached the planted token-check.sh" no "$([ -e "$tmp/plant/marker" ] && echo yes || echo no)"
+nocalls "slash-less request"
+rc=0
+out="$(cd "$tmp/plant" && PATH="$bin:$PATH" WOW_HOME="$home" REVIEW_SANDBOX_ROOT="$root" STUB_MODE=good STUB_CALLS="$calls" sh review-token.sh discard owner/scratch 2>/dev/null)" || rc=$?
+assert_eq "slash-less discard refuses (stdout)" "" "$out"
+assert_eq "slash-less discard refuses (rc)" 2 "$rc"
+
 exit "$fail"

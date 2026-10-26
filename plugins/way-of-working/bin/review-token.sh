@@ -6,7 +6,12 @@
 # container, unattended; a session never holds a post token, and `/way-of-working:architect-review`
 # no longer posts under an identities map. This script is kept, with its fixtures, until a later
 # cleanup removes it together with the broker review-tokens/ sweep and the post-shaped default
-# path of `wow-review-mint`. The code below is unchanged.
+# path of `wow-review-mint`. The code below is unchanged since #636, except the slash-less
+# refusal (#1171).
+#
+# A slash-less $0 (`sh review-token.sh` from this directory) is refused, in every mode, with exit
+# 2: `here` would be the current directory, and a token-check.sh planted there would decide the
+# token check. Run it by path, or by command name through PATH.
 #
 # What it did: ask the host broker, `wow-review-mint`, only AFTER the review sandbox for a PR
 # was gone, so no reviewer token file existed on this host while sandboxed PR code ran, and
@@ -50,7 +55,10 @@ LC_ALL=C; export LC_ALL
 
 die() { echo "review-token.sh: $1" >&2; exit 2; }
 
-here=$(CDPATH= cd -P -- "$(dirname -- "$0")" && pwd)
+case "$0" in
+  */*) here=$(CDPATH= cd -P -- "$(dirname -- "$0")" && pwd) ;;
+  *) die "must be run by path or through PATH (a slash-less \$0 cannot locate token-check.sh)" ;;
+esac
 
 # name_of <owner/repo>: the bare repo name, plain characters only.
 name_of() {
