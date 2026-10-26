@@ -253,8 +253,11 @@ This failed twice in practice before the attestation existed: one review was don
 `/model opus` inside the authoring session, and another was authored by Opus and would have
 been self-reviewed. The gate now requires the reviewer to attest. CI cannot observe a session
 boundary; the attestation does not prove one — it makes reviewing your own work a *knowing
-false statement* rather than something that quietly happens. That is as far as a check can go; real
-attribution needs a separate machine identity.
+false statement* rather than something that quietly happens. Under `identities: null` that is as
+far as a check can go. Under an `identities` map the host launcher posts the review as the declared
+reviewer App (`reference/project-schema.md` § `identities`), a machine identity separate from the
+author's; a repo that installs the gate in `reference/cutover.md` counts only that App's reviews,
+though other accounts can still post one.
 
 **The procedure is `/way-of-working:architect-review <PR>`, and only that.** It pins the head
 SHA, checks the exemption, reviews a trusted PR by execution in an isolated sandbox
