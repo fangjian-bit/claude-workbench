@@ -2659,6 +2659,7 @@ take effect. Full reasoning and the task breakdown that implements them:
     During the transition a session can omit the verdict and the old form reads `success`, and a no-verdict review's line 4 is the session's own text. A same-head `--rerun` reading `pass`
     overrides an earlier `changes-needed`, and a rerun ending in a failure review leaves the earlier matching review deciding. A home whose host tools were not reinstalled posts the old form,
     so a `changes-needed` from it reads `success`. The gate reads a review's current body, and an edit to it is not detected.
+  *Amended by `#905`: the transition is over. A matching review whose line 4 is not exactly `Review verdict: pass` reads `blocking`, an outbox with no verdict file posts the `bad-verdict` failure review, and the residual that a `changes-needed` from a home that was not reinstalled reads `success` no longer holds (that review reads `blocking`).*
 
 - **WB-D39 (`#790`) — a later `spec-task` run continues an escalated spec from a declared maintainer's answer.** Builds on `WB-D35` and amends `WB-D26`'s rule line "It reads no other issue's body and no comments".
   - **The decision.** Under an `identities` map only, a declared maintainer answers the newest `spec-task-escalated:` comment on a task issue with a new issue comment whose first line is exactly `spec-task-answer: escalated=<id> choice=apply` (apply the recommended fixes in its `### Open findings`) or `choice=amend` (apply them with the changes written on the lines after the first). `/way-of-working:spec-task <N>` finds the answer through `spec-find.sh answer` and reads the two comments only through `spec-answer.sh`, redrafts from the escalated comment plus the choice, runs the critic gate again and posts through `spec-post.sh` as usual: a `spec-task:` comment on convergence, another escalation otherwise.
@@ -2882,7 +2883,6 @@ gate, the exempt docs and cursor-sync PRs, approval with auto-merge, and resume 
 spec reaction and starting with one. The verdict gate was verified on PR #897, whose
 `changes-needed` review turned the gate red and whose `pass` review turned it green. Deferred and
 tracked:
-- dropping the gate's no-verdict transition form, the `WB-D38` follow-up (#905);
 - the `sh.cmd` path of the launchers' `cygpath` conversion on a real Windows Git Bash (#885);
 - the release-tag and immutable-release check for the other repos' cutovers (#433, milestone 20).
 

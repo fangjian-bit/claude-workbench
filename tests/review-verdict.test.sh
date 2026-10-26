@@ -6,7 +6,7 @@
 # `--argjson rid` and ends before the line that begins with the closing quote), strips each line's
 # leading blanks (the jq argument lines around them may differ), fails when either pair differs,
 # shows that a sed-mutated copy of either file fails the comparison, and runs canned review
-# lists through the program.
+# lists through the program: a review without the `Review verdict: pass` line reads `blocking`.
 #
 # Permitted toolset: POSIX sh and its standard utilities, awk and jq (skipped, loudly, if absent; a
 # failure instead when WOW_TESTS_REQUIRE_TOOLS is exactly 1, which ci.yml sets).
@@ -98,12 +98,12 @@ PASS=$(mk 'Review verdict: pass'); CHG=$(mk 'Review verdict: changes-needed')
 OLD=$(printf '%s\n\n%s\n\nReviewed against head %s\n\nother' "$H" "$A" "$SHA")
 
 assert_eq "pass reads success" success "$(run_prog "$(rev $RID $SHA COMMENTED "$T1" "$PASS")")"
-assert_eq "an old-form line 4 reads success" success "$(run_prog "$(rev $RID $SHA COMMENTED "$T1" "$OLD")")"
-assert_eq "a three-line body reads success" success "$(run_prog "$(rev $RID $SHA COMMENTED "$T1" "$(mk -)")")"
+assert_eq "an old-form line 4 reads blocking" blocking "$(run_prog "$(rev $RID $SHA COMMENTED "$T1" "$OLD")")"
+assert_eq "a three-line body reads blocking" blocking "$(run_prog "$(rev $RID $SHA COMMENTED "$T1" "$(mk -)")")"
 assert_eq "changes-needed reads blocking" blocking "$(run_prog "$(rev $RID $SHA COMMENTED "$T1" "$CHG")")"
 assert_eq "another Review verdict: line reads blocking" blocking "$(run_prog "$(rev $RID $SHA COMMENTED "$T1" "$(mk 'Review verdict: maybe')")")"
 assert_eq "a Review verdict: line with no word reads blocking" blocking "$(run_prog "$(rev $RID $SHA COMMENTED "$T1" "$(mk 'Review verdict:')")")"
-assert_eq "a lower-case review verdict line is the old form" success "$(run_prog "$(rev $RID $SHA COMMENTED "$T1" "$(mk 'review verdict: changes-needed')")")"
+assert_eq "a lower-case review verdict line reads blocking" blocking "$(run_prog "$(rev $RID $SHA COMMENTED "$T1" "$(mk 'review verdict: changes-needed')")")"
 assert_eq "no review reads none" none "$(run_prog)"
 assert_eq "a review by another author reads none" none "$(run_prog "$(rev 9 $SHA COMMENTED "$T1" "$PASS")")"
 assert_eq "a review on another commit reads none" none "$(run_prog "$(rev $RID $OTHER COMMENTED "$T1" "$PASS")")"
@@ -113,6 +113,8 @@ assert_eq "an unsubmitted review reads none" none "$(run_prog "$(rev $RID $SHA C
 assert_eq "the wrong header reads none" none "$(run_prog "$(rev $RID $SHA COMMENTED "$T1" "$(printf 'wrong\n\n%s\n\nReview verdict: pass' "$A")")")"
 assert_eq "the wrong attestation reads none" none "$(run_prog "$(rev $RID $SHA COMMENTED "$T1" "$(printf '%s\n\nwrong\n\nReview verdict: pass' "$H")")")"
 assert_eq "a null body reads none" none "$(run_prog "$(jq -nc --arg c "$SHA" '{uid:4242, commit_id:$c, state:"COMMENTED", submitted_at:"2026-10-15T10:00:00Z", body:null}')")"
+assert_eq "the latest review decides: an old-form review after pass" blocking \
+  "$(run_prog "$(rev $RID $SHA COMMENTED "$T1" "$PASS")" "$(rev $RID $SHA COMMENTED "$T2" "$OLD")")"
 assert_eq "the latest review decides: changes-needed after pass" blocking \
   "$(run_prog "$(rev $RID $SHA COMMENTED "$T1" "$PASS")" "$(rev $RID $SHA COMMENTED "$T2" "$CHG")")"
 assert_eq "the latest review decides regardless of list order" blocking \

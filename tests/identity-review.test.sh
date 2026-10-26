@@ -412,7 +412,8 @@ $ATTTXT
 Reviewed against head $SHA
 
 Looks fine."
-  rm -f "$STUB/outbox/findings.json" "$STUB/outbox/verdict"
+  rm -f "$STUB/outbox/findings.json"
+  printf 'pass\n' >"$STUB/outbox/verdict"
 }
 
 set_outcome() { printf '%s\n' "$1" >"$STUB/outbox/outcome"; }
@@ -518,11 +519,7 @@ key_case() { # key_case <label> <file content, printf format>: a run with a key 
   mkdir -p "$home/review-state"; printf -- "$2" >"$home/review-state/.home-key"
 }
 review_doc() { # review_doc <uid> <commit> <state> <submitted_at json> [body]
-  jq -n --argjson uid "$1" --arg c "$2" --arg s "$3" --argjson t "$4" --arg b "${5-$HDRTXT
-
-$ATTTXT
-
-other text}" '{user:{id:$uid}, commit_id:$c, state:$s, submitted_at:$t, body:$b}'
+  jq -n --argjson uid "$1" --arg c "$2" --arg s "$3" --argjson t "$4" --arg b "${5-$(vbody pass)}" '{user:{id:$uid}, commit_id:$c, state:$s, submitted_at:$t, body:$b}'
 }
 vbody() { printf '%s\n\n%s\n\nReview verdict: %s\n\nrest' "$HDRTXT" "$ATTTXT" "$1"; }
 exempt_case() { # exempt_case <label> <compare files json or none> [yq edit] [status] [ahead_by]
@@ -624,8 +621,16 @@ assert_eq "golden: exit 0" 0 "$rc"
 [ "$rc" = 0 ] || { sed 's/^/  stderr: /' "$tmp/err" >&2; tail -20 "$home"/review-logs/*.log >&2; }
 assert_eq "golden: one review POST" 1 "$(n_posts)"
 assert_eq "golden: two issue POSTs" 2 "$(n_issues)"
-assert_eq "golden: the POST body is the outbox body, a blank line, the footer" \
-  "$(cat "$STUB/outbox/review.md")
+assert_eq "golden: the POST body is the outbox body with the pass verdict line after the attestation, a blank line, the footer" \
+  "$HDRTXT
+
+$ATTTXT
+
+Review verdict: pass
+
+Reviewed against head $SHA
+
+Looks fine.
 
 Host: 2 findings will be filed in o/backlog" "$(post_body)"
 assert_eq "golden: the POST --input has exactly commit_id, event, body" 'body,commit_id,event' "$(jq -r 'keys | join(",")' <"$STUB/inputs/$(post_input)")"
@@ -1133,13 +1138,15 @@ done
 new_case; set_outcome "already-reviewed 7 $SHA"
 printf '[%s]\n' "$(review_doc 4242 "$SHA" COMMENTED '"2026-10-15T10:00:00Z"' 'wrong header
 
-'"$ATTTXT")" >"$STUB/gh/repos_o_r_pulls_7_reviews"
+'"$ATTTXT"'
+
+Review verdict: pass')" >"$STUB/gh/repos_o_r_pulls_7_reviews"
 run o/r 7
 expect_failure_post "already-reviewed (the review's header differs)" bad-outcome
 
 for vc in \
   "latest pass|4|pass:2026-10-15T10:00:00Z" \
-  "latest old form|4|old:2026-10-15T10:00:00Z" \
+  "latest old form|F|old:2026-10-15T10:00:00Z" \
   "latest changes-needed|F|changes-needed:2026-10-15T10:00:00Z" \
   "changes-needed after an earlier pass|F|pass:2026-10-15T10:00:00Z changes-needed:2026-10-15T11:00:00Z" \
   "pass after an earlier changes-needed|4|changes-needed:2026-10-15T10:00:00Z pass:2026-10-15T11:00:00Z" \
@@ -1242,9 +1249,9 @@ run o/r 7
 assert_eq "verdict with a non-empty line 4: exit 0" 0 "$rc"
 assert_eq "verdict with a non-empty line 4: the verdict line, one blank line, then every session line" \
   "Review verdict: pass||Reviewed against head $SHA|Looks fine." "$(post_body | sed -n 5,8p | tr '\n' '|' | sed 's/|$//')"
-new_case
+new_case; rm -f "$STUB/outbox/verdict"
 run o/r 7
-assert_eq "no verdict file: the body has no verdict line" 0 "$(post_body | grep -c '^Review verdict:' || true)"
+expect_failure_post "no verdict file" bad-verdict
 for bv in maybe 'Pass' 'pass changes-needed' ''; do
   new_case; set_verdict "$bv"
   run o/r 7

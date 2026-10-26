@@ -6,8 +6,8 @@ name: architect-review-gate
 # declared reviewer App; `failure` when that is not so. A config or API error posts nothing and fails the job. The config checks, the exemption and the review
 # match are copies of the gate-relevant parts of scripts/identity/wow-review (its config checks
 # through reviewer_app.id, `decide_exempt` and `decide_already`); change them together. The review
-# match reads the latest matching review's `Review verdict:` line (WB-D38): `changes-needed` posts
-# `failure`. It is still a copy of `decide_already`'s; tests/review-verdict.test.sh holds the two equal.
+# match reads the latest matching review's `Review verdict:` line (WB-D38, #905): it reads `success` only on a
+# `pass` line and posts `failure` for any other. It is still a copy of `decide_already`'s; tests/review-verdict.test.sh holds the two equal.
 
 on:
   pull_request:
@@ -112,9 +112,7 @@ jobs:
                      | {t: .submitted_at, v: (((.body // "") | split("\n"))[4] // "")}]
                 | if length == 0 then "none"
                   else (to_entries | max_by([.value.t, .key]) | .value.v) as $v
-                       | if $v == "Review verdict: pass" then "success"
-                         elif ($v | startswith("Review verdict:")) then "blocking"
-                         else "success" end
+                       | if $v == "Review verdict: pass" then "success" else "blocking" end
                   end
                 ' <"$REV") || fail "the review match failed"
             case $VWORD in

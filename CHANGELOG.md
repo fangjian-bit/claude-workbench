@@ -21,8 +21,11 @@ the GitHub release notes.
 
 ## [Unreleased]
 
+**⚠️ Migration** — a repo whose reviews post through `wow-review` pins `v0.23.0` or later before its home reinstalls the host tools from a default branch at or after this change: an older pin has no verdict writer, and a session of it that ends in a review would post the `bad-verdict` failure review.
+
 ### Changed
 
+- The `architect-review` gate and `wow-review` drop the no-verdict transition form, so a review without `Review verdict: pass` fails the gate and an outbox with no verdict file posts the `bad-verdict` failure review (`#905`, `WB-D38`).
 - The five callers of `declared-ids.sh` carry a pointer to its five-way parser note, so a change to its `ok` line is visible as a five-way edit from the caller side (`#1115`).
 - `/way-of-working:critic-gate`'s rule step now gives one inline Bash block that reads the default branch's `.ai/project.yml`, validates the critic names and runs `critic-select.sh`, so a session never composes that read itself; `critic-select.sh`'s refusal cases each get a fixture (`#1120`, `#1121`).
 
