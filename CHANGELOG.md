@@ -21,6 +21,10 @@ the GitHub release notes.
 
 ## [Unreleased]
 
+## [0.27.0] — 2026-10-26
+
+**⚠️ Migration** — on a map repo, an id under any `identities` role (`maintainer`, `dev_app`, `reviewer_app` or `loop_app`) not written in canonical decimal (`0x3E9`, `1_001`, `01001`, `+101`) now makes every `gh-identity.sh` caller that gates refuse the config, not only the spec readers: `/way-of-working:ship` (its App-mode `pr-actor` check), `/way-of-working:resume`, the token checks and the spec scripts stop until the id is corrected on the default branch (`#1129`, `#1114`, `#1130`). `schema-complete.sh` already reports such an id invalid.
+
 **⚠️ Migration** — a repo whose reviews post through `wow-review` pins `v0.23.0` or later before its home reinstalls the host tools from a default branch at or after this change: an older pin has no verdict writer, and a session of it that ends in a review would post the `bad-verdict` failure review.
 
 ### Changed
