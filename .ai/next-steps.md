@@ -1,19 +1,17 @@
 # Cursor — claude-workbench
 
-**Now:** **Sprint 18** (cursor id `sprint-18`), status **implementing**, working from milestone 20, *Identity M5: glunk-works repos cut over* (the code-owner gate only). Live lanes: `lane-state.sh list`.
+**Now:** **Sprint 18** (cursor id `sprint-18`), status **implementing**, working from milestone 20, *Identity M5: glunk-works repos cut over*. Every Claude build on it has merged; what remains is the v0.28.0 release, then the maintainer's cutovers.
 
 **Just done (2026-10-26, driver session in the container, opus):**
-- **Dev-container route:** a second Fable design pass (three lenses) and the maintainer adopted this repo's App-identity model, carried by a dev-App flavour of the base image and the shared template; recorded in #1163's body, to be written as WB-D42 (#1163).
-- **Critic pass on the decisions** (`security-critic`, `docs-consistency`, `architect` on opus, read-only, one round): every finding applied as a tightening of the issue text; the route stands.
-- **Milestone 20 split:** it is now the code-owner gate (#1158, #1159, #1163, then the cutovers #406, #407, #408 and #410 behind #1158, then #419). New milestone 26, *Identity M5b: dev containers on the shared template*: #1164 (token and `-Reference` belong to the repo), #715, #1165 (add-a-repo host steps); route steps 3 to 5 are filed when it is planned. #1161 keeps four host-hardening items, unmilestoned.
-- **loop-orchestrator:** #409 deferred off milestone 20; the rearchitecture is glunk-works/loop-orchestrator#215 (filed by the maintainer).
-- **CI credentials:** a rule folded into #406 to #408 (no cloud credential for a PR's code before Environment approval; read-only plan role reading no secret values; apply only from `main`; secrets move from Infisical to AWS). #419 rewritten as the AWS role trust-policy audit.
-- For later: CHANGELOG 0.26.0 says `WOW_REVIEW_MAX` defaults to 2; `scripts/identity/wow-review` says 1.
+- **Merged on milestone 20**, each from a reacted spec through a lane, critic pass and `wow-review`: the cutover runbook `reference/cutover.md` (#1158, #1173) and its fixes (#1176 with #1177 to #1179 folded in, #1185; #1191, #1196); `cursor-drift.sh` refuses revision names (#1159, #1170) and resume resolves `last_commit` through its `oid` mode (#1168, #1182); `review-token.sh` refuses a slash-less `$0` (#1171, #1174); `WB-D42` recorded (#1163, #1169); review-gate and attribution prose (#1175, #1183; #1181, #1190; #1189, #1193).
+- **Escalations:** #1159 and #1158 escalated and were answered through `spec-task-answer:` (#1158 twice, `apply` then `amend`); #1080 closed on the first live answer read.
+- **Cutover checklists reconciled** with the runbook and `WB-D42`: #406, #407, #408 and #410 now carry the eight-step order (reviewer App before PR 1 merges, dev App only after the approval read-back with `enforcement: active`), the release-tag step and the v0.28.0 dependency. #1165 records the maintainer's decision that a repo's container cutover waits for its whole ruleset cutover. #433 closed: immutable releases verified on all four repos as the admin account; none publishes tags.
+- **Filed unmilestoned for plan-sprint:** #1167 (the pre-cutover someday list), #1172, #1180, #1184, #1188, #1192, plus the `wow-review` findings filed from #1193 and #1196.
 
-**Next:** task #1158 — on **opus** (driver, fresh session): draft its spec with `/way-of-working:spec-task 1158`, then wait for the maintainer's reaction; build it as a lane only when the maintainer says so. The cutovers follow #1158; #1159 and #1163 can be specd alongside.
+**Next:** Release way-of-working v0.28.0 on **opus** (fresh session): one PR moving `CHANGELOG.md` [Unreleased] under [0.28.0] and setting `plugin.json` to 0.28.0 (as #1149), then, after the tag, a PR bumping `.claude/settings.json` to v0.28.0 (as #1151). Then `/way-of-working:plan-sprint` for the unmilestoned follow-ups, then the maintainer starts #406 bounty-infra by `reference/cutover.md`.
 
-**HITL Gate: NONE OPEN** — next gate: the maintainer reacts to the spec comment for 1158
+**HITL Gate: NONE OPEN** — next gate: the maintainer approves the v0.28.0 release PR
 
-**Critic pass:** no diff in this driver session (issue, milestone and ledger writes). The decision critic pass above was a read-only review of issue text, not a critic-gate pass on a diff.
+**Critic pass:** no diff in this driver session (issue, milestone and ledger writes only). Each lane ran its own critic pass, recorded in its PR body.
 
 **Pointers:** [docs/decisions.md](../docs/decisions.md) · [milestone 20](https://github.com/glunk-works/claude-workbench/milestone/20) · [milestone 26](https://github.com/glunk-works/claude-workbench/milestone/26) · [.ai/parked/](parked/)
