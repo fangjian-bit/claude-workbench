@@ -1,17 +1,19 @@
 # Cursor — claude-workbench
 
-**Now:** **Sprint 17** (cursor id `sprint-17`) on [milestone 24, *Green gate in parallel*](https://github.com/glunk-works/claude-workbench/milestone/24), with the work on [milestone 25, *Review follow-ups: tests, docs and guards*](https://github.com/glunk-works/claude-workbench/milestone/25). Status: **implementing**. Live lanes: `lane-state.sh list` (none at this handoff).
+**Now:** **Sprint 18** (cursor id `sprint-18`), status **planning**. No milestone picked yet. Live lanes: `lane-state.sh list`.
 
-**Just done (2026-10-25, driver session in the container, opus):**
-- **Follow-up lanes merged:** #1082 with #1083 (ci.yml host push, #1101), #1104 (check 26, #1110), #1096 with #1105 and #1106 (#1113), #1107 (concurrent wow-review-poll, #1116; host tools reinstalled, poll every 2 min), and the retro rerun fixes (#1100, #1108).
-- **#1109 merged** (#1119, `WB-D41`): critic-gate's diff mode selects critics from `agents.diff_rule`. **v0.26.0 released** (#1122, `d2ee363`), pin bumped (#1123) and the plugin reinstalled at the tag; the first three lanes on it selected their critics by rule with no pick-list.
-- **Their follow-ups merged:** #1114 with #1115 (#1124), #1117 with #1118 (#1126), #1120 with #1121 (#1125), each assessed against its spec and review before approval.
-- **Five new review findings placed on milestone 25** (#1127 to #1131) in the Build order; 149 stale merged branches deleted on GitHub.
+**Just done (2026-10-26, driver session in the container, opus):**
+- **Milestone 25's follow-up lanes merged:** #1127 with #1128 (#1134), #1130 with #1131 (#1139), #1111 with #1112 (#1135), #1136 with #1138 (#1144), #1141 with #1142 (#1145); Dependabot #1133.
+- **Milestone 24 finished:** #1018 (#1140) and #905 (#1146, its workflow half a maintainer host-side push; both host homes reinstalled at `3c79b37`).
+- **`v0.27.0` released** at `8ae8197` (#1149, closing #1129), this repo's pin bumped (#1151) and the plugin reinstalled at the tag. Sprint 17's status entry merged (#1152) and sprint 17 archived at `0b6f0c3` (snapshot `.ai/archive/sprint-17-next-steps.md`).
+- **Retro:** filed #1153 (lane prompts name folded issues) and #1154 (one review-findings issue per review), and, at the maintainer's request, #1155 and #1156; updated the lane host-push and milestone-description memories. #1143 (state.json `schema_version`) waits for the maintainer's pick of option.
 
-**Next:** on **opus** (driver). Start no build here; `next_action` holds the steps: confirm #1130 with the maintainer, fold #1128 into #1127 and #1131 into #1130, then one `-Spec` session per lead, check each spec, and prep lanes on the reactions. #1129 rides the next release PR.
+**Milestone close:** closed — milestone 24, *Green gate in parallel* (0 open issues; `verify --plan` read `match`, read-back `closed`). Milestone 25, *Review follow-ups: tests, docs and guards*, was closed by hand beforehand (no sprint anchors it).
 
-**HITL Gate: NONE OPEN** — next gate: the maintainer confirms #1130 and reacts to each spec comment before its lane is prepped, and approves each lane PR
+**Next:** on **opus** (driver, fresh session). Run the pre-cutover Fable pass on `v0.27.0`, after the maintainer confirms the fan-out: four read-only lenses on `models.second_opinion` (the 0.15.0 to 0.27.0 upgrade against bounty-infra's, global-bootstrap's and bedrock-serverless-rag's committed `project.yml`; the identities cutover from a repo's side, loop-orchestrator and scope-core included; several repos on one host plus what #715 must cover; the `bin/` trust-path sweep), each finding tagged blocks-cutover, soon or someday and verified against the code, then one triage table before anything is filed. Then pick sprint 18's milestone (likely milestone 20, *Identity M5: glunk-works repos cut over*) via `/way-of-working:handoff`.
 
-**Critic pass:** none in this driver session's own diffs (release and pin PRs only, a version string and a CHANGELOG heading, as for #1093); each lane ran its own critic gate, recorded in its PR.
+**HITL Gate: NONE OPEN** — next gate: the maintainer triages the Fable pass findings and picks sprint 18s milestone
 
-**Pointers:** [docs/decisions.md](../docs/decisions.md) · [milestone 24](https://github.com/glunk-works/claude-workbench/milestone/24) · [milestone 25](https://github.com/glunk-works/claude-workbench/milestone/25) · [.ai/parked/](parked/)
+**Critic pass:** none in this driver session's own diffs (a release, a pin bump, a status entry and ledger edits); each lane ran its own critic gate, recorded in its PR.
+
+**Pointers:** [docs/decisions.md](../docs/decisions.md) · sprint plan: no milestone picked yet · [.ai/parked/](parked/)
