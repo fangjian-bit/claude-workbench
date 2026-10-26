@@ -67,6 +67,10 @@ PR, the approval ruleset, the checks ruleset with every required check, the exis
 next part). Until then nothing holds a workflow or config edit. The pin (the last part) is on
 the default branch no later than PR 1, and may ride in it.
 
+The reviewer App is installed on the repo before PR 1 merges: from that merge on the new gate
+workflow reads `success` on a gated PR only with that App's review, and the host launcher posts
+every such review as that App.
+
 **A repo whose ruleset already requires the check name** (for example through an existing
 workflow whose reviews the reviewer App does not satisfy):
 
@@ -122,6 +126,11 @@ Numbered, with who makes each change after the list:
    App holding Workflows write adding or editing a workflow.
 7. **The `rulesets` entries in `.ai/project.yml`** for both rulesets, with the legacy
    `ruleset` key kept in step, as `project-schema.md` § `rulesets` requires.
+
+The dev App's installation does not include the repo, and the repo is not in the host's token
+broker (the host tool that mints the dev App's tokens), until items 1 to 6 are in place and the
+approval ruleset has been confirmed live by reading it back, because before that a dev-App token
+could merge a PR no human approved.
 
 Who makes each: a repo ruleset needs repo admin, in the browser or through an admin App; an
 org ruleset only an org owner in the browser, since a repo-scoped admin-App token cannot edit
