@@ -153,6 +153,7 @@ assert_fires "both required_checks lists emptied fire" "$d" 'no required check n
 d="$(tree nowf)"
 rm -f "$d"/.github/workflows/*
 assert_fires "no workflow file fires" "$d" '(no .github/workflows/*.yml or *.yaml file found)'
+assert_fires "no workflow file reports each required check as no job's run" "$d" "required check lint is no job's check run"
 
 d="$(tree noyml)"
 rm -f "$(yml "$d")"

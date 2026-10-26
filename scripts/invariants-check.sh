@@ -1515,7 +1515,7 @@ else
     && rc_gate=$(yq -r '.review.ci_gate.check // "" | select(tag == "!!str")' "$rc_yml" 2>/dev/null); then
     while IFS= read -r rc_n; do
       [ -n "$rc_n" ] && [ "$rc_n" != "$rc_gate" ] || continue
-      for rc_d in "${rc_req[@]+${rc_req[@]}}"; do [ "$rc_d" = "$rc_n" ] && continue 2; done
+      for rc_d in ${rc_req[@]+"${rc_req[@]}"}; do [ "$rc_d" = "$rc_n" ] && continue 2; done
       rc_req+=("$rc_n")
     done <<<"$rc_all"
     [ "$rc_odd" = 0 ] || rc_hits+="  $rc_yml: a required_checks entry is not a single-line string"$'\n'
@@ -1584,13 +1584,15 @@ else
   done
   for rc_n in ${rc_req[@]+"${rc_req[@]}"}; do
     rc_found=0
-    for i in "${!rc_names[@]}"; do
-      [ "${rc_names[$i]}" = "$rc_n" ] || continue
-      rc_found=1
-      if [ -n "${rc_bad[$i]}" ]; then
-        rc_hits+="  ${rc_files[$i]}: job ${rc_ids[$i]} reports required check $rc_n and ${rc_bad[$i]}"$'\n'
-      fi
-    done
+    if [ "${#rc_names[@]}" -gt 0 ]; then
+      for i in "${!rc_names[@]}"; do
+        [ "${rc_names[$i]}" = "$rc_n" ] || continue
+        rc_found=1
+        if [ -n "${rc_bad[$i]}" ]; then
+          rc_hits+="  ${rc_files[$i]}: job ${rc_ids[$i]} reports required check $rc_n and ${rc_bad[$i]}"$'\n'
+        fi
+      done
+    fi
     [ "$rc_found" -eq 1 ] || rc_hits+="  $rc_yml: required check $rc_n is no job's check run in .github/workflows/"$'\n'
   done
 fi
