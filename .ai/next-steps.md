@@ -1,19 +1,18 @@
 # Cursor — claude-workbench
 
-**Now:** **Sprint 18** (cursor id `sprint-18`), status **planning**. No milestone picked yet. Live lanes: `lane-state.sh list`.
+**Now:** **Sprint 18** (cursor id `sprint-18`), status **implementing**, working from milestone 20, *Identity M5: glunk-works repos cut over*. Live lanes: `lane-state.sh list`.
 
 **Just done (2026-10-26, driver session in the container, opus):**
-- **Milestone 25's follow-up lanes merged:** #1127 with #1128 (#1134), #1130 with #1131 (#1139), #1111 with #1112 (#1135), #1136 with #1138 (#1144), #1141 with #1142 (#1145); Dependabot #1133.
-- **Milestone 24 finished:** #1018 (#1140) and #905 (#1146, its workflow half a maintainer host-side push; both host homes reinstalled at `3c79b37`).
-- **`v0.27.0` released** at `8ae8197` (#1149, closing #1129), this repo's pin bumped (#1151) and the plugin reinstalled at the tag. Sprint 17's status entry merged (#1152) and sprint 17 archived at `0b6f0c3` (snapshot `.ai/archive/sprint-17-next-steps.md`).
-- **Retro:** filed #1153 (lane prompts name folded issues) and #1154 (one review-findings issue per review), and, at the maintainer's request, #1155 and #1156; updated the lane host-push and milestone-description memories. #1143 (state.json `schema_version`) waits for the maintainer's pick of option.
+- **Pre-cutover Fable pass on `v0.27.0`:** four read-only lenses on `models.second_opinion` (the 0.15.0 to 0.27.0 upgrade, the identities cutover from a repo's side, several repos on one host, the `bin/` trust paths); each blocks-cutover finding re-checked by hand. The maintainer triaged them one decision at a time.
+- **Filed:** #1158 (consuming-repo cutover runbook and add-a-repo host steps, milestone 20), #1159 (`cursor-drift.sh` and `token-check.sh` fail-open inputs, milestone 20), #1160 (how `review-step.sh`'s auto start proves freshness, a design question, unmilestoned), #1161 (multi-repo host hardening, unmilestoned). The someday findings are one dated comment on #1158.
+- **Folded into issue bodies:** the schema completion step before the pin bump, the label rename and the pin-bump notes into #406 to #410 (repo-specific notes on #407 and #409); the multi-repo lane scope into #715.
+- **Milestone 20's description** rewritten via `milestone-desc.sh` (read-back `ok`): #1158 first, #409 and #410 depend on it, #1159 added, the Lanes and Model per phase lines updated.
+- Open suggestion, not yet decided: put the repo name in the first message of driver, lane and spec launches (session tab label), as a sixth item on #1161.
 
-**Milestone close:** closed — milestone 24, *Green gate in parallel* (0 open issues; `verify --plan` read `match`, read-back `closed`). Milestone 25, *Review follow-ups: tests, docs and guards*, was closed by hand beforehand (no sprint anchors it).
+**Next:** task #1158 — on **opus** (driver, fresh session): draft its spec with `/way-of-working:spec-task 1158`, then wait for the maintainer's reaction; build it as a lane only when the maintainer says so. #406 to #408 can run on the maintainer's side in parallel.
 
-**Next:** on **opus** (driver, fresh session). Run the pre-cutover Fable pass on `v0.27.0`, after the maintainer confirms the fan-out: four read-only lenses on `models.second_opinion` (the 0.15.0 to 0.27.0 upgrade against bounty-infra's, global-bootstrap's and bedrock-serverless-rag's committed `project.yml`; the identities cutover from a repo's side, loop-orchestrator and scope-core included; several repos on one host plus what #715 must cover; the `bin/` trust-path sweep), each finding tagged blocks-cutover, soon or someday and verified against the code, then one triage table before anything is filed. Then pick sprint 18's milestone (likely milestone 20, *Identity M5: glunk-works repos cut over*) via `/way-of-working:handoff`.
+**HITL Gate: OPEN** — first anchor for milestone 20: the maintainer confirms sprint 18 works from milestone 20 with #1158 first
 
-**HITL Gate: NONE OPEN** — next gate: the maintainer triages the Fable pass findings and picks sprint 18s milestone
+**Critic pass:** none in this driver session (no diff: issue writes, milestone description edits and this ledger). The Fable lenses were a pre-cutover review, not a critic-gate pass.
 
-**Critic pass:** none in this driver session's own diffs (a release, a pin bump, a status entry and ledger edits); each lane ran its own critic gate, recorded in its PR.
-
-**Pointers:** [docs/decisions.md](../docs/decisions.md) · sprint plan: no milestone picked yet · [.ai/parked/](parked/)
+**Pointers:** [docs/decisions.md](../docs/decisions.md) · [milestone 20](https://github.com/glunk-works/claude-workbench/milestone/20) · [.ai/parked/](parked/)
